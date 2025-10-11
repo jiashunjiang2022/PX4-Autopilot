@@ -1,9 +1,9 @@
 #pragma once
 
 #include "GuidanceInterface.hpp"
-#include <lib/ecl/ECL_L1_Pos_Controller.hpp>
 #include <matrix/math.hpp>
 #include <stdint.h>
+#include <math.h>
 
 class L1Adapter : public GuidanceInterface
 {
@@ -73,7 +73,22 @@ public:
     bool circleMode() const;
 
 private:
-    ECL_L1_Pos_Controller _l1_controller;
+    // L1控制器参数
+    float _l1_period{25.0f};        // L1周期
+    float _l1_damping{0.75f};      // L1阻尼
+    float _l1_distance{20.0f};     // L1距离
+    float _l1_ratio{5.0f};         // L1比例
+    float _k_l1{2.0f};             // L1增益
+    float _roll_lim_rad{math::radians(30.0f)}; // 滚转角限制
+    
+    // L1控制器状态
+    float _lateral_accel{0.0f};    // 横向加速度
+    float _nav_bearing{0.0f};      // 导航航向
+    float _bearing_error{0.0f};   // 航向误差
+    float _crosstrack_error{0.0f}; // 航向误差
+    float _target_bearing{0.0f};   // 目标航向
+    float _roll_setpoint{0.0f};    // 滚转角设定
+    bool _circle_mode{false};      // 盘旋模式
 
     // 状态变量
     matrix::Vector2f _current_waypoint_A;
