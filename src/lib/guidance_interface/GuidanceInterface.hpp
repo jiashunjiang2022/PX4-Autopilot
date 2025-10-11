@@ -23,28 +23,28 @@ class GuidanceInterface
 {
 public:
     virtual ~GuidanceInterface() = default;
-    
+
     // 主要制导函数 - 与NPFG完全相同的接口
-    virtual GuidanceOutput guideToPath(const matrix::Vector2f &curr_pos_local, 
+    virtual GuidanceOutput guideToPath(const matrix::Vector2f &curr_pos_local,
                                      const matrix::Vector2f &ground_vel,
                                      const matrix::Vector2f &wind_vel,
                                      const matrix::Vector2f &unit_path_tangent,
                                      const matrix::Vector2f &closest_point_on_path,
                                      const float path_curvature) = 0;
-    
+
     // 航向控制函数 - 与AirspeedDirectionController相同接口
     virtual float controlHeading(float heading_setpoint, float current_heading, float airspeed) = 0;
-    
+
     // 航向映射函数 - 与CourseToAirspeedRefMapper相同接口
-    virtual float mapCourseSetpointToHeadingSetpoint(float course_setpoint, 
+    virtual float mapCourseSetpointToHeadingSetpoint(float course_setpoint,
                                                    const matrix::Vector2f &wind_speed,
                                                    float airspeed_eas) = 0;
-    
+
     virtual float getMinAirspeedForCurrentBearing(float course_setpoint,
                                                 const matrix::Vector2f &wind_speed,
                                                 float max_true_airspeed,
                                                 float min_ground_speed) = 0;
-    
+
     // 状态获取函数
     virtual float getCourseSetpoint() const = 0;
     virtual float getLateralAccelerationSetpoint() const = 0;

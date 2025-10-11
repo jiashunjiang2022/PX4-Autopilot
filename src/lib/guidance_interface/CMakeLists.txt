@@ -35,7 +35,4 @@
 add_library(guidance_interface INTERFACE)
 
 # 设置包含目录
-target_include_directories(guidance_interface PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-
-# 由于guidance_interface只包含头文件，不需要链接库
-# 依赖的库会在使用guidance_interface的模块中链接
+target_include_directories(guidance_interface INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
