@@ -32,11 +32,7 @@
 ############################################################################
 
 # 创建接口库，只包含头文件
-px4_add_library(guidance_interface
-	GuidanceInterface.hpp
-	NPFGAdapter.hpp
-	PIDAdapter.hpp
-)
+add_library(guidance_interface INTERFACE)
 
 # 设置包含目录
 target_include_directories(guidance_interface PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
