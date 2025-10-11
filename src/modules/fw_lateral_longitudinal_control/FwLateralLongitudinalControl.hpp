@@ -171,7 +171,7 @@ private:
 		(ParamFloat<px4::params::FW_LND_THRTC_SC>) _param_fw_thrtc_sc,
 		(ParamFloat<px4::params::FW_T_THR_LOW_HGT>) _param_fw_t_thr_low_hgt,
 		(ParamFloat<px4::params::FW_WIND_ARSP_SC>) _param_fw_wind_arsp_sc,
-		(ParamFloat<px4::params::FW_GND_SPD_MIN>) _param_fw_gnd_spd_min
+		(ParamFloat<px4::params::FW_GND_SPD_MIN>) _param_fw_gnd_spd_min,
 		// 在DEFINE_PARAMETERS中添加PID参数：
 		(ParamFloat<px4::params::FW_PID_CRS_KP>) _param_fw_pid_crs_kp,
 		(ParamFloat<px4::params::FW_PID_CRS_KI>) _param_fw_pid_crs_ki,
