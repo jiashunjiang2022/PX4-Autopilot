@@ -391,9 +391,7 @@ private:
 	matrix::Vector2f _closest_point_on_path;
 
 	// 制导接口系统 - 新增
-	NPFGAdapter _npfg_adapter;
-	PIDAdapter _pid_adapter;
-	GuidanceInterface* _current_guidance{&_npfg_adapter}; // 默认使用NPFG
+	GuidanceInterface* _current_guidance{nullptr}; // 默认使用NPFG
 
 	// 保持原有的NPFG对象用于参数设置
 	DirectionalGuidance _directional_guidance;
