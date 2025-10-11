@@ -1,7 +1,7 @@
 /**
  * @file example_usage.cpp
  * @brief 制导接口使用示例
- * 
+ *
  * 这个文件展示了如何使用参数驱动的制导控制器选择
  */
 
@@ -29,14 +29,14 @@ public:
         _pid_adapter = new PIDAdapter();
         _npfg_adapter = new NPFGAdapter();
         _l1_adapter = new L1Adapter();
-        
+
         // 根据参数选择制导接口
         switch (guidance_mode) {
             case 0: // L1制导
                 _guidance_interface = _l1_adapter;
                 printf("使用L1制导控制器\n");
                 break;
-                
+
             case 1: // PID制导
                 _guidance_interface = _pid_adapter;
                 // 设置PID参数
@@ -44,12 +44,12 @@ public:
                 _pid_adapter->setHeadingPIDParams(1.5f, 0.05f, 0.3f);
                 printf("使用PID制导控制器\n");
                 break;
-                
+
             case 2: // NPFG制导
                 _guidance_interface = _npfg_adapter;
                 printf("使用NPFG制导控制器\n");
                 break;
-                
+
             default:
                 // 默认使用L1制导
                 _guidance_interface = _l1_adapter;
@@ -111,17 +111,17 @@ public:
             delete _pid_adapter;
             _pid_adapter = nullptr;
         }
-        
+
         if (_npfg_adapter) {
             delete _npfg_adapter;
             _npfg_adapter = nullptr;
         }
-        
+
         if (_l1_adapter) {
             delete _l1_adapter;
             _l1_adapter = nullptr;
         }
-        
+
         _guidance_interface = nullptr;
     }
 
@@ -138,11 +138,11 @@ private:
 void example_usage()
 {
     GuidanceControllerExample controller;
-    
+
     // 示例1：使用L1制导
     printf("=== 示例1：L1制导 ===\n");
     controller.initializeGuidance(0); // L1制导
-    
+
     // 模拟输入数据
     matrix::Vector2f current_pos(100.0f, 200.0f);
     matrix::Vector2f ground_vel(20.0f, 0.0f);
@@ -150,43 +150,43 @@ void example_usage()
     matrix::Vector2f path_tangent(1.0f, 0.0f);
     matrix::Vector2f closest_point(100.0f, 200.0f);
     float path_curvature = 0.0f;
-    
+
     // 执行制导计算
     GuidanceOutput output = controller.executeGuidance(current_pos, ground_vel, wind_vel,
                                                       path_tangent, closest_point, path_curvature);
-    
+
     printf("L1制导输出：\n");
     printf("  航向设定点: %.2f 度\n", math::degrees(output.course_setpoint));
     printf("  横向加速度: %.2f m/s²\n", output.lateral_acceleration_feedforward);
-    
+
     controller.printGuidanceStatus();
-    
+
     // 示例2：使用PID制导
     printf("\n=== 示例2：PID制导 ===\n");
     controller.initializeGuidance(1); // PID制导
-    
+
     output = controller.executeGuidance(current_pos, ground_vel, wind_vel,
                                        path_tangent, closest_point, path_curvature);
-    
+
     printf("PID制导输出：\n");
     printf("  航向设定点: %.2f 度\n", math::degrees(output.course_setpoint));
     printf("  横向加速度: %.2f m/s²\n", output.lateral_acceleration_feedforward);
-    
+
     controller.printGuidanceStatus();
-    
+
     // 示例3：使用NPFG制导
     printf("\n=== 示例3：NPFG制导 ===\n");
     controller.initializeGuidance(2); // NPFG制导
-    
+
     output = controller.executeGuidance(current_pos, ground_vel, wind_vel,
                                        path_tangent, closest_point, path_curvature);
-    
+
     printf("NPFG制导输出：\n");
     printf("  航向设定点: %.2f 度\n", math::degrees(output.course_setpoint));
     printf("  横向加速度: %.2f m/s²\n", output.lateral_acceleration_feedforward);
-    
+
     controller.printGuidanceStatus();
-    
+
     // 清理资源
     controller.cleanup();
 }

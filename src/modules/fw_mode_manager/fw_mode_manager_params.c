@@ -622,5 +622,4 @@ PARAM_DEFINE_FLOAT(FW_FLAPS_LND_SCL, 1.0f);
  */
 PARAM_DEFINE_FLOAT(FW_SPOILERS_LND, 0.f);
 
-// PID参数已移至fw_lateral_longitudinal_control模块
-PARAM_DEFINE_INT32(FW_GUIDANCE_MODE, 0);  // 0=NPFG, 1=PID
+// PID参数和制导模式参数已移至fw_lateral_longitudinal_control模块
