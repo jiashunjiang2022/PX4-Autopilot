@@ -849,10 +849,10 @@ private:
 		(ParamFloat<px4::params::NPFG_SW_DST_MLT>) _param_npfg_switch_distance_multiplier,
 		(ParamFloat<px4::params::NPFG_PERIOD_SF>) _param_npfg_period_safety_factor,
 
-		// 新增PID参数
-		(ParamFloat<px4::params::FW_PID_COURSE_KP>) _param_fw_pid_course_kp,
-		(ParamFloat<px4::params::FW_PID_COURSE_KI>) _param_fw_pid_course_ki,
-		(ParamFloat<px4::params::FW_PID_COURSE_KD>) _param_fw_pid_course_kd,
+		// PID参数引用自fw_lateral_longitudinal_control模块
+		(ParamFloat<px4::params::FW_PID_CRS_KP>) _param_fw_pid_course_kp,
+		(ParamFloat<px4::params::FW_PID_CRS_KI>) _param_fw_pid_course_ki,
+		(ParamFloat<px4::params::FW_PID_CRS_KD>) _param_fw_pid_course_kd,
 		(ParamFloat<px4::params::FW_PID_HDG_KP>) _param_fw_pid_heading_kp,
 		(ParamFloat<px4::params::FW_PID_HDG_KI>) _param_fw_pid_heading_ki,
 		(ParamFloat<px4::params::FW_PID_HDG_KD>) _param_fw_pid_heading_kd,
