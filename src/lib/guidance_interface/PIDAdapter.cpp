@@ -20,7 +20,7 @@ GuidanceOutput PIDAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
     GuidanceOutput output;
 
     // 计算航向误差
-    float track_error = math::Vector2f(curr_pos_local - closest_point_on_path).length();
+    float track_error = matrix::Vector2f(curr_pos_local - closest_point_on_path).length();
     float course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
 
     // 简单的PID控制
