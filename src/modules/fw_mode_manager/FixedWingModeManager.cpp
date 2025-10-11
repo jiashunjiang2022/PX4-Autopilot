@@ -59,7 +59,7 @@ FixedWingModeManager::FixedWingModeManager() :
 	_launchDetector(this),
 	_runway_takeoff(this)
 #ifdef CONFIG_FIGURE_OF_EIGHT
-	, _figure_eight(_directional_guidance, _wind_vel)
+	, _figure_eight(_current_guidance, _wind_vel)
 #endif // CONFIG_FIGURE_OF_EIGHT
 {
 	// limit to 50 Hz
@@ -104,7 +104,28 @@ FixedWingModeManager::parameters_update()
 	_directional_guidance.setRollTimeConst(_param_npfg_roll_time_const.get());
 	_directional_guidance.setSwitchDistanceMultiplier(_param_npfg_switch_distance_multiplier.get());
 	_directional_guidance.setPeriodSafetyFactor(_param_npfg_period_safety_factor.get());
+
+	// 新增：制导模式切换
+	setGuidanceMode(_param_fw_guidance_mode.get() == 1);
 }
+
+void 
+FixedWingModeManager::setGuidanceMode(bool use_pid)
+{
+	if (use_pid) {
+		_current_guidance = &_pid_adapter;
+		// 设置PID参数
+		_pid_adapter.setCoursePIDParams(_param_fw_pid_course_kp.get(),
+		                              _param_fw_pid_course_ki.get(),
+		                              _param_fw_pid_course_kd.get());
+		_pid_adapter.setHeadingPIDParams(_param_fw_pid_heading_kp.get(),
+		                               _param_fw_pid_heading_ki.get(),
+		                               _param_fw_pid_heading_kd.get());
+	} else {
+		_current_guidance = &_npfg_adapter;
+	}
+}
+
 
 void
 FixedWingModeManager::vehicle_control_mode_poll()
@@ -2561,8 +2582,14 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 	_closest_point_on_path = waypoint_pos;
 
 	const float path_curvature = 0.f;
-	DirectionalGuidanceOutput sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
-				       _closest_point_on_path, path_curvature);
+	// 修改：使用统一接口
+	GuidanceOutput guidance_output = _current_guidance->guideToPath(vehicle_pos, ground_vel, wind_vel, 
+	                                                              unit_path_tangent, _closest_point_on_path, path_curvature);
+	
+	// 转换为DirectionalGuidanceOutput
+	DirectionalGuidanceOutput sp;
+	sp.course_setpoint = guidance_output.course_setpoint;
+	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
 
 	return sp;
 }

@@ -49,6 +49,9 @@
 #include <lib/tecs/TECS.hpp>
 #include <lib/mathlib/mathlib.h>
 #include <lib/perf/perf_counter.h>
+#include "lib/guidance_interface/GuidanceInterface.hpp"
+#include "lib/guidance_interface/NPFGAdapter.hpp"
+#include "lib/guidance_interface/PIDAdapter.hpp"
 #include <px4_platform_common/px4_config.h>
 #include <px4_platform_common/defines.h>
 #include <px4_platform_common/module.h>
@@ -169,6 +172,14 @@ private:
 		(ParamFloat<px4::params::FW_T_THR_LOW_HGT>) _param_fw_t_thr_low_hgt,
 		(ParamFloat<px4::params::FW_WIND_ARSP_SC>) _param_fw_wind_arsp_sc,
 		(ParamFloat<px4::params::FW_GND_SPD_MIN>) _param_fw_gnd_spd_min
+		// 在DEFINE_PARAMETERS中添加PID参数：
+		(ParamFloat<px4::params::FW_PID_COURSE_KP>) _param_fw_pid_course_kp,
+		(ParamFloat<px4::params::FW_PID_COURSE_KI>) _param_fw_pid_course_ki,
+		(ParamFloat<px4::params::FW_PID_COURSE_KD>) _param_fw_pid_course_kd,
+		(ParamFloat<px4::params::FW_PID_HEADING_KP>) _param_fw_pid_heading_kp,
+		(ParamFloat<px4::params::FW_PID_HEADING_KI>) _param_fw_pid_heading_ki,
+		(ParamFloat<px4::params::FW_PID_HEADING_KD>) _param_fw_pid_heading_kd,
+		(ParamInt<px4::params::FW_LAT_LONG_PID_MODE>) _param_fw_lat_long_pid_mode,
 	)
 
 	hrt_abstime _last_time_loop_ran{};
@@ -205,6 +216,10 @@ private:
 
 	PerformanceModel _performance_model;
 	TECS _tecs;
+	// 制导接口系统
+	NPFGAdapter _npfg_adapter;
+	PIDAdapter _pid_adapter;
+	GuidanceInterface* _current_guidance{&_npfg_adapter}; // 默认使用NPFG
 	CourseToAirspeedRefMapper _course_to_airspeed;
 	AirspeedDirectionController _airspeed_direction_control;
 
@@ -222,6 +237,9 @@ private:
 				 float throttle_trim);
 
 	void updateAirspeed();
+
+	// 制导模式切换函数
+	void setGuidanceMode(bool use_pid);
 
 	void updateAttitude();
 

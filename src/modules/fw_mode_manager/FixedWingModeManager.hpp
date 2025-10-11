@@ -52,7 +52,6 @@
 #include <lib/mathlib/mathlib.h>
 #include <lib/perf/perf_counter.h>
 #include <lib/slew_rate/SlewRate.hpp>
-#include <lib/sticks/Sticks.hpp>
 #include <px4_platform_common/px4_config.h>
 #include <px4_platform_common/defines.h>
 #include <px4_platform_common/module.h>
@@ -72,6 +71,7 @@
 #include <uORB/topics/fixed_wing_runway_control.h>
 #include <uORB/topics/landing_gear.h>
 #include <uORB/topics/launch_detection_status.h>
+#include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/normalized_unsigned_setpoint.h>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/position_controller_landing_status.h>
@@ -90,6 +90,11 @@
 #include <uORB/topics/vehicle_status.h>
 #include <uORB/topics/wind.h>
 #include <uORB/topics/orbit_status.h>
+
+// 添加制导接口头文件
+#include "lib/guidance_interface/GuidanceInterface.hpp"
+#include "lib/guidance_interface/NPFGAdapter.hpp"
+#include "lib/guidance_interface/PIDAdapter.hpp"
 
 #ifdef CONFIG_FIGURE_OF_EIGHT
 #include "figure_eight/FigureEight.hpp"
@@ -180,6 +185,7 @@ private:
 	uORB::Subscription _wind_sub{ORB_ID(wind)};
 	uORB::Subscription _control_mode_sub{ORB_ID(vehicle_control_mode)};
 	uORB::Subscription _global_pos_sub{ORB_ID(vehicle_global_position)};
+	uORB::Subscription _manual_control_setpoint_sub{ORB_ID(manual_control_setpoint)};
 	uORB::Subscription _pos_sp_triplet_sub{ORB_ID(position_setpoint_triplet)};
 	uORB::Subscription _trajectory_setpoint_sub{ORB_ID(trajectory_setpoint)};
 	uORB::Subscription _vehicle_angular_velocity_sub{ORB_ID(vehicle_angular_velocity)};
@@ -200,6 +206,7 @@ private:
 	uORB::Publication<fixed_wing_lateral_guidance_status_s> _fixed_wing_lateral_guidance_status_pub{ORB_ID(fixed_wing_lateral_guidance_status)};
 	uORB::Publication<fixed_wing_runway_control_s> _fixed_wing_runway_control_pub{ORB_ID(fixed_wing_runway_control)};
 
+	manual_control_setpoint_s _manual_control_setpoint{};
 	position_setpoint_triplet_s _pos_sp_triplet{};
 	vehicle_control_mode_s _control_mode{};
 	vehicle_local_position_s _local_pos{};
@@ -221,18 +228,18 @@ private:
 	uint8_t _position_sp_type{0};
 
 	enum FW_POSCTRL_MODE {
-		FW_POSCTRL_MODE_AUTO,
-		FW_POSCTRL_MODE_AUTO_ALTITUDE,
-		FW_POSCTRL_MODE_AUTO_CLIMBRATE,
-		FW_POSCTRL_MODE_AUTO_TAKEOFF,
-		FW_POSCTRL_MODE_AUTO_TAKEOFF_NO_NAV,
-		FW_POSCTRL_MODE_AUTO_LANDING_STRAIGHT,
-		FW_POSCTRL_MODE_AUTO_LANDING_CIRCULAR,
-		FW_POSCTRL_MODE_AUTO_PATH,
-		FW_POSCTRL_MODE_MANUAL_POSITION,
-		FW_POSCTRL_MODE_MANUAL_ALTITUDE,
-		FW_POSCTRL_MODE_TRANSITION_TO_HOVER_LINE_FOLLOW,
-		FW_POSCTRL_MODE_TRANSITION_TO_HOVER_HEADING_HOLD,
+		FW_POSCTRL_MODE_AUTO,             	// 自动模式
+		FW_POSCTRL_MODE_AUTO_ALTITUDE,    	// 自动高度控制
+		FW_POSCTRL_MODE_AUTO_CLIMBRATE,		// 自动爬升率控制
+		FW_POSCTRL_MODE_AUTO_TAKEOFF,     	// 自动起飞
+		FW_POSCTRL_MODE_AUTO_TAKEOFF_NO_NAV, // 自动起飞（无导航）
+		FW_POSCTRL_MODE_AUTO_LANDING_STRAIGHT, // 直线着陆
+		FW_POSCTRL_MODE_AUTO_LANDING_CIRCULAR, // 圆形着陆
+		FW_POSCTRL_MODE_AUTO_PATH,            // 路径跟踪
+		FW_POSCTRL_MODE_MANUAL_POSITION,      // 手动位置模式
+		FW_POSCTRL_MODE_MANUAL_ALTITUDE,      // 手动高度模式
+		FW_POSCTRL_MODE_TRANSITION_TO_HOVER_LINE_FOLLOW, // 过渡到悬停线跟随模式
+		FW_POSCTRL_MODE_TRANSITION_TO_HOVER_HEADING_HOLD, // 过渡到悬停航向保持模式
 		FW_POSCTRL_MODE_OTHER
 	} _control_mode_current{FW_POSCTRL_MODE_OTHER}; // used to check if the mode has changed
 
@@ -241,10 +248,9 @@ private:
 		STICK_CONFIG_ENABLE_AIRSPEED_SP_MANUAL_BIT = (1 << 1)
 	};
 
-
-	Sticks _sticks{this};
-
 	// VEHICLE STATES
+
+	uint8_t _nav_state;
 
 	double _current_latitude{0};
 	double _current_longitude{0};
@@ -379,7 +385,12 @@ private:
 	// CLosest point on path to track
 	matrix::Vector2f _closest_point_on_path;
 
-	// nonlinear path following guidance - lateral-directional position control
+	// 制导接口系统 - 新增
+	NPFGAdapter _npfg_adapter;
+	PIDAdapter _pid_adapter;
+	GuidanceInterface* _current_guidance{&_npfg_adapter}; // 默认使用NPFG
+
+	// 保持原有的NPFG对象用于参数设置
 	DirectionalGuidance _directional_guidance;
 
 	// LANDING GEAR
@@ -409,6 +420,9 @@ private:
 
 	void publishFigureEightStatus(const position_setpoint_s pos_sp);
 #endif // CONFIG_FIGURE_OF_EIGHT
+
+	// 制导模式切换函数 - 新增
+	void setGuidanceMode(bool use_pid);
 
 	// Update our local parameter cache.
 	void parameters_update();
@@ -834,6 +848,15 @@ private:
 		(ParamFloat<px4::params::NPFG_ROLL_TC>) _param_npfg_roll_time_const,
 		(ParamFloat<px4::params::NPFG_SW_DST_MLT>) _param_npfg_switch_distance_multiplier,
 		(ParamFloat<px4::params::NPFG_PERIOD_SF>) _param_npfg_period_safety_factor,
+
+		// 新增PID参数
+		(ParamFloat<px4::params::FW_PID_COURSE_KP>) _param_fw_pid_course_kp,
+		(ParamFloat<px4::params::FW_PID_COURSE_KI>) _param_fw_pid_course_ki,
+		(ParamFloat<px4::params::FW_PID_COURSE_KD>) _param_fw_pid_course_kd,
+		(ParamFloat<px4::params::FW_PID_HEADING_KP>) _param_fw_pid_heading_kp,
+		(ParamFloat<px4::params::FW_PID_HEADING_KI>) _param_fw_pid_heading_ki,
+		(ParamFloat<px4::params::FW_PID_HEADING_KD>) _param_fw_pid_heading_kd,
+		(ParamInt<px4::params::FW_GUIDANCE_MODE>) _param_fw_guidance_mode,
 
 		(ParamFloat<px4::params::FW_LND_AIRSPD>) _param_fw_lnd_airspd,
 		(ParamFloat<px4::params::FW_LND_ANG>) _param_fw_lnd_ang,
