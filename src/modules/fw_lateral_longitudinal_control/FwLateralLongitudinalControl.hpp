@@ -52,6 +52,7 @@
 #include "lib/guidance_interface/GuidanceInterface.hpp"
 #include "lib/guidance_interface/NPFGAdapter.hpp"
 #include "lib/guidance_interface/PIDAdapter.hpp"
+#include "lib/guidance_interface/L1Adapter.hpp"
 #include <px4_platform_common/px4_config.h>
 #include <px4_platform_common/defines.h>
 #include <px4_platform_common/module.h>
@@ -108,6 +109,9 @@ public:
 
 private:
 	void Run() override;
+	
+	// 制导模式管理
+	void updateGuidanceMode();
 
 	uORB::SubscriptionCallbackWorkItem _local_pos_sub{this, ORB_ID(vehicle_local_position)};
 
@@ -226,6 +230,7 @@ private:
 	// 制导接口系统
 	NPFGAdapter _npfg_adapter;
 	PIDAdapter _pid_adapter;
+	L1Adapter _l1_adapter;
 	GuidanceInterface* _current_guidance{&_npfg_adapter}; // 默认使用NPFG
 	CourseToAirspeedRefMapper _course_to_airspeed;
 	AirspeedDirectionController _airspeed_direction_control;

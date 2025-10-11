@@ -48,5 +48,6 @@ target_include_directories(guidance_interface PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 # 链接依赖的库
 target_link_libraries(guidance_interface PUBLIC
     npfg
+    ecl
     mathlib
 )
