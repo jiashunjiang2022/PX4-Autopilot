@@ -44,7 +44,6 @@ set(POSCONTROL_DEPENDENCIES
 	performance_model
 	Sticks
 	guidance_interface  # 新增
-    pid_guidance        # 新增
 )
 
 if(CONFIG_FIGURE_OF_EIGHT)
