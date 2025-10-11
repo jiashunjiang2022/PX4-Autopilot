@@ -38,6 +38,8 @@ px4_add_library(guidance_interface
     PIDAdapter.cpp
     NPFGAdapter.hpp
     NPFGAdapter.cpp
+    L1Adapter.hpp
+    L1Adapter.cpp
 )
 
 # 设置包含目录

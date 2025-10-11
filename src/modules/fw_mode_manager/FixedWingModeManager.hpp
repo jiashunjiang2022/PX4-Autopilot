@@ -53,6 +53,10 @@
 #include <lib/perf/perf_counter.h>
 #include <lib/slew_rate/SlewRate.hpp>
 #include <lib/sticks/Sticks.hpp>
+#include <lib/guidance_interface/GuidanceInterface.hpp>
+#include <lib/guidance_interface/PIDAdapter.hpp>
+#include <lib/guidance_interface/NPFGAdapter.hpp>
+#include <lib/guidance_interface/L1Adapter.hpp>
 #include <px4_platform_common/px4_config.h>
 #include <px4_platform_common/defines.h>
 #include <px4_platform_common/module.h>
@@ -906,7 +910,21 @@ private:
 		(ParamFloat<px4::params::FW_AIRSPD_MIN>) _param_fw_airspd_min,
 		(ParamFloat<px4::params::FW_AIRSPD_TRIM>) _param_fw_airspd_trim,
 		(ParamFloat<px4::params::FW_T_CLMB_MAX>) _param_fw_t_clmb_max
-	)
+	);
+
+	// 制导接口相关成员变量
+	GuidanceInterface* _guidance_interface{nullptr};
+	PIDAdapter* _pid_adapter{nullptr};
+	NPFGAdapter* _npfg_adapter{nullptr};
+	L1Adapter* _l1_adapter{nullptr};
+	
+	int _current_guidance_mode{0};
+	bool _guidance_initialized{false};
+
+	// 制导接口管理方法
+	void initializeGuidanceInterface();
+	void updateGuidanceMode();
+	void cleanupGuidanceInterface();
 };
 
 #endif // FIXEDWINGMODEMANAGER_HPP_

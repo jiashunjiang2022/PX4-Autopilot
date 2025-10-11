@@ -179,7 +179,14 @@ private:
 		(ParamFloat<px4::params::FW_PID_HDG_KP>) _param_fw_pid_hdg_kp,
 		(ParamFloat<px4::params::FW_PID_HDG_KI>) _param_fw_pid_hdg_ki,
 		(ParamFloat<px4::params::FW_PID_HDG_KD>) _param_fw_pid_hdg_kd,
-		(ParamInt<px4::params::FW_PID_MODE>) _param_fw_pid_mode
+		(ParamInt<px4::params::FW_PID_MODE>) _param_fw_pid_mode,
+		// L1控制器参数
+		(ParamFloat<px4::params::FW_L1_PERIOD>) _param_fw_l1_period,
+		(ParamFloat<px4::params::FW_L1_DAMPING>) _param_fw_l1_damping,
+		(ParamFloat<px4::params::FW_L1_ROLL_LIM>) _param_fw_l1_roll_lim,
+		(ParamFloat<px4::params::FW_L1_ROLL_SLEW>) _param_fw_l1_roll_slew,
+		// 制导模式选择
+		(ParamInt<px4::params::FW_GUIDANCE_MODE>) _param_fw_guidance_mode
 	);
 
 	hrt_abstime _last_time_loop_ran{};
