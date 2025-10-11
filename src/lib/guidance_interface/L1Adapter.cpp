@@ -19,45 +19,45 @@ GuidanceOutput L1Adapter::guideToPath(const matrix::Vector2f &curr_pos_local,
                                      const float path_curvature)
 {
     GuidanceOutput output;
-    
+
     if (_waypoint_mode_active) {
         // 使用L1控制器进行航点导航
         _l1_controller.navigate_waypoints(_current_waypoint_A, _current_waypoint_B,
                                         curr_pos_local, ground_vel);
-        
+
         output.course_setpoint = _l1_controller.getNavBearing();
         output.lateral_acceleration_feedforward = _l1_controller.getLateralAccelerationDemand();
-        
+
     } else if (_loiter_mode_active) {
         // 使用L1控制器进行盘旋
         _l1_controller.navigate_loiter(_current_waypoint_A, curr_pos_local,
                                     _loiter_radius, _loiter_direction, ground_vel);
-        
+
         output.course_setpoint = _l1_controller.getNavBearing();
         output.lateral_acceleration_feedforward = _l1_controller.getLateralAccelerationDemand();
-        
+
     } else {
         // 默认航向保持模式
         float current_heading = atan2f(ground_vel(1), ground_vel(0));
         float target_heading = atan2f(unit_path_tangent(1), unit_path_tangent(0));
-        
+
         _l1_controller.navigate_heading(target_heading, current_heading, ground_vel);
-        
+
         output.course_setpoint = _l1_controller.getNavBearing();
         output.lateral_acceleration_feedforward = _l1_controller.getLateralAccelerationDemand();
     }
-    
+
     return output;
 }
 
 float L1Adapter::controlHeading(float heading_setpoint, float current_heading, float airspeed)
 {
     // 使用L1控制器的航向保持
-    matrix::Vector2f ground_speed(airspeed * cosf(current_heading), 
+    matrix::Vector2f ground_speed(airspeed * cosf(current_heading),
                                  airspeed * sinf(current_heading));
-    
+
     _l1_controller.navigate_heading(heading_setpoint, current_heading, ground_speed);
-    
+
     return _l1_controller.getLateralAccelerationDemand();
 }
 
@@ -120,7 +120,7 @@ float L1Adapter::switchDistance(float wp_radius) const
     return _l1_controller.switchDistance(wp_radius);
 }
 
-void L1Adapter::navigateWaypoints(const matrix::Vector2f &waypoint_A, 
+void L1Adapter::navigateWaypoints(const matrix::Vector2f &waypoint_A,
                                   const matrix::Vector2f &waypoint_B,
                                   const matrix::Vector2f &current_position,
                                   const matrix::Vector2f &ground_speed)
@@ -129,7 +129,7 @@ void L1Adapter::navigateWaypoints(const matrix::Vector2f &waypoint_A,
     _current_waypoint_B = waypoint_B;
     _waypoint_mode_active = true;
     _loiter_mode_active = false;
-    
+
     _l1_controller.navigate_waypoints(waypoint_A, waypoint_B, current_position, ground_speed);
 }
 
@@ -144,17 +144,17 @@ void L1Adapter::navigateLoiter(const matrix::Vector2f &center,
     _loiter_direction = loiter_direction;
     _loiter_mode_active = true;
     _waypoint_mode_active = false;
-    
+
     _l1_controller.navigate_loiter(center, current_position, radius, loiter_direction, ground_speed);
 }
 
-void L1Adapter::navigateHeading(float navigation_heading, 
+void L1Adapter::navigateHeading(float navigation_heading,
                                 float current_heading,
                                 const matrix::Vector2f &ground_speed)
 {
     _waypoint_mode_active = false;
     _loiter_mode_active = false;
-    
+
     _l1_controller.navigate_heading(navigation_heading, current_heading, ground_speed);
 }
 
@@ -162,7 +162,7 @@ void L1Adapter::navigateLevelFlight(float current_heading)
 {
     _waypoint_mode_active = false;
     _loiter_mode_active = false;
-    
+
     _l1_controller.navigate_level_flight(current_heading);
 }
 
@@ -244,10 +244,10 @@ matrix::Vector2f L1Adapter::calculateClosestPointOnPath(const matrix::Vector2f &
 {
     matrix::Vector2f path_vector = waypoint_B - waypoint_A;
     matrix::Vector2f to_current = current_pos - waypoint_A;
-    
+
     float t = (to_current * path_vector) / (path_vector * path_vector);
     t = math::constrain(t, 0.0f, 1.0f);
-    
+
     return waypoint_A + t * path_vector;
 }
 

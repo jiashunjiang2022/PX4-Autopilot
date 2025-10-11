@@ -917,7 +917,7 @@ private:
 	PIDAdapter* _pid_adapter{nullptr};
 	NPFGAdapter* _npfg_adapter{nullptr};
 	L1Adapter* _l1_adapter{nullptr};
-	
+
 	int _current_guidance_mode{0};
 	bool _guidance_initialized{false};
 

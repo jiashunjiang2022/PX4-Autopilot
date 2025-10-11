@@ -74,11 +74,17 @@ FixedWingModeManager::FixedWingModeManager() :
 	_fixed_wing_runway_control_pub.advertise();
 
 	parameters_update();
+	
+	// 初始化制导接口
+	initializeGuidanceInterface();
 }
 
 FixedWingModeManager::~FixedWingModeManager()
 {
 	perf_free(_loop_perf);
+	
+	// 清理制导接口
+	cleanupGuidanceInterface();
 }
 
 bool
@@ -105,24 +111,19 @@ FixedWingModeManager::parameters_update()
 	_directional_guidance.setSwitchDistanceMultiplier(_param_npfg_switch_distance_multiplier.get());
 	_directional_guidance.setPeriodSafetyFactor(_param_npfg_period_safety_factor.get());
 
-	// 新增：制导模式切换
-	setGuidanceMode(_param_fw_guidance_mode.get() == 1);
+	// 更新制导模式（如果已初始化）
+	if (_guidance_initialized) {
+		updateGuidanceMode();
+	}
 }
 
 void 
 FixedWingModeManager::setGuidanceMode(bool use_pid)
 {
-	if (use_pid) {
-		_current_guidance = &_pid_adapter;
-		// 设置PID参数
-		_pid_adapter.setCoursePIDParams(_param_fw_pid_course_kp.get(),
-		                              _param_fw_pid_course_ki.get(),
-		                              _param_fw_pid_course_kd.get());
-		_pid_adapter.setHeadingPIDParams(_param_fw_pid_heading_kp.get(),
-		                               _param_fw_pid_heading_ki.get(),
-		                               _param_fw_pid_heading_kd.get());
-	} else {
-		_current_guidance = &_npfg_adapter;
+	// 这个方法现在被新的updateGuidanceMode()替代
+	// 保持向后兼容性，但使用新的制导接口系统
+	if (_guidance_initialized) {
+		updateGuidanceMode();
 	}
 }
 
@@ -2764,6 +2765,83 @@ lateral-longitudinal controller and and controllers below that (attitude, rate).
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
 	return 0;
+}
+
+void FixedWingModeManager::initializeGuidanceInterface()
+{
+	// 创建所有制导适配器
+	_pid_adapter = new PIDAdapter();
+	_npfg_adapter = new NPFGAdapter();
+	_l1_adapter = new L1Adapter();
+	
+	// 根据参数选择制导模式
+	updateGuidanceMode();
+	
+	_guidance_initialized = true;
+}
+
+void FixedWingModeManager::updateGuidanceMode()
+{
+	int guidance_mode = _param_fw_guidance_mode.get();
+	
+	// 如果模式没有改变，不需要重新设置
+	if (_current_guidance_mode == guidance_mode && _guidance_interface != nullptr) {
+		return;
+	}
+	
+	// 根据参数选择制导接口
+	switch (guidance_mode) {
+		case 0: // L1制导
+			_guidance_interface = _l1_adapter;
+			PX4_INFO("使用L1制导控制器");
+			break;
+			
+		case 1: // PID制导
+			_guidance_interface = _pid_adapter;
+			// 设置PID参数
+			_pid_adapter->setCoursePIDParams(_param_fw_pid_course_kp.get(), 
+			                                _param_fw_pid_course_ki.get(), 
+			                                _param_fw_pid_course_kd.get());
+			_pid_adapter->setHeadingPIDParams(_param_fw_pid_heading_kp.get(), 
+			                                  _param_fw_pid_heading_ki.get(), 
+			                                  _param_fw_pid_heading_kd.get());
+			PX4_INFO("使用PID制导控制器");
+			break;
+			
+		case 2: // NPFG制导
+			_guidance_interface = _npfg_adapter;
+			PX4_INFO("使用NPFG制导控制器");
+			break;
+			
+		default:
+			// 默认使用L1制导
+			_guidance_interface = _l1_adapter;
+			PX4_WARN("未知的制导模式 %d，使用L1制导", guidance_mode);
+			break;
+	}
+	
+	_current_guidance_mode = guidance_mode;
+}
+
+void FixedWingModeManager::cleanupGuidanceInterface()
+{
+	if (_pid_adapter) {
+		delete _pid_adapter;
+		_pid_adapter = nullptr;
+	}
+	
+	if (_npfg_adapter) {
+		delete _npfg_adapter;
+		_npfg_adapter = nullptr;
+	}
+	
+	if (_l1_adapter) {
+		delete _l1_adapter;
+		_l1_adapter = nullptr;
+	}
+	
+	_guidance_interface = nullptr;
+	_guidance_initialized = false;
 }
 
 extern "C" __EXPORT int fw_mode_manager_main(int argc, char *argv[])

@@ -38,21 +38,21 @@ public:
     float switchDistance(float wp_radius) const override;
 
     // L1控制器特有方法
-    void navigateWaypoints(const matrix::Vector2f &waypoint_A, 
+    void navigateWaypoints(const matrix::Vector2f &waypoint_A,
                           const matrix::Vector2f &waypoint_B,
                           const matrix::Vector2f &current_position,
                           const matrix::Vector2f &ground_speed);
-    
+
     void navigateLoiter(const matrix::Vector2f &center,
                        const matrix::Vector2f &current_position,
                        float radius,
                        int8_t loiter_direction,
                        const matrix::Vector2f &ground_speed);
-    
-    void navigateHeading(float navigation_heading, 
+
+    void navigateHeading(float navigation_heading,
                        float current_heading,
                        const matrix::Vector2f &ground_speed);
-    
+
     void navigateLevelFlight(float current_heading);
 
     // L1参数设置
@@ -74,7 +74,7 @@ public:
 
 private:
     ECL_L1_Pos_Controller _l1_controller;
-    
+
     // 状态变量
     matrix::Vector2f _current_waypoint_A;
     matrix::Vector2f _current_waypoint_B;
@@ -82,7 +82,7 @@ private:
     bool _loiter_mode_active{false};
     float _loiter_radius{50.0f};
     int8_t _loiter_direction{1};
-    
+
     // 辅助函数
     matrix::Vector2f calculatePathTangent(const matrix::Vector2f &waypoint_A,
                                         const matrix::Vector2f &waypoint_B);

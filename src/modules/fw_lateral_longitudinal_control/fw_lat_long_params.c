@@ -93,7 +93,7 @@ PARAM_DEFINE_FLOAT(FW_L1_ROLL_SLEW, 0.0f);
  * 2: NPFG Guidance (advanced nonlinear guidance)
  *
  * @value 0 L1 Guidance
- * @value 1 PID Guidance  
+ * @value 1 PID Guidance
  * @value 2 NPFG Guidance
  * @group FW Lateral Control
  */
@@ -353,7 +353,7 @@ PARAM_DEFINE_FLOAT(FW_WIND_ARSP_SC, 0.f);
 PARAM_DEFINE_FLOAT(FW_T_SINK_MAX, 5.0f);
 
 PARAM_DEFINE_FLOAT(FW_PID_CRS_KP, 2.0f);      // 原来：FW_PID_COURSE_KP
-PARAM_DEFINE_FLOAT(FW_PID_CRS_KI, 0.1f);      // 原来：FW_PID_COURSE_KI  
+PARAM_DEFINE_FLOAT(FW_PID_CRS_KI, 0.1f);      // 原来：FW_PID_COURSE_KI
 PARAM_DEFINE_FLOAT(FW_PID_CRS_KD, 0.5f);      // 原来：FW_PID_COURSE_KD
 PARAM_DEFINE_FLOAT(FW_PID_HDG_KP, 1.5f);      // 原来：FW_PID_HEADING_KP
 PARAM_DEFINE_FLOAT(FW_PID_HDG_KI, 0.05f);     // 原来：FW_PID_HEADING_KI
