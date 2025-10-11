@@ -2,7 +2,9 @@
 
 #include "GuidanceInterface.hpp"
 #include <px4_platform_common/time.h>
+#include <drivers/drv_hrt.h>
 #include <matrix/math.hpp>
+#include <stdint.h>
 
 class PIDAdapter : public GuidanceInterface
 {

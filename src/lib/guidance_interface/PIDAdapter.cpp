@@ -18,60 +18,60 @@ GuidanceOutput PIDAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
                                      const float path_curvature)
 {
     GuidanceOutput output;
-    
+
     // 计算航向误差
     float track_error = math::Vector2f(curr_pos_local - closest_point_on_path).length();
     float course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
-    
+
     // 简单的PID控制
     float course_error = normalizeAngle(course_setpoint - atan2f(ground_vel(1), ground_vel(0)));
-    
+
     hrt_abstime current_time = hrt_absolute_time();
     float dt = (current_time - _last_time) / 1e6f; // 转换为秒
     _last_time = current_time;
-    
+
     if (dt > 0.0f && dt < 1.0f) { // 防止异常时间间隔
         // PID计算
         _course_integral += course_error * dt;
         float course_derivative = (course_error - _course_error_prev) / dt;
-        
-        float lateral_acceleration = _course_kp * course_error + 
-                                   _course_ki * _course_integral + 
+
+        float lateral_acceleration = _course_kp * course_error +
+                                   _course_ki * _course_integral +
                                    _course_kd * course_derivative;
-        
+
         _course_error_prev = course_error;
-        
+
         output.course_setpoint = course_setpoint;
         output.lateral_acceleration_feedforward = lateral_acceleration;
-        
+
         _current_course_setpoint = course_setpoint;
         _current_lateral_acceleration = lateral_acceleration;
         _current_track_error = track_error;
     }
-    
+
     return output;
 }
 
 float PIDAdapter::controlHeading(float heading_setpoint, float current_heading, float airspeed)
 {
     float heading_error = normalizeAngle(heading_setpoint - current_heading);
-    
+
     hrt_abstime current_time = hrt_absolute_time();
     float dt = (current_time - _last_time) / 1e6f;
-    
+
     if (dt > 0.0f && dt < 1.0f) {
         _heading_integral += heading_error * dt;
         float heading_derivative = (heading_error - _heading_error_prev) / dt;
-        
-        float heading_rate = _heading_kp * heading_error + 
-                           _heading_ki * _heading_integral + 
+
+        float heading_rate = _heading_kp * heading_error +
+                           _heading_ki * _heading_integral +
                            _heading_kd * heading_derivative;
-        
+
         _heading_error_prev = heading_error;
-        
+
         return heading_rate;
     }
-    
+
     return 0.0f;
 }
 

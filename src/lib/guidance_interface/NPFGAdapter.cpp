@@ -15,19 +15,19 @@ GuidanceOutput NPFGAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
                                       const float path_curvature)
 {
     GuidanceOutput output;
-    
+
     // 使用NPFG进行路径制导
     matrix::Vector2f path_tangent = unit_path_tangent;
     matrix::Vector2f path_curvature_vector = path_curvature * matrix::Vector2f(-unit_path_tangent(1), unit_path_tangent(0));
-    
+
     // 调用NPFG的路径制导
-    _directional_guidance.guideToPath(curr_pos_local, ground_vel, wind_vel, 
+    _directional_guidance.guideToPath(curr_pos_local, ground_vel, wind_vel,
                                     path_tangent, path_curvature_vector);
-    
+
     // 获取制导输出
     output.course_setpoint = _directional_guidance.getCourseSetpoint();
     output.lateral_acceleration_feedforward = _directional_guidance.getLateralAccelerationSetpoint();
-    
+
     return output;
 }
 
@@ -51,7 +51,7 @@ float NPFGAdapter::getMinAirspeedForCurrentBearing(float course_setpoint,
                                                   float min_ground_speed)
 {
     // 使用NPFG的最小空速计算
-    return _course_to_airspeed.getMinAirspeedForCurrentBearing(course_setpoint, wind_speed, 
+    return _course_to_airspeed.getMinAirspeedForCurrentBearing(course_setpoint, wind_speed,
                                                               max_true_airspeed, min_ground_speed);
 }
 
