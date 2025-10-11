@@ -2,6 +2,7 @@
 
 #include "GuidanceInterface.hpp"
 #include <px4_platform_common/time.h>
+#include <matrix/math.hpp>
 
 class PIDAdapter : public GuidanceInterface
 {

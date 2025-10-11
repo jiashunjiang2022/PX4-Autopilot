@@ -2,6 +2,8 @@
 
 #include <matrix/math.hpp>
 #include <lib/mathlib/mathlib.h>
+#include <stdint.h>
+#include <math.h>
 
 // 统一的制导输出结构
 struct GuidanceOutput {

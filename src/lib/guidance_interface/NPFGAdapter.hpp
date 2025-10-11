@@ -4,6 +4,7 @@
 #include <lib/npfg/DirectionalGuidance.hpp>
 #include <lib/npfg/CourseToAirspeedRefMapper.hpp>
 #include <lib/npfg/AirspeedDirectionController.hpp>
+#include <matrix/math.hpp>
 
 class NPFGAdapter : public GuidanceInterface
 {
