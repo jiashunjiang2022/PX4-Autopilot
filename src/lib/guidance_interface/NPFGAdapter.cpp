@@ -18,9 +18,9 @@ GuidanceOutput NPFGAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
 
     // 使用NPFG进行路径制导
     // 调用NPFG的路径制导，参数顺序：curr_pos_local, ground_vel, wind_vel, unit_path_tangent, position_on_path, path_curvature
-    DirectionalGuidanceOutput npfg_output = _directional_guidance.guideToPath(curr_pos_local, ground_vel, wind_vel, 
+    DirectionalGuidanceOutput npfg_output = _directional_guidance.guideToPath(curr_pos_local, ground_vel, wind_vel,
                                     unit_path_tangent, closest_point_on_path, path_curvature);
-    
+
     // 获取制导输出
     output.course_setpoint = npfg_output.course_setpoint;
     output.lateral_acceleration_feedforward = npfg_output.lateral_acceleration_feedforward;
@@ -35,7 +35,7 @@ float NPFGAdapter::controlHeading(float heading_setpoint, float current_heading,
     // 归一化角度
     while (heading_error > M_PI_F) heading_error -= 2.0f * M_PI_F;
     while (heading_error < -M_PI_F) heading_error += 2.0f * M_PI_F;
-    
+
     // 简单的比例控制
     return heading_error * 0.5f; // 返回航向角速度
 }
