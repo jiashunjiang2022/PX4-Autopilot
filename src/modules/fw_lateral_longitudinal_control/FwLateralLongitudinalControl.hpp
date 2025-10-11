@@ -173,13 +173,13 @@ private:
 		(ParamFloat<px4::params::FW_WIND_ARSP_SC>) _param_fw_wind_arsp_sc,
 		(ParamFloat<px4::params::FW_GND_SPD_MIN>) _param_fw_gnd_spd_min
 		// 在DEFINE_PARAMETERS中添加PID参数：
-		(ParamFloat<px4::params::FW_PID_COURSE_KP>) _param_fw_pid_course_kp,
-		(ParamFloat<px4::params::FW_PID_COURSE_KI>) _param_fw_pid_course_ki,
-		(ParamFloat<px4::params::FW_PID_COURSE_KD>) _param_fw_pid_course_kd,
-		(ParamFloat<px4::params::FW_PID_HEADING_KP>) _param_fw_pid_heading_kp,
-		(ParamFloat<px4::params::FW_PID_HEADING_KI>) _param_fw_pid_heading_ki,
-		(ParamFloat<px4::params::FW_PID_HEADING_KD>) _param_fw_pid_heading_kd,
-		(ParamInt<px4::params::FW_LAT_LONG_PID_MODE>) _param_fw_lat_long_pid_mode,
+		(ParamFloat<px4::params::FW_PID_CRS_KP>) _param_fw_pid_crs_kp,
+		(ParamFloat<px4::params::FW_PID_CRS_KI>) _param_fw_pid_crs_ki,
+		(ParamFloat<px4::params::FW_PID_CRS_KD>) _param_fw_pid_crs_kd,
+		(ParamFloat<px4::params::FW_PID_HDG_KP>) _param_fw_pid_hdg_kp,
+		(ParamFloat<px4::params::FW_PID_HDG_KI>) _param_fw_pid_hdg_ki,
+		(ParamFloat<px4::params::FW_PID_HDG_KD>) _param_fw_pid_hdg_kd,
+		(ParamInt<px4::params::FW_PID_MODE>) _param_fw_pid_mode,
 	)
 
 	hrt_abstime _last_time_loop_ran{};

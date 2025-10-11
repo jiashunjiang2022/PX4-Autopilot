@@ -1,6 +1,6 @@
 ############################################################################
 #
-#   Copyright (c) 2015-2025 PX4 Development Team. All rights reserved.
+#   Copyright (c) 2024 PX4 Development Team. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -31,40 +31,19 @@
 #
 ############################################################################
 
-add_subdirectory(launchdetection)
-add_subdirectory(runway_takeoff)
-
-set(POSCONTROL_DEPENDENCIES
-	launchdetection
-	npfg
-	runway_takeoff
-	SlewRate
-	tecs
-	motion_planning
-	performance_model
-	Sticks
-	guidance_interface  # 新增
-    pid_guidance        # 新增
+# 创建接口库，只包含头文件
+px4_add_library(guidance_interface
+	GuidanceInterface.hpp
+	NPFGAdapter.hpp
+	PIDAdapter.hpp
 )
 
-if(CONFIG_FIGURE_OF_EIGHT)
-	add_subdirectory(figure_eight)
-	set(POSCONTROL_DEPENDENCIES
-		${POSCONTROL_DEPENDENCIES}
-		figure_eight
-	)
-endif()
+# 设置包含目录
+target_include_directories(guidance_interface PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-
-
-px4_add_module(
-	MODULE modules__fw_mode_manager
-	MAIN fw_mode_manager
-	SRCS
-		FixedWingModeManager.cpp
-		FixedWingModeManager.hpp
-		ControllerConfigurationHandler.cpp
-		ControllerConfigurationHandler.hpp
-	DEPENDS
-		${POSCONTROL_DEPENDENCIES}
-	)
+# 链接依赖的库
+target_link_libraries(guidance_interface PUBLIC
+	npfg
+	matrix
+	mathlib
+)
