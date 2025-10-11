@@ -52,6 +52,7 @@
 #include <lib/mathlib/mathlib.h>
 #include <lib/perf/perf_counter.h>
 #include <lib/slew_rate/SlewRate.hpp>
+#include <lib/sticks/Sticks.hpp>
 #include <px4_platform_common/px4_config.h>
 #include <px4_platform_common/defines.h>
 #include <px4_platform_common/module.h>
@@ -837,6 +838,9 @@ private:
 	void publish_lateral_guidance_status(const hrt_abstime now);
 
 	float rollAngleToLateralAccel(float roll_body) const;
+
+	// Sticks input handling
+	Sticks _sticks{this};
 
 	DEFINE_PARAMETERS(
 		(ParamFloat<px4::params::FW_R_LIM>) _param_fw_r_lim,
