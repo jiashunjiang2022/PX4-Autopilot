@@ -41,6 +41,5 @@ target_include_directories(ecl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # 链接依赖的库
 target_link_libraries(ecl PUBLIC
-    matrix
     mathlib
 )
