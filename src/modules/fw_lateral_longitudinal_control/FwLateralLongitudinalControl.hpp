@@ -179,8 +179,8 @@ private:
 		(ParamFloat<px4::params::FW_PID_HDG_KP>) _param_fw_pid_hdg_kp,
 		(ParamFloat<px4::params::FW_PID_HDG_KI>) _param_fw_pid_hdg_ki,
 		(ParamFloat<px4::params::FW_PID_HDG_KD>) _param_fw_pid_hdg_kd,
-		(ParamInt<px4::params::FW_PID_MODE>) _param_fw_pid_mode,
-	)
+		(ParamInt<px4::params::FW_PID_MODE>) _param_fw_pid_mode
+	);
 
 	hrt_abstime _last_time_loop_ran{};
 	uint8_t _z_reset_counter{UINT8_C(0)};
