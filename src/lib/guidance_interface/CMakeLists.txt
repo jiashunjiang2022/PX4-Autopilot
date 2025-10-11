@@ -31,8 +31,21 @@
 #
 ############################################################################
 
-# 创建接口库，只包含头文件
-add_library(guidance_interface INTERFACE)
+# 创建库，包含头文件和实现文件
+px4_add_library(guidance_interface
+    GuidanceInterface.hpp
+    PIDAdapter.hpp
+    PIDAdapter.cpp
+    NPFGAdapter.hpp
+    NPFGAdapter.cpp
+)
 
 # 设置包含目录
-target_include_directories(guidance_interface INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(guidance_interface PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+# 链接依赖的库
+target_link_libraries(guidance_interface PUBLIC
+    npfg
+    matrix
+    mathlib
+)
