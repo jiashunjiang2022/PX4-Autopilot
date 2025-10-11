@@ -59,7 +59,7 @@ FixedWingModeManager::FixedWingModeManager() :
 	_launchDetector(this),
 	_runway_takeoff(this)
 #ifdef CONFIG_FIGURE_OF_EIGHT
-	, _figure_eight(_current_guidance, _wind_vel)
+	, _figure_eight(_directional_guidance, _wind_vel)
 #endif // CONFIG_FIGURE_OF_EIGHT
 {
 	// limit to 50 Hz
