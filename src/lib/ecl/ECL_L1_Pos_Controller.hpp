@@ -74,14 +74,14 @@ public:
 	 *
 	 * @return bearing angle (-pi..pi, in NED frame)
 	 */
-	float nav_bearing() { return matrix::wrap_pi(_nav_bearing); }
+	float nav_bearing() const { return matrix::wrap_pi(_nav_bearing); }
 
 	/**
 	 * Get lateral acceleration demand.
 	 *
 	 * @return Lateral acceleration in m/s^2
 	 */
-	float nav_lateral_acceleration_demand() { return _lateral_accel; }
+	float nav_lateral_acceleration_demand() const { return _lateral_accel; }
 
 	/**
 	 * Heading error.
@@ -89,38 +89,38 @@ public:
 	 * The heading error is either compared to the current track
 	 * or to the tangent of the current loiter radius.
 	 */
-	float bearing_error() { return _bearing_error; }
+	float bearing_error() const { return _bearing_error; }
 
 	/**
 	 * Bearing from aircraft to current target.
 	 *
 	 * @return bearing angle (-pi..pi, in NED frame)
 	 */
-	float target_bearing() { return _target_bearing; }
+	float target_bearing() const { return _target_bearing; }
 
 	/**
 	 * Get roll angle setpoint for fixed wing.
 	 *
 	 * @return Roll angle (in NED frame)
 	 */
-	float get_roll_setpoint() { return _roll_setpoint; }
+	float get_roll_setpoint() const { return _roll_setpoint; }
 
 	/**
 	 * Get the current crosstrack error.
 	 *
 	 * @return Crosstrack error in meters.
 	 */
-	float crosstrack_error() { return _crosstrack_error; }
+	float crosstrack_error() const { return _crosstrack_error; }
 
 	/**
 	 * Returns true if the loiter waypoint has been reached
 	 */
-	bool reached_loiter_target() { return _circle_mode; }
+	bool reached_loiter_target() const { return _circle_mode; }
 
 	/**
 	 * Returns true if following a circle (loiter)
 	 */
-	bool circle_mode() { return _circle_mode; }
+	bool circle_mode() const { return _circle_mode; }
 
 	/**
 	 * Get the switch distance
@@ -131,7 +131,7 @@ public:
 	 *
 	 * @param waypoint_switch_radius The switching radius the waypoint has set.
 	 */
-	float switch_distance(float waypoint_switch_radius);
+	float switch_distance(float waypoint_switch_radius) const;
 
 	/**
 	 * Navigate between two waypoints

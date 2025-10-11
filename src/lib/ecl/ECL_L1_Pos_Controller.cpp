@@ -66,7 +66,7 @@ void ECL_L1_Pos_Controller::update_roll_setpoint()
 
 }
 
-float ECL_L1_Pos_Controller::switch_distance(float wp_radius)
+float ECL_L1_Pos_Controller::switch_distance(float wp_radius) const
 {
 	/* following [2], switching on L1 distance */
 	return math::min(wp_radius, _L1_distance);

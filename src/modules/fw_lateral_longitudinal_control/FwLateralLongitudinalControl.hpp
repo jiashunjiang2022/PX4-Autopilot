@@ -109,7 +109,7 @@ public:
 
 private:
 	void Run() override;
-	
+
 	// 制导模式管理
 	void updateGuidanceMode();
 

@@ -19,34 +19,34 @@ GuidanceOutput L1Adapter::guideToPath(const matrix::Vector2f &curr_pos_local,
                                      const float path_curvature)
 {
     GuidanceOutput output;
-    
+
     if (_waypoint_mode_active) {
         // 使用L1控制器进行航点导航
         _l1_controller.navigate_waypoints(_current_waypoint_A, _current_waypoint_B,
                                         curr_pos_local, ground_vel);
-        
+
         output.course_setpoint = _l1_controller.nav_bearing();
         output.lateral_acceleration_feedforward = _l1_controller.nav_lateral_acceleration_demand();
-        
+
     } else if (_loiter_mode_active) {
         // 使用L1控制器进行盘旋
         _l1_controller.navigate_loiter(_current_waypoint_A, curr_pos_local,
                                     _loiter_radius, _loiter_direction, ground_vel);
-        
+
         output.course_setpoint = _l1_controller.nav_bearing();
         output.lateral_acceleration_feedforward = _l1_controller.nav_lateral_acceleration_demand();
-        
+
     } else {
         // 默认航向保持模式 - 使用路径切线作为目标航向
         float current_heading = atan2f(ground_vel(1), ground_vel(0));
         float target_heading = atan2f(unit_path_tangent(1), unit_path_tangent(0));
-        
+
         _l1_controller.navigate_heading(target_heading, current_heading, ground_vel);
-        
+
         output.course_setpoint = _l1_controller.nav_bearing();
         output.lateral_acceleration_feedforward = _l1_controller.nav_lateral_acceleration_demand();
     }
-    
+
     return output;
 }
 

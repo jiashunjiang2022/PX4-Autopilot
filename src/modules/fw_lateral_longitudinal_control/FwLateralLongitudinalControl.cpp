@@ -85,7 +85,7 @@ FwLateralLongitudinalControl::~FwLateralLongitudinalControl()
 void FwLateralLongitudinalControl::updateGuidanceMode()
 {
 	int guidance_mode = _param_fw_guidance_mode.get();
-	
+
 	switch (guidance_mode) {
 	case 0: // L1控制器
 		_current_guidance = &_l1_adapter;
@@ -95,18 +95,18 @@ void FwLateralLongitudinalControl::updateGuidanceMode()
 		_l1_adapter.setL1RollLimit(_param_fw_l1_roll_lim.get());
 		_l1_adapter.setRollSlewRate(_param_fw_l1_roll_slew.get());
 		break;
-		
+
 	case 1: // PID控制器
 		_current_guidance = &_pid_adapter;
 		// 设置PID参数
-		_pid_adapter.setCoursePIDParams(_param_fw_pid_crs_kp.get(), 
-		                               _param_fw_pid_crs_ki.get(), 
+		_pid_adapter.setCoursePIDParams(_param_fw_pid_crs_kp.get(),
+		                               _param_fw_pid_crs_ki.get(),
 		                               _param_fw_pid_crs_kd.get());
-		_pid_adapter.setHeadingPIDParams(_param_fw_pid_hdg_kp.get(), 
-		                                _param_fw_pid_hdg_ki.get(), 
+		_pid_adapter.setHeadingPIDParams(_param_fw_pid_hdg_kp.get(),
+		                                _param_fw_pid_hdg_ki.get(),
 		                                _param_fw_pid_hdg_kd.get());
 		break;
-		
+
 	case 2: // NPFG控制器
 	default:
 		_current_guidance = &_npfg_adapter;
@@ -129,7 +129,7 @@ FwLateralLongitudinalControl::parameters_update()
 	_tecs.set_throttle_damp(_param_fw_t_thr_damping.get());
 	_tecs.set_integrator_gain_throttle(_param_fw_t_thr_integ.get());
 	_tecs.set_integrator_gain_pitch(_param_fw_t_I_gain_pit.get());
-	
+
 	// 更新制导模式
 	updateGuidanceMode();
 	_tecs.set_throttle_slewrate(_param_fw_thr_slew_max.get());
@@ -300,7 +300,7 @@ void FwLateralLongitudinalControl::Run()
 
 			if (PX4_ISFINITE(airspeed_direction_sp)) {
 				const float heading = atan2f(airspeed_vector(1), airspeed_vector(0));
-				
+
 				// 使用制导接口进行横向运动控制
 				if (_current_guidance) {
 					// 准备制导接口的输入
@@ -310,15 +310,15 @@ void FwLateralLongitudinalControl::Run()
 					matrix::Vector2f unit_path_tangent(cosf(airspeed_direction_sp), sinf(airspeed_direction_sp));
 					matrix::Vector2f closest_point_on_path = curr_pos_local; // 简化处理
 					float path_curvature = 0.0f; // 简化处理
-					
+
 					// 调用制导接口
 					GuidanceOutput guidance_output = _current_guidance->guideToPath(
-						curr_pos_local, ground_vel, wind_vel, 
+						curr_pos_local, ground_vel, wind_vel,
 						unit_path_tangent, closest_point_on_path, path_curvature);
-					
+
 					// 使用制导接口的输出
 					lateral_accel_sp = guidance_output.lateral_acceleration_feedforward;
-					
+
 					// 如果制导接口没有提供横向加速度，则使用航向控制
 					if (!PX4_ISFINITE(lateral_accel_sp)) {
 						lateral_accel_sp = _current_guidance->controlHeading(airspeed_direction_sp, heading,
