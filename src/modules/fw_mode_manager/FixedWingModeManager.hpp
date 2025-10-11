@@ -853,9 +853,9 @@ private:
 		(ParamFloat<px4::params::FW_PID_COURSE_KP>) _param_fw_pid_course_kp,
 		(ParamFloat<px4::params::FW_PID_COURSE_KI>) _param_fw_pid_course_ki,
 		(ParamFloat<px4::params::FW_PID_COURSE_KD>) _param_fw_pid_course_kd,
-		(ParamFloat<px4::params::FW_PID_HEADING_KP>) _param_fw_pid_heading_kp,
-		(ParamFloat<px4::params::FW_PID_HEADING_KI>) _param_fw_pid_heading_ki,
-		(ParamFloat<px4::params::FW_PID_HEADING_KD>) _param_fw_pid_heading_kd,
+		(ParamFloat<px4::params::FW_PID_HDG_KP>) _param_fw_pid_heading_kp,
+		(ParamFloat<px4::params::FW_PID_HDG_KI>) _param_fw_pid_heading_ki,
+		(ParamFloat<px4::params::FW_PID_HDG_KD>) _param_fw_pid_heading_kd,
 		(ParamInt<px4::params::FW_GUIDANCE_MODE>) _param_fw_guidance_mode,
 
 		(ParamFloat<px4::params::FW_LND_AIRSPD>) _param_fw_lnd_airspd,
