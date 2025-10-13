@@ -595,3 +595,38 @@ failsafe_web:
 run_failsafe_web_server: failsafe_web
 	@cd build/px4_sitl_default_failsafe_web && \
 		python3 -m http.server
+
+# 便捷的仿真管理目标
+.PHONY: sim-start sim-stop sim-restart sim-clean
+
+sim-start:
+	@echo "启动PX4仿真环境..."
+	@if pgrep -x "px4" > /dev/null; then \
+		echo "检测到PX4进程正在运行，正在关闭..."; \
+		pkill -9 px4 gzserver gzclient gazebo 2>/dev/null; \
+		sleep 2; \
+	fi
+	@if [ ! -d "build/px4_sitl_default" ] || [ ! -f "build/px4_sitl_default/bin/px4" ]; then \
+		echo "检测到需要重新编译..."; \
+		$(MAKE) clean; \
+		$(MAKE) px4_sitl gazebo-classic_plane; \
+	else \
+		echo "使用现有编译文件启动仿真..."; \
+		$(MAKE) px4_sitl gazebo-classic_plane; \
+	fi
+
+sim-stop:
+	@echo "关闭PX4仿真环境..."
+	@pkill -9 px4 gzserver gzclient gazebo 2>/dev/null || true
+	@echo "仿真环境已关闭！"
+
+sim-restart: sim-stop
+	@echo "重启PX4仿真环境..."
+	@sleep 2
+	@$(MAKE) px4_sitl gazebo-classic_plane
+
+sim-clean:
+	@echo "清理编译缓存并重新编译..."
+	@$(MAKE) clean
+	@rm -rf build/
+	@$(MAKE) px4_sitl gazebo-classic_plane
