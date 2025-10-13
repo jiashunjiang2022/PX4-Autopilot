@@ -2584,7 +2584,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 
 	const float path_curvature = 0.f;
 	// 修改：使用统一接口
-	GuidanceOutput guidance_output = _current_guidance->guideToPath(vehicle_pos, ground_vel, wind_vel,
+	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel,
 	                                                              unit_path_tangent, _closest_point_on_path, path_curvature);
 
 	// 转换为DirectionalGuidanceOutput
