@@ -76,8 +76,7 @@ FixedWingModeManager::FixedWingModeManager() :
 	parameters_update();
 
 	// 初始化制导接口
-	// 暂时注释掉以排查问题
-	// initializeGuidanceInterface();
+	initializeGuidanceInterface();
 }
 
 FixedWingModeManager::~FixedWingModeManager()
@@ -2584,9 +2583,16 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 	_closest_point_on_path = waypoint_pos;
 
 	const float path_curvature = 0.f;
-	// 暂时使用原来的DirectionalGuidance方法
-	return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
-	                                         unit_path_tangent, _closest_point_on_path, path_curvature);
+	// 使用统一制导接口
+	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel,
+	                                                              unit_path_tangent, _closest_point_on_path, path_curvature);
+
+	// 转换为DirectionalGuidanceOutput
+	DirectionalGuidanceOutput sp;
+	sp.course_setpoint = guidance_output.course_setpoint;
+	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
+
+	return sp;
 }
 
 DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &point_on_line_1,
