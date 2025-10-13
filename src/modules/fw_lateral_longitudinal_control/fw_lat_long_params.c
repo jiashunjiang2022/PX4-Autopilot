@@ -92,6 +92,8 @@ PARAM_DEFINE_FLOAT(FW_L1_ROLL_SLEW, 0.0f);
  * 1: PID Guidance (precise control)
  * 2: NPFG Guidance (advanced nonlinear guidance)
  *
+ * @min 0
+ * @max 2
  * @value 0 L1 Guidance
  * @value 1 PID Guidance
  * @value 2 NPFG Guidance
@@ -352,10 +354,79 @@ PARAM_DEFINE_FLOAT(FW_WIND_ARSP_SC, 0.f);
  */
 PARAM_DEFINE_FLOAT(FW_T_SINK_MAX, 5.0f);
 
-PARAM_DEFINE_FLOAT(FW_PID_CRS_KP, 2.0f);      // 原来：FW_PID_COURSE_KP
-PARAM_DEFINE_FLOAT(FW_PID_CRS_KI, 0.1f);      // 原来：FW_PID_COURSE_KI
-PARAM_DEFINE_FLOAT(FW_PID_CRS_KD, 0.5f);      // 原来：FW_PID_COURSE_KD
-PARAM_DEFINE_FLOAT(FW_PID_HDG_KP, 1.5f);      // 原来：FW_PID_HEADING_KP
-PARAM_DEFINE_FLOAT(FW_PID_HDG_KI, 0.05f);     // 原来：FW_PID_HEADING_KI
-PARAM_DEFINE_FLOAT(FW_PID_HDG_KD, 0.3f);      // 原来：FW_PID_HEADING_KD
-PARAM_DEFINE_INT32(FW_PID_MODE, 0);           // 原来：FW_LAT_LONG_PID_MODE
+/**
+ * PID Course Proportional Gain
+ *
+ * @min 0.0
+ * @max 10.0
+ * @decimal 2
+ * @increment 0.1
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_PID_CRS_KP, 2.0f);
+
+/**
+ * PID Course Integral Gain
+ *
+ * @min 0.0
+ * @max 5.0
+ * @decimal 3
+ * @increment 0.01
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_PID_CRS_KI, 0.1f);
+
+/**
+ * PID Course Derivative Gain
+ *
+ * @min 0.0
+ * @max 5.0
+ * @decimal 2
+ * @increment 0.1
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_PID_CRS_KD, 0.5f);
+
+/**
+ * PID Heading Proportional Gain
+ *
+ * @min 0.0
+ * @max 10.0
+ * @decimal 2
+ * @increment 0.1
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_PID_HDG_KP, 1.5f);
+
+/**
+ * PID Heading Integral Gain
+ *
+ * @min 0.0
+ * @max 5.0
+ * @decimal 3
+ * @increment 0.01
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_PID_HDG_KI, 0.05f);
+
+/**
+ * PID Heading Derivative Gain
+ *
+ * @min 0.0
+ * @max 5.0
+ * @decimal 2
+ * @increment 0.1
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_PID_HDG_KD, 0.3f);
+
+/**
+ * PID Mode Selection
+ *
+ * @min 0
+ * @max 1
+ * @value 0 Standard PID
+ * @value 1 Advanced PID
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_INT32(FW_PID_MODE, 0);
