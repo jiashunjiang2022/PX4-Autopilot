@@ -96,10 +96,7 @@
 #include <uORB/topics/wind.h>
 #include <uORB/topics/orbit_status.h>
 
-// 添加制导接口头文件
-#include "lib/guidance_interface/GuidanceInterface.hpp"
-#include "lib/guidance_interface/NPFGAdapter.hpp"
-#include "lib/guidance_interface/PIDAdapter.hpp"
+// 制导接口头文件已在上面包含
 
 #ifdef CONFIG_FIGURE_OF_EIGHT
 #include "figure_eight/FigureEight.hpp"
