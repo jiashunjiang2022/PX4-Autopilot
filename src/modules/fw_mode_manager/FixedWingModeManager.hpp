@@ -911,7 +911,6 @@ private:
 	);
 
 	// 制导接口相关成员变量
-	GuidanceInterface* _guidance_interface{nullptr};
 	PIDAdapter* _pid_adapter{nullptr};
 	NPFGAdapter* _npfg_adapter{nullptr};
 	L1Adapter* _l1_adapter{nullptr};
