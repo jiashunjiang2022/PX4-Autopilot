@@ -2563,17 +2563,10 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 	const float path_curvature = 0.f;
 	DirectionalGuidanceOutput sp;
 
-	// 根据参数选择制导算法
-	int guidance_mode = _param_fw_guidance_mode.get();
-
-	if (guidance_mode == 0) {
-		// L1制导
-		sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
-	} else {
-		// NPFG制导（默认）
-		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
-					       _closest_point_on_path, path_curvature);
-	}
+	// 暂时只使用NPFG制导，确保稳定性
+	// TODO: 后续添加L1制导选项
+	sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
+				       _closest_point_on_path, path_curvature);
 
 	return sp;
 }
@@ -2597,18 +2590,10 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 	const float path_curvature = 0.f;
 	DirectionalGuidanceOutput sp;
 
-	// 根据参数选择制导算法
-	int guidance_mode = _param_fw_guidance_mode.get();
-
-	if (guidance_mode == 0) {
-		// L1制导
-		sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
-	} else {
-		// NPFG制导（默认）
-		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
+	// 暂时只使用NPFG制导，确保稳定性
+	sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
-	}
 
 	return sp;
 }
@@ -2625,18 +2610,10 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 	const float path_curvature = 0.f;
 	DirectionalGuidanceOutput sp;
 
-	// 根据参数选择制导算法
-	int guidance_mode = _param_fw_guidance_mode.get();
-
-	if (guidance_mode == 0) {
-		// L1制导
-		sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
-	} else {
-		// NPFG制导（默认）
-		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
+	// 暂时只使用NPFG制导，确保稳定性
+	sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
-	}
 
 	return sp;
 }
@@ -2677,18 +2654,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLoiter(const Vector2f &l
 	const float path_curvature = loiter_direction_multiplier / radius;
 	_closest_point_on_path = unit_vec_center_to_closest_pt * radius + loiter_center;
 
-	// 根据参数选择制导算法
-	int guidance_mode = _param_fw_guidance_mode.get();
-
-	if (guidance_mode == 0) {
-		// L1制导
-		return navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
-				loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
-	} else {
-		// NPFG制导（默认）
-		return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
-				loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
-	}
+	// 暂时只使用NPFG制导，确保稳定性
+	return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
+			loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
 }
 
 DirectionalGuidanceOutput FixedWingModeManager::navigatePathTangent(const matrix::Vector2f &vehicle_pos,
@@ -2704,18 +2672,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePathTangent(const matrix
 	const Vector2f unit_path_tangent{tangent_setpoint.normalized()};
 	_closest_point_on_path = position_setpoint;
 
-	// 根据参数选择制导算法
-	int guidance_mode = _param_fw_guidance_mode.get();
-
-	if (guidance_mode == 0) {
-		// L1制导
-		return navigateL1(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(),
-				position_setpoint, curvature);
-	} else {
-		// NPFG制导（默认）
-		return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(),
-				position_setpoint, curvature);
-	}
+	// 暂时只使用NPFG制导，确保稳定性
+	return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(),
+			position_setpoint, curvature);
 }
 
 DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Vector2f &vehicle_pos, float bearing,
@@ -2724,16 +2683,8 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Ve
 	const Vector2f unit_path_tangent = Vector2f{cosf(bearing), sinf(bearing)};
 	_closest_point_on_path = vehicle_pos;
 
-	// 根据参数选择制导算法
-	int guidance_mode = _param_fw_guidance_mode.get();
-
-	if (guidance_mode == 0) {
-		// L1制导
-		return navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
-	} else {
-		// NPFG制导（默认）
-		return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
-	}
+	// 暂时只使用NPFG制导，确保稳定性
+	return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
 }
 
 void FixedWingModeManager::publish_lateral_guidance_status(const hrt_abstime now)
