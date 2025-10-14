@@ -21,7 +21,6 @@ GuidanceOutput PIDAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
 
     // 计算轨迹误差（垂直于路径的距离）
     matrix::Vector2f position_error = curr_pos_local - closest_point_on_path;
-    float track_error = position_error.length();
     
     // 计算轨迹误差的符号（左侧为正，右侧为负）
     matrix::Vector2f path_normal(-unit_path_tangent(1), unit_path_tangent(0));
@@ -29,7 +28,7 @@ GuidanceOutput PIDAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
 
     // 目标航向（路径切线方向）
     float path_course = atan2f(unit_path_tangent(1), unit_path_tangent(0));
-    
+
     // 当前航向
     float current_course = atan2f(ground_vel(1), ground_vel(0));
     float ground_speed = ground_vel.length();
@@ -44,7 +43,7 @@ GuidanceOutput PIDAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
     if (dt > 0.0f && dt < 1.0f && ground_speed > 1.0f) { // 防止异常时间间隔和低速
         // 限制积分项防止积分饱和
         _course_integral = math::constrain(_course_integral + course_error * dt, -10.0f, 10.0f);
-        
+
         float course_derivative = (course_error - _course_error_prev) / dt;
         _course_error_prev = course_error;
 
@@ -65,7 +64,7 @@ GuidanceOutput PIDAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
         // 使用向心加速度公式: a = v^2 / R, 其中 R = v / (dψ/dt)
         // 简化为: a = v * (dψ/dt)
         float lateral_acceleration = ground_speed * course_correction;
-        
+
         // 限制横向加速度（典型值：2-5 m/s^2）
         lateral_acceleration = math::constrain(lateral_acceleration, -5.0f, 5.0f);
 
