@@ -29,7 +29,6 @@ PARAM_DEFINE_FLOAT(FW_GND_SPD_MIN, 5.0f);
 
 /**
  * Guidance Algorithm Selection
- * Select the guidance algorithm for fixed-wing path following
  * @min 0
  * @max 1
  * @value 0 NPFG
@@ -40,7 +39,6 @@ PARAM_DEFINE_INT32(FW_GUIDANCE_MODE, 0);
 
 /**
  * L1 Period
- * The L1 period is the characteristic time constant of the L1 guidance law
  * @unit s
  * @min 10.0
  * @max 50.0
