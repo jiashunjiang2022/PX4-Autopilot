@@ -20,7 +20,7 @@ GuidanceOutput PIDAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
     GuidanceOutput output;
 
     float ground_speed = ground_vel.length();
-    
+
     // 低速保护
     if (ground_speed < 2.0f) {
         output.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
@@ -30,31 +30,25 @@ GuidanceOutput PIDAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
 
     // 计算轨迹误差（垂直于路径的距离）
     matrix::Vector2f position_error = curr_pos_local - closest_point_on_path;
-    
+
     // 计算轨迹误差的符号（左侧为正，右侧为负）
     matrix::Vector2f path_normal(-unit_path_tangent(1), unit_path_tangent(0));
     float signed_track_error = position_error.dot(path_normal);
 
-    // 目标航向（路径切线方向）
-    float path_course = atan2f(unit_path_tangent(1), unit_path_tangent(0));
-    
     // 当前航向
     float current_course = atan2f(ground_vel(1), ground_vel(0));
 
-    // 计算航向误差
-    float course_error = normalizeAngle(path_course - current_course);
-
     hrt_abstime current_time = hrt_absolute_time();
     float dt = (current_time - _last_time) / 1e6f; // 转换为秒
-    
+
     // 初始化或时间跳变保护
     if (_last_time == 0 || dt <= 0.0f || dt > 1.0f) {
         _last_time = current_time;
-        output.course_setpoint = path_course;
+        output.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
         output.lateral_acceleration_feedforward = 0.0f;
         return output;
     }
-    
+
     _last_time = current_time;
 
     // 计算目标方位角（考虑轨迹误差）
@@ -63,20 +57,20 @@ GuidanceOutput PIDAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
     matrix::Vector2f lookahead_point = closest_point_on_path + unit_path_tangent * lookahead_distance;
     matrix::Vector2f vehicle_to_lookahead = lookahead_point - curr_pos_local;
     float bearing_to_lookahead = atan2f(vehicle_to_lookahead(1), vehicle_to_lookahead(0));
-    
+
     // 计算方位角误差（eta）
     float eta = normalizeAngle(bearing_to_lookahead - current_course);
-    
+
     // 限制eta到±90度（与L1相同）
     eta = math::constrain(eta, -M_PI_F / 2.0f, M_PI_F / 2.0f);
-    
+
     // 使用L1类似的公式计算横向加速度
     // a_lat = K * v^2 / L * sin(eta)
     // 其中 K 是增益，L 是特征长度
     float K_gain = 2.0f; // 类似L1的增益
     float characteristic_length = 20.0f; // 类似L1的distance
     float lateral_acceleration = K_gain * ground_speed * ground_speed / characteristic_length * sinf(eta);
-    
+
     // 限制横向加速度
     lateral_acceleration = math::constrain(lateral_acceleration, -4.0f, 4.0f);
 
