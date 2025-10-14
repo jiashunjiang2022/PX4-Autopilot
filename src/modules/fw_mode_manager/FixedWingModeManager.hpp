@@ -388,9 +388,6 @@ private:
 	// CLosest point on path to track
 	matrix::Vector2f _closest_point_on_path;
 
-	// 制导接口系统 - 新增
-	GuidanceInterface* _guidance_interface{nullptr}; // 当前使用的制导接口
-
 	// 保持原有的NPFG对象用于参数设置
 	DirectionalGuidance _directional_guidance;
 
