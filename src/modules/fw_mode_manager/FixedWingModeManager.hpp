@@ -53,11 +53,6 @@
 #include <lib/perf/perf_counter.h>
 #include <lib/slew_rate/SlewRate.hpp>
 #include <lib/sticks/Sticks.hpp>
-#include <lib/guidance_interface/GuidanceInterface.hpp>
-#include <lib/guidance_interface/PurePursuitAdapter.hpp>
-#include <lib/guidance_interface/LOSAdapter.hpp>
-#include <lib/guidance_interface/NPFGAdapter.hpp>
-#include <lib/guidance_interface/L1Adapter.hpp>
 #include <px4_platform_common/px4_config.h>
 #include <px4_platform_common/defines.h>
 #include <px4_platform_common/module.h>
@@ -77,7 +72,6 @@
 #include <uORB/topics/fixed_wing_runway_control.h>
 #include <uORB/topics/landing_gear.h>
 #include <uORB/topics/launch_detection_status.h>
-#include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/normalized_unsigned_setpoint.h>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/position_controller_landing_status.h>
@@ -96,8 +90,6 @@
 #include <uORB/topics/vehicle_status.h>
 #include <uORB/topics/wind.h>
 #include <uORB/topics/orbit_status.h>
-
-// 制导接口头文件已在上面包含
 
 #ifdef CONFIG_FIGURE_OF_EIGHT
 #include "figure_eight/FigureEight.hpp"
@@ -188,7 +180,6 @@ private:
 	uORB::Subscription _wind_sub{ORB_ID(wind)};
 	uORB::Subscription _control_mode_sub{ORB_ID(vehicle_control_mode)};
 	uORB::Subscription _global_pos_sub{ORB_ID(vehicle_global_position)};
-	uORB::Subscription _manual_control_setpoint_sub{ORB_ID(manual_control_setpoint)};
 	uORB::Subscription _pos_sp_triplet_sub{ORB_ID(position_setpoint_triplet)};
 	uORB::Subscription _trajectory_setpoint_sub{ORB_ID(trajectory_setpoint)};
 	uORB::Subscription _vehicle_angular_velocity_sub{ORB_ID(vehicle_angular_velocity)};
@@ -209,7 +200,6 @@ private:
 	uORB::Publication<fixed_wing_lateral_guidance_status_s> _fixed_wing_lateral_guidance_status_pub{ORB_ID(fixed_wing_lateral_guidance_status)};
 	uORB::Publication<fixed_wing_runway_control_s> _fixed_wing_runway_control_pub{ORB_ID(fixed_wing_runway_control)};
 
-	manual_control_setpoint_s _manual_control_setpoint{};
 	position_setpoint_triplet_s _pos_sp_triplet{};
 	vehicle_control_mode_s _control_mode{};
 	vehicle_local_position_s _local_pos{};
@@ -231,18 +221,18 @@ private:
 	uint8_t _position_sp_type{0};
 
 	enum FW_POSCTRL_MODE {
-		FW_POSCTRL_MODE_AUTO,             	// 自动模式
-		FW_POSCTRL_MODE_AUTO_ALTITUDE,    	// 自动高度控制
-		FW_POSCTRL_MODE_AUTO_CLIMBRATE,		// 自动爬升率控制
-		FW_POSCTRL_MODE_AUTO_TAKEOFF,     	// 自动起飞
-		FW_POSCTRL_MODE_AUTO_TAKEOFF_NO_NAV, // 自动起飞（无导航）
-		FW_POSCTRL_MODE_AUTO_LANDING_STRAIGHT, // 直线着陆
-		FW_POSCTRL_MODE_AUTO_LANDING_CIRCULAR, // 圆形着陆
-		FW_POSCTRL_MODE_AUTO_PATH,            // 路径跟踪
-		FW_POSCTRL_MODE_MANUAL_POSITION,      // 手动位置模式
-		FW_POSCTRL_MODE_MANUAL_ALTITUDE,      // 手动高度模式
-		FW_POSCTRL_MODE_TRANSITION_TO_HOVER_LINE_FOLLOW, // 过渡到悬停线跟随模式
-		FW_POSCTRL_MODE_TRANSITION_TO_HOVER_HEADING_HOLD, // 过渡到悬停航向保持模式
+		FW_POSCTRL_MODE_AUTO,
+		FW_POSCTRL_MODE_AUTO_ALTITUDE,
+		FW_POSCTRL_MODE_AUTO_CLIMBRATE,
+		FW_POSCTRL_MODE_AUTO_TAKEOFF,
+		FW_POSCTRL_MODE_AUTO_TAKEOFF_NO_NAV,
+		FW_POSCTRL_MODE_AUTO_LANDING_STRAIGHT,
+		FW_POSCTRL_MODE_AUTO_LANDING_CIRCULAR,
+		FW_POSCTRL_MODE_AUTO_PATH,
+		FW_POSCTRL_MODE_MANUAL_POSITION,
+		FW_POSCTRL_MODE_MANUAL_ALTITUDE,
+		FW_POSCTRL_MODE_TRANSITION_TO_HOVER_LINE_FOLLOW,
+		FW_POSCTRL_MODE_TRANSITION_TO_HOVER_HEADING_HOLD,
 		FW_POSCTRL_MODE_OTHER
 	} _control_mode_current{FW_POSCTRL_MODE_OTHER}; // used to check if the mode has changed
 
@@ -251,9 +241,10 @@ private:
 		STICK_CONFIG_ENABLE_AIRSPEED_SP_MANUAL_BIT = (1 << 1)
 	};
 
-	// VEHICLE STATES
 
-	uint8_t _nav_state;
+	Sticks _sticks{this};
+
+	// VEHICLE STATES
 
 	double _current_latitude{0};
 	double _current_longitude{0};
@@ -388,7 +379,7 @@ private:
 	// CLosest point on path to track
 	matrix::Vector2f _closest_point_on_path;
 
-	// 保持原有的NPFG对象用于参数设置
+	// nonlinear path following guidance - lateral-directional position control
 	DirectionalGuidance _directional_guidance;
 
 	// LANDING GEAR
@@ -418,9 +409,6 @@ private:
 
 	void publishFigureEightStatus(const position_setpoint_s pos_sp);
 #endif // CONFIG_FIGURE_OF_EIGHT
-
-	// 制导模式切换函数 - 新增
-	void setGuidanceMode(bool use_pid);
 
 	// Update our local parameter cache.
 	void parameters_update();
@@ -831,13 +819,27 @@ private:
 			const matrix::Vector2f &ground_vel,
 			const matrix::Vector2f &wind_vel);
 
+	/*
+	 * L1制导算法实现
+	 *
+	 * @param[in] vehicle_pos 飞机位置 [m]
+	 * @param[in] ground_vel 地速 [m/s]
+	 * @param[in] wind_vel 风速 [m/s]
+	 * @param[in] unit_path_tangent 路径切线单位向量
+	 * @param[in] closest_point_on_path 路径上最近点 [m]
+	 * @param[in] path_curvature 路径曲率 [1/m]
+	 */
+	DirectionalGuidanceOutput navigateL1(const matrix::Vector2f &vehicle_pos,
+			const matrix::Vector2f &ground_vel,
+			const matrix::Vector2f &wind_vel,
+			const matrix::Vector2f &unit_path_tangent,
+			const matrix::Vector2f &closest_point_on_path,
+			const float &path_curvature);
+
 	void control_idle();
 	void publish_lateral_guidance_status(const hrt_abstime now);
 
 	float rollAngleToLateralAccel(float roll_body) const;
-
-	// Sticks input handling
-	Sticks _sticks{this};
 
 	DEFINE_PARAMETERS(
 		(ParamFloat<px4::params::FW_R_LIM>) _param_fw_r_lim,
@@ -850,14 +852,8 @@ private:
 		(ParamFloat<px4::params::NPFG_SW_DST_MLT>) _param_npfg_switch_distance_multiplier,
 		(ParamFloat<px4::params::NPFG_PERIOD_SF>) _param_npfg_period_safety_factor,
 
-		// PID参数引用自fw_lateral_longitudinal_control模块
-		(ParamFloat<px4::params::FW_PID_CRS_KP>) _param_fw_pid_course_kp,
-		(ParamFloat<px4::params::FW_PID_CRS_KI>) _param_fw_pid_course_ki,
-		(ParamFloat<px4::params::FW_PID_CRS_KD>) _param_fw_pid_course_kd,
-		(ParamFloat<px4::params::FW_PID_HDG_KP>) _param_fw_pid_heading_kp,
-		(ParamFloat<px4::params::FW_PID_HDG_KI>) _param_fw_pid_heading_ki,
-		(ParamFloat<px4::params::FW_PID_HDG_KD>) _param_fw_pid_heading_kd,
 		(ParamInt<px4::params::FW_GUIDANCE_MODE>) _param_fw_guidance_mode,
+		(ParamFloat<px4::params::FW_L1_PERIOD>) _param_fw_l1_period,
 
 		(ParamFloat<px4::params::FW_LND_AIRSPD>) _param_fw_lnd_airspd,
 		(ParamFloat<px4::params::FW_LND_ANG>) _param_fw_lnd_ang,
@@ -903,22 +899,7 @@ private:
 		(ParamFloat<px4::params::FW_AIRSPD_MIN>) _param_fw_airspd_min,
 		(ParamFloat<px4::params::FW_AIRSPD_TRIM>) _param_fw_airspd_trim,
 		(ParamFloat<px4::params::FW_T_CLMB_MAX>) _param_fw_t_clmb_max
-	);
-
-	// 制导接口相关成员变量
-	GuidanceInterface* _guidance_interface{nullptr}; // 当前使用的制导接口
-	PurePursuitAdapter* _pure_pursuit_adapter{nullptr};
-	LOSAdapter* _los_adapter{nullptr};
-	NPFGAdapter* _npfg_adapter{nullptr};
-	L1Adapter* _l1_adapter{nullptr};
-
-	int _current_guidance_mode{0};
-	bool _guidance_initialized{false};
-
-	// 制导接口管理方法
-	void initializeGuidanceInterface();
-	void updateGuidanceMode();
-	void cleanupGuidanceInterface();
+	)
 };
 
 #endif // FIXEDWINGMODEMANAGER_HPP_

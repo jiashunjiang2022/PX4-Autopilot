@@ -36,13 +36,6 @@
 #include <px4_platform_common/events.h>
 #include <uORB/topics/longitudinal_control_configuration.h>
 
-// 制导接口
-#include <lib/guidance_interface/GuidanceInterface.hpp>
-#include <lib/guidance_interface/L1Adapter.hpp>
-#include <lib/guidance_interface/NPFGAdapter.hpp>
-#include <lib/guidance_interface/PurePursuitAdapter.hpp>
-#include <lib/guidance_interface/LOSAdapter.hpp>
-
 using math::constrain;
 using math::max;
 using math::min;
@@ -81,17 +74,11 @@ FixedWingModeManager::FixedWingModeManager() :
 	_fixed_wing_runway_control_pub.advertise();
 
 	parameters_update();
-
-	// 初始化制导接口
-	initializeGuidanceInterface();
 }
 
 FixedWingModeManager::~FixedWingModeManager()
 {
 	perf_free(_loop_perf);
-
-	// 清理制导接口
-	cleanupGuidanceInterface();
 }
 
 bool
@@ -117,23 +104,7 @@ FixedWingModeManager::parameters_update()
 	_directional_guidance.setRollTimeConst(_param_npfg_roll_time_const.get());
 	_directional_guidance.setSwitchDistanceMultiplier(_param_npfg_switch_distance_multiplier.get());
 	_directional_guidance.setPeriodSafetyFactor(_param_npfg_period_safety_factor.get());
-
-	// 更新制导模式（如果已初始化）
-	if (_guidance_initialized) {
-		updateGuidanceMode();
-	}
 }
-
-void
-FixedWingModeManager::setGuidanceMode(bool use_pid)
-{
-	// 这个方法现在被新的updateGuidanceMode()替代
-	// 保持向后兼容性，但使用新的制导接口系统
-	if (_guidance_initialized) {
-		updateGuidanceMode();
-	}
-}
-
 
 void
 FixedWingModeManager::vehicle_control_mode_poll()
@@ -1982,11 +1953,6 @@ FixedWingModeManager::Run()
 
 	perf_begin(_loop_perf);
 
-	// 初始化制导接口（只执行一次）
-	if (!_guidance_initialized) {
-		initializeGuidanceInterface();
-	}
-
 	_vehicle_status_sub.update(&_vehicle_status);
 
 	/* only run controller if position changed and we are not running an external mode*/
@@ -2587,7 +2553,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 	const Vector2f vehicle_to_waypoint = waypoint_pos - vehicle_pos;
 
 	if (vehicle_to_waypoint.norm() < FLT_EPSILON) {
-		// degenerate case: the vehicle is on top of the single waypoint. (can happen). maintain the last npfg command.
+		// degenerate case: the vehicle is on top of the single waypoint. (can happen). maintain the last command.
 		return DirectionalGuidanceOutput{};
 	}
 
@@ -2595,14 +2561,19 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 	_closest_point_on_path = waypoint_pos;
 
 	const float path_curvature = 0.f;
-	// 使用统一制导接口
-	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel,
-	                                                              unit_path_tangent, _closest_point_on_path, path_curvature);
-
-	// 转换为DirectionalGuidanceOutput
 	DirectionalGuidanceOutput sp;
-	sp.course_setpoint = guidance_output.course_setpoint;
-	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
+
+	// 根据参数选择制导算法
+	int guidance_mode = _param_fw_guidance_mode.get();
+	
+	if (guidance_mode == 0) {
+		// L1制导
+		sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
+	} else {
+		// NPFG制导（默认）
+		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
+					       _closest_point_on_path, path_curvature);
+	}
 
 	return sp;
 }
@@ -2624,15 +2595,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 	_closest_point_on_path = point_on_line_1 + point_1_to_vehicle.dot(unit_path_tangent) * unit_path_tangent;
 
 	const float path_curvature = 0.f;
-	// 使用统一制导接口
-	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel,
+	const DirectionalGuidanceOutput sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
-
-	// 转换为DirectionalGuidanceOutput
-	DirectionalGuidanceOutput sp;
-	sp.course_setpoint = guidance_output.course_setpoint;
-	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
 
 	return sp;
 }
@@ -2647,15 +2612,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 	_closest_point_on_path = point_on_line + point_on_line_to_vehicle.dot(unit_path_tangent) * unit_path_tangent;
 
 	const float path_curvature = 0.f;
-	// 使用统一制导接口
-	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel,
+	const DirectionalGuidanceOutput sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
-
-	// 转换为DirectionalGuidanceOutput
-	DirectionalGuidanceOutput sp;
-	sp.course_setpoint = guidance_output.course_setpoint;
-	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
 
 	return sp;
 }
@@ -2695,17 +2654,8 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLoiter(const Vector2f &l
 
 	const float path_curvature = loiter_direction_multiplier / radius;
 	_closest_point_on_path = unit_vec_center_to_closest_pt * radius + loiter_center;
-
-	// 使用统一制导接口
-	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
+	return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 			loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
-
-	// 转换为DirectionalGuidanceOutput
-	DirectionalGuidanceOutput sp;
-	sp.course_setpoint = guidance_output.course_setpoint;
-	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
-
-	return sp;
 }
 
 DirectionalGuidanceOutput FixedWingModeManager::navigatePathTangent(const matrix::Vector2f &vehicle_pos,
@@ -2720,18 +2670,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePathTangent(const matrix
 
 	const Vector2f unit_path_tangent{tangent_setpoint.normalized()};
 	_closest_point_on_path = position_setpoint;
-
-	// 使用统一制导接口
-	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(),
+	return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(),
 			position_setpoint,
 			curvature);
-
-	// 转换为DirectionalGuidanceOutput
-	DirectionalGuidanceOutput sp;
-	sp.course_setpoint = guidance_output.course_setpoint;
-	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
-
-	return sp;
 }
 
 DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Vector2f &vehicle_pos, float bearing,
@@ -2739,16 +2680,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Ve
 {
 	const Vector2f unit_path_tangent = Vector2f{cosf(bearing), sinf(bearing)};
 	_closest_point_on_path = vehicle_pos;
-
-	// 使用统一制导接口
-	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
-
-	// 转换为DirectionalGuidanceOutput
-	DirectionalGuidanceOutput sp;
-	sp.course_setpoint = guidance_output.course_setpoint;
-	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
-
-	return sp;
+	return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
 }
 
 void FixedWingModeManager::publish_lateral_guidance_status(const hrt_abstime now)
@@ -2756,14 +2688,13 @@ void FixedWingModeManager::publish_lateral_guidance_status(const hrt_abstime now
 	fixed_wing_lateral_guidance_status_s fixed_wing_lateral_guidance_status{};
 
 	fixed_wing_lateral_guidance_status.timestamp = now;
-	// 使用统一制导接口获取状态
-	fixed_wing_lateral_guidance_status.course_setpoint = _guidance_interface->getCourseSetpoint();
-	fixed_wing_lateral_guidance_status.lateral_acceleration_ff = _guidance_interface->getLateralAccelerationSetpoint();
-	fixed_wing_lateral_guidance_status.bearing_feas = _guidance_interface->getBearingFeasibility();
-	fixed_wing_lateral_guidance_status.bearing_feas_on_track = _guidance_interface->getBearingFeasibilityOnTrack();
-	fixed_wing_lateral_guidance_status.signed_track_error = _guidance_interface->getSignedTrackError();
-	fixed_wing_lateral_guidance_status.track_error_bound = _guidance_interface->getTrackErrorBound();
-	fixed_wing_lateral_guidance_status.adapted_period = _guidance_interface->getAdaptedPeriod();
+	fixed_wing_lateral_guidance_status.course_setpoint = _directional_guidance.getCourseSetpoint();
+	fixed_wing_lateral_guidance_status.lateral_acceleration_ff = _directional_guidance.getLateralAccelerationSetpoint();
+	fixed_wing_lateral_guidance_status.bearing_feas = _directional_guidance.getBearingFeasibility();
+	fixed_wing_lateral_guidance_status.bearing_feas_on_track = _directional_guidance.getBearingFeasibilityOnTrack();
+	fixed_wing_lateral_guidance_status.signed_track_error = _directional_guidance.getSignedTrackError();
+	fixed_wing_lateral_guidance_status.track_error_bound = _directional_guidance.getTrackErrorBound();
+	fixed_wing_lateral_guidance_status.adapted_period = _directional_guidance.getAdaptedPeriod();
 	fixed_wing_lateral_guidance_status.wind_est_valid = _wind_valid;
 
 	_fixed_wing_lateral_guidance_status_pub.publish(fixed_wing_lateral_guidance_status);
@@ -2819,101 +2750,66 @@ lateral-longitudinal controller and and controllers below that (attitude, rate).
 	return 0;
 }
 
-void FixedWingModeManager::initializeGuidanceInterface()
+DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2f &vehicle_pos,
+		const matrix::Vector2f &ground_vel,
+		const matrix::Vector2f &wind_vel,
+		const matrix::Vector2f &unit_path_tangent,
+		const matrix::Vector2f &closest_point_on_path,
+		const float &path_curvature)
 {
-	// 创建所有制导适配器
-	_pure_pursuit_adapter = new PurePursuitAdapter();
-	_los_adapter = new LOSAdapter();
-	_npfg_adapter = new NPFGAdapter();
-	_l1_adapter = new L1Adapter();
+	DirectionalGuidanceOutput sp{};
 
-	// 根据参数选择制导模式
-	updateGuidanceMode();
-
-	_guidance_initialized = true;
-}
-
-void FixedWingModeManager::updateGuidanceMode()
-{
-	int guidance_mode = _param_fw_guidance_mode.get();
-
-	// 如果模式没有改变，不需要重新设置
-	if (_current_guidance_mode == guidance_mode && _guidance_interface != nullptr) {
-		return;
+	float ground_speed = ground_vel.length();
+	
+	// 低速保护
+	if (ground_speed < 2.0f) {
+		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
+		sp.lateral_acceleration_feedforward = 0.0f;
+		return sp;
 	}
 
-	// 根据参数选择制导接口
-	switch (guidance_mode) {
-		case 0: // L1制导
-			_guidance_interface = _l1_adapter;
-			PX4_INFO("使用L1制导控制器");
-			break;
+	// L1制导核心算法
+	// L1距离 = L1周期 * 地速 / (2 * π)
+	float L1_period = _param_fw_l1_period.get();
+	float L1_distance = L1_period * ground_speed / (2.0f * M_PI_F);
+	
+	// 限制L1距离范围
+	L1_distance = constrain(L1_distance, 10.0f, 100.0f);
 
-		case 1: // Pure Pursuit制导
-			_guidance_interface = _pure_pursuit_adapter;
-			// Pure Pursuit参数可以根据需要调整
-			_pure_pursuit_adapter->setLookaheadGain(2.0f);
-			_pure_pursuit_adapter->setMinLookahead(10.0f);
-			_pure_pursuit_adapter->setMaxLookahead(50.0f);
-			PX4_INFO("使用Pure Pursuit制导控制器");
-			break;
+	// 计算L1点（在路径上距离closest_point前方L1_distance的点）
+	matrix::Vector2f L1_point = closest_point_on_path + unit_path_tangent * L1_distance;
 
-		case 2: // LOS制导
-			_guidance_interface = _los_adapter;
-			// LOS参数可以根据需要调整
-			_los_adapter->setLookaheadDistance(20.0f);
-			_los_adapter->setMaxCourseError(math::radians(60.0f));
-			_los_adapter->setEnableWindCompensation(true);
-			PX4_INFO("使用LOS制导控制器");
-			break;
+	// 从飞机到L1点的向量
+	matrix::Vector2f vehicle_to_L1 = L1_point - vehicle_pos;
+	float distance_to_L1 = vehicle_to_L1.length();
 
-		case 3: // NPFG制导
-			_guidance_interface = _npfg_adapter;
-			// 设置NPFG参数到适配器内部的NPFG对象
-			_npfg_adapter->getDirectionalGuidance().setPeriod(_param_npfg_period.get());
-			_npfg_adapter->getDirectionalGuidance().setDamping(_param_npfg_damping.get());
-			_npfg_adapter->getDirectionalGuidance().enablePeriodLB(_param_npfg_en_period_lb.get());
-			_npfg_adapter->getDirectionalGuidance().enablePeriodUB(_param_npfg_en_period_ub.get());
-			_npfg_adapter->getDirectionalGuidance().setRollTimeConst(_param_npfg_roll_time_const.get());
-			_npfg_adapter->getDirectionalGuidance().setSwitchDistanceMultiplier(_param_npfg_switch_distance_multiplier.get());
-			_npfg_adapter->getDirectionalGuidance().setPeriodSafetyFactor(_param_npfg_period_safety_factor.get());
-			PX4_INFO("使用NPFG制导控制器");
-			break;
-
-		default:
-			// 默认使用L1制导
-			_guidance_interface = _l1_adapter;
-			PX4_WARN("未知的制导模式 %d，使用L1制导", guidance_mode);
-			break;
+	// 如果距离太近，直接使用路径切线方向
+	if (distance_to_L1 < 1.0f) {
+		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
+		sp.lateral_acceleration_feedforward = 0.0f;
+		return sp;
 	}
 
-	_current_guidance_mode = guidance_mode;
-}
+	// 计算期望航向（从飞机指向L1点）
+	float desired_course = atan2f(vehicle_to_L1(1), vehicle_to_L1(0));
 
-void FixedWingModeManager::cleanupGuidanceInterface()
-{
-	if (_pure_pursuit_adapter) {
-		delete _pure_pursuit_adapter;
-		_pure_pursuit_adapter = nullptr;
-	}
+	// 当前航向
+	float current_course = atan2f(ground_vel(1), ground_vel(0));
 
-	if (_los_adapter) {
-		delete _los_adapter;
-		_los_adapter = nullptr;
-	}
+	// 计算eta角（飞机航向与L1方向的夹角）
+	float eta = wrap_pi(desired_course - current_course);
 
-	if (_npfg_adapter) {
-		delete _npfg_adapter;
-		_npfg_adapter = nullptr;
-	}
+	// L1制导公式：横向加速度 = 2 * v² * sin(eta) / L1_distance
+	float lateral_acceleration = 2.0f * ground_speed * ground_speed * sinf(eta) / L1_distance;
 
-	if (_l1_adapter) {
-		delete _l1_adapter;
-		_l1_adapter = nullptr;
-	}
+	// 限制横向加速度
+	lateral_acceleration = constrain(lateral_acceleration, -4.0f, 4.0f);
 
-	_guidance_interface = nullptr;
-	_guidance_initialized = false;
+	// 输出
+	sp.course_setpoint = desired_course;
+	sp.lateral_acceleration_feedforward = lateral_acceleration;
+
+	return sp;
 }
 
 extern "C" __EXPORT int fw_mode_manager_main(int argc, char *argv[])
