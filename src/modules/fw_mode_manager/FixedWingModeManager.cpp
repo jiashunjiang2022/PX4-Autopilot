@@ -2565,7 +2565,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 
 	// 根据参数选择制导算法
 	int guidance_mode = _param_fw_guidance_mode.get();
-	
+
 	// 起飞阶段检测：低速或高度较低时使用更保守的控制
 	float ground_speed = ground_vel.length();
 	bool is_takeoff_phase = (ground_speed < 15.0f) || (_local_pos.z > -50.0f); // 假设起飞高度小于50米
@@ -2582,6 +2582,18 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 		// NPFG制导（默认）
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 				       _closest_point_on_path, path_curvature);
+		
+		// 起飞阶段和航点切换时：对NPFG应用保守控制
+		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
+			sp.lateral_acceleration_feedforward *= 0.7f; // NPFG相对保守一些
+		}
+		
+		// 额外的NPFG稳定性保护：限制过大的横向加速度
+		if (PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
+			float max_npfg_accel = math::min(3.0f, ground_speed * 0.3f);
+			sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, 
+									-max_npfg_accel, max_npfg_accel);
+		}
 	}
 
 	return sp;
@@ -2625,6 +2637,18 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
+		
+		// 起飞阶段和航点切换时：对NPFG应用保守控制
+		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
+			sp.lateral_acceleration_feedforward *= 0.7f;
+		}
+		
+		// 额外的NPFG稳定性保护：限制过大的横向加速度
+		if (PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
+			float max_npfg_accel = math::min(3.0f, ground_vel.length() * 0.3f);
+			sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, 
+									-max_npfg_accel, max_npfg_accel);
+		}
 	}
 
 	return sp;
@@ -2661,6 +2685,18 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
+		
+		// 起飞阶段和航点切换时：对NPFG应用保守控制
+		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
+			sp.lateral_acceleration_feedforward *= 0.7f;
+		}
+		
+		// 额外的NPFG稳定性保护：限制过大的横向加速度
+		if (PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
+			float max_npfg_accel = math::min(3.0f, ground_vel.length() * 0.3f);
+			sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, 
+									-max_npfg_accel, max_npfg_accel);
+		}
 	}
 
 	return sp;
@@ -2746,7 +2782,21 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Ve
 		return sp;
 	} else {
 		// NPFG制导（默认）
-		return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
+		DirectionalGuidanceOutput sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
+		
+		// 起飞阶段和航点切换时：对NPFG应用保守控制
+		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
+			sp.lateral_acceleration_feedforward *= 0.7f;
+		}
+		
+		// 额外的NPFG稳定性保护：限制过大的横向加速度
+		if (PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
+			float max_npfg_accel = math::min(3.0f, ground_vel.length() * 0.3f);
+			sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, 
+									-max_npfg_accel, max_npfg_accel);
+		}
+		
+		return sp;
 	}
 }
 
