@@ -2582,17 +2582,17 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 		// NPFG制导（默认）
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 				       _closest_point_on_path, path_curvature);
-		
-		// 起飞阶段和航点切换时：对NPFG应用保守控制
+
+		// 起飞阶段：对NPFG应用轻微的限制
 		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
-			sp.lateral_acceleration_feedforward *= 0.7f; // NPFG相对保守一些
+			// 只在起飞阶段轻微限制，避免破坏NPFG的自适应机制
+			sp.lateral_acceleration_feedforward *= 0.8f;
 		}
 		
-		// 额外的NPFG稳定性保护：限制过大的横向加速度
-		if (PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
-			float max_npfg_accel = math::min(3.0f, ground_speed * 0.3f);
-			sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, 
-									-max_npfg_accel, max_npfg_accel);
+		// 极端情况保护：只在横向加速度过大时限制
+		if (PX4_ISFINITE(sp.lateral_acceleration_feedforward) && 
+		    fabsf(sp.lateral_acceleration_feedforward) > 5.0f) {
+			sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, -5.0f, 5.0f);
 		}
 	}
 
@@ -2637,17 +2637,16 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
-		
-		// 起飞阶段和航点切换时：对NPFG应用保守控制
+
+		// 起飞阶段：对NPFG应用轻微的限制
 		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
-			sp.lateral_acceleration_feedforward *= 0.7f;
+			sp.lateral_acceleration_feedforward *= 0.8f;
 		}
 		
-		// 额外的NPFG稳定性保护：限制过大的横向加速度
-		if (PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
-			float max_npfg_accel = math::min(3.0f, ground_vel.length() * 0.3f);
-			sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, 
-									-max_npfg_accel, max_npfg_accel);
+		// 极端情况保护：只在横向加速度过大时限制
+		if (PX4_ISFINITE(sp.lateral_acceleration_feedforward) && 
+		    fabsf(sp.lateral_acceleration_feedforward) > 5.0f) {
+			sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, -5.0f, 5.0f);
 		}
 	}
 
@@ -2685,17 +2684,16 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
-		
-		// 起飞阶段和航点切换时：对NPFG应用保守控制
+
+		// 起飞阶段：对NPFG应用轻微的限制
 		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
-			sp.lateral_acceleration_feedforward *= 0.7f;
+			sp.lateral_acceleration_feedforward *= 0.8f;
 		}
 		
-		// 额外的NPFG稳定性保护：限制过大的横向加速度
-		if (PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
-			float max_npfg_accel = math::min(3.0f, ground_vel.length() * 0.3f);
-			sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, 
-									-max_npfg_accel, max_npfg_accel);
+		// 极端情况保护：只在横向加速度过大时限制
+		if (PX4_ISFINITE(sp.lateral_acceleration_feedforward) && 
+		    fabsf(sp.lateral_acceleration_feedforward) > 5.0f) {
+			sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, -5.0f, 5.0f);
 		}
 	}
 
@@ -2783,19 +2781,18 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Ve
 	} else {
 		// NPFG制导（默认）
 		DirectionalGuidanceOutput sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
-		
-		// 起飞阶段和航点切换时：对NPFG应用保守控制
+
+		// 起飞阶段：对NPFG应用轻微的限制
 		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
-			sp.lateral_acceleration_feedforward *= 0.7f;
+			sp.lateral_acceleration_feedforward *= 0.8f;
 		}
 		
-		// 额外的NPFG稳定性保护：限制过大的横向加速度
-		if (PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
-			float max_npfg_accel = math::min(3.0f, ground_vel.length() * 0.3f);
-			sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, 
-									-max_npfg_accel, max_npfg_accel);
+		// 极端情况保护：只在横向加速度过大时限制
+		if (PX4_ISFINITE(sp.lateral_acceleration_feedforward) && 
+		    fabsf(sp.lateral_acceleration_feedforward) > 5.0f) {
+			sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, -5.0f, 5.0f);
 		}
-		
+
 		return sp;
 	}
 }
