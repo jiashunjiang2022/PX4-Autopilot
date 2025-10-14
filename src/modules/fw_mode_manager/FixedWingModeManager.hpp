@@ -908,7 +908,9 @@ private:
 	);
 
 	// 制导接口相关成员变量
-	PIDAdapter* _pid_adapter{nullptr};
+	GuidanceInterface* _guidance_interface{nullptr}; // 当前使用的制导接口
+	PurePursuitAdapter* _pure_pursuit_adapter{nullptr};
+	LOSAdapter* _los_adapter{nullptr};
 	NPFGAdapter* _npfg_adapter{nullptr};
 	L1Adapter* _l1_adapter{nullptr};
 

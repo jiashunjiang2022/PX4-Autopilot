@@ -343,16 +343,18 @@ PARAM_DEFINE_FLOAT(FW_L1_ROLL_SLEW, 0.0f);
 /**
  * Guidance Mode Selection
  *
- * Select the guidance algorithm for fixed-wing control:
- * 0: L1 Guidance (default, proven algorithm)
- * 1: PID Guidance (precise control)
- * 2: NPFG Guidance (advanced nonlinear guidance)
+ * Select the guidance algorithm for fixed-wing path following:
+ * 0: L1 - Classic guidance law (default, proven)
+ * 1: Pure Pursuit - Simple geometric path following
+ * 2: LOS (Line-of-Sight) - Robust with wind compensation
+ * 3: NPFG - Advanced nonlinear guidance
  *
  * @min 0
- * @max 2
+ * @max 3
  * @value 0 L1 Guidance
- * @value 1 PID Guidance
- * @value 2 NPFG Guidance
+ * @value 1 Pure Pursuit
+ * @value 2 LOS (Line-of-Sight)
+ * @value 3 NPFG
  * @group FW Lateral Control
  */
 PARAM_DEFINE_INT32(FW_GUIDANCE_MODE, 0);

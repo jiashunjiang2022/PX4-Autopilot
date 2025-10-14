@@ -34,8 +34,10 @@
 # 创建库，包含头文件和实现文件
 px4_add_library(guidance_interface
     GuidanceInterface.hpp
-    PIDAdapter.hpp
-    PIDAdapter.cpp
+    PurePursuitAdapter.hpp
+    PurePursuitAdapter.cpp
+    LOSAdapter.hpp
+    LOSAdapter.cpp
     NPFGAdapter.hpp
     NPFGAdapter.cpp
     L1Adapter.hpp

@@ -36,6 +36,13 @@
 #include <px4_platform_common/events.h>
 #include <uORB/topics/longitudinal_control_configuration.h>
 
+// 制导接口
+#include <lib/guidance_interface/GuidanceInterface.hpp>
+#include <lib/guidance_interface/L1Adapter.hpp>
+#include <lib/guidance_interface/NPFGAdapter.hpp>
+#include <lib/guidance_interface/PurePursuitAdapter.hpp>
+#include <lib/guidance_interface/LOSAdapter.hpp>
+
 using math::constrain;
 using math::max;
 using math::min;
@@ -2815,7 +2822,8 @@ lateral-longitudinal controller and and controllers below that (attitude, rate).
 void FixedWingModeManager::initializeGuidanceInterface()
 {
 	// 创建所有制导适配器
-	_pid_adapter = new PIDAdapter();
+	_pure_pursuit_adapter = new PurePursuitAdapter();
+	_los_adapter = new LOSAdapter();
 	_npfg_adapter = new NPFGAdapter();
 	_l1_adapter = new L1Adapter();
 
@@ -2841,19 +2849,25 @@ void FixedWingModeManager::updateGuidanceMode()
 			PX4_INFO("使用L1制导控制器");
 			break;
 
-		case 1: // PID制导
-			_guidance_interface = _pid_adapter;
-			// 设置PID参数
-			_pid_adapter->setCoursePIDParams(_param_fw_pid_course_kp.get(),
-			                                _param_fw_pid_course_ki.get(),
-			                                _param_fw_pid_course_kd.get());
-			_pid_adapter->setHeadingPIDParams(_param_fw_pid_heading_kp.get(),
-			                                  _param_fw_pid_heading_ki.get(),
-			                                  _param_fw_pid_heading_kd.get());
-			PX4_INFO("使用PID制导控制器");
+		case 1: // Pure Pursuit制导
+			_guidance_interface = _pure_pursuit_adapter;
+			// Pure Pursuit参数可以根据需要调整
+			_pure_pursuit_adapter->setLookaheadGain(2.0f);
+			_pure_pursuit_adapter->setMinLookahead(10.0f);
+			_pure_pursuit_adapter->setMaxLookahead(50.0f);
+			PX4_INFO("使用Pure Pursuit制导控制器");
 			break;
 
-		case 2: // NPFG制导
+		case 2: // LOS制导
+			_guidance_interface = _los_adapter;
+			// LOS参数可以根据需要调整
+			_los_adapter->setLookaheadDistance(20.0f);
+			_los_adapter->setMaxCourseError(math::radians(60.0f));
+			_los_adapter->setEnableWindCompensation(true);
+			PX4_INFO("使用LOS制导控制器");
+			break;
+
+		case 3: // NPFG制导
 			_guidance_interface = _npfg_adapter;
 			// 设置NPFG参数到适配器内部的NPFG对象
 			_npfg_adapter->getDirectionalGuidance().setPeriod(_param_npfg_period.get());
@@ -2878,9 +2892,14 @@ void FixedWingModeManager::updateGuidanceMode()
 
 void FixedWingModeManager::cleanupGuidanceInterface()
 {
-	if (_pid_adapter) {
-		delete _pid_adapter;
-		_pid_adapter = nullptr;
+	if (_pure_pursuit_adapter) {
+		delete _pure_pursuit_adapter;
+		_pure_pursuit_adapter = nullptr;
+	}
+
+	if (_los_adapter) {
+		delete _los_adapter;
+		_los_adapter = nullptr;
 	}
 
 	if (_npfg_adapter) {
