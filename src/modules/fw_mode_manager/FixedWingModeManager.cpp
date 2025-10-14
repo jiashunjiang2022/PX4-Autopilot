@@ -2612,9 +2612,15 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 	_closest_point_on_path = point_on_line_1 + point_1_to_vehicle.dot(unit_path_tangent) * unit_path_tangent;
 
 	const float path_curvature = 0.f;
-	const DirectionalGuidanceOutput sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
+	// 使用统一制导接口
+	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
+
+	// 转换为DirectionalGuidanceOutput
+	DirectionalGuidanceOutput sp;
+	sp.course_setpoint = guidance_output.course_setpoint;
+	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
 
 	return sp;
 }
@@ -2629,9 +2635,15 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 	_closest_point_on_path = point_on_line + point_on_line_to_vehicle.dot(unit_path_tangent) * unit_path_tangent;
 
 	const float path_curvature = 0.f;
-	const DirectionalGuidanceOutput sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
+	// 使用统一制导接口
+	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
+
+	// 转换为DirectionalGuidanceOutput
+	DirectionalGuidanceOutput sp;
+	sp.course_setpoint = guidance_output.course_setpoint;
+	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
 
 	return sp;
 }
@@ -2671,8 +2683,17 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLoiter(const Vector2f &l
 
 	const float path_curvature = loiter_direction_multiplier / radius;
 	_closest_point_on_path = unit_vec_center_to_closest_pt * radius + loiter_center;
-	return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
+	
+	// 使用统一制导接口
+	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 			loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
+	
+	// 转换为DirectionalGuidanceOutput
+	DirectionalGuidanceOutput sp;
+	sp.course_setpoint = guidance_output.course_setpoint;
+	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
+	
+	return sp;
 }
 
 DirectionalGuidanceOutput FixedWingModeManager::navigatePathTangent(const matrix::Vector2f &vehicle_pos,
@@ -2687,9 +2708,18 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePathTangent(const matrix
 
 	const Vector2f unit_path_tangent{tangent_setpoint.normalized()};
 	_closest_point_on_path = position_setpoint;
-	return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(),
+	
+	// 使用统一制导接口
+	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(),
 			position_setpoint,
 			curvature);
+	
+	// 转换为DirectionalGuidanceOutput
+	DirectionalGuidanceOutput sp;
+	sp.course_setpoint = guidance_output.course_setpoint;
+	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
+	
+	return sp;
 }
 
 DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Vector2f &vehicle_pos, float bearing,
@@ -2697,7 +2727,16 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Ve
 {
 	const Vector2f unit_path_tangent = Vector2f{cosf(bearing), sinf(bearing)};
 	_closest_point_on_path = vehicle_pos;
-	return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
+	
+	// 使用统一制导接口
+	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
+	
+	// 转换为DirectionalGuidanceOutput
+	DirectionalGuidanceOutput sp;
+	sp.course_setpoint = guidance_output.course_setpoint;
+	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
+	
+	return sp;
 }
 
 void FixedWingModeManager::publish_lateral_guidance_status(const hrt_abstime now)
@@ -2705,13 +2744,14 @@ void FixedWingModeManager::publish_lateral_guidance_status(const hrt_abstime now
 	fixed_wing_lateral_guidance_status_s fixed_wing_lateral_guidance_status{};
 
 	fixed_wing_lateral_guidance_status.timestamp = now;
-	fixed_wing_lateral_guidance_status.course_setpoint = _directional_guidance.getCourseSetpoint();
-	fixed_wing_lateral_guidance_status.lateral_acceleration_ff = _directional_guidance.getLateralAccelerationSetpoint();
-	fixed_wing_lateral_guidance_status.bearing_feas = _directional_guidance.getBearingFeasibility();
-	fixed_wing_lateral_guidance_status.bearing_feas_on_track = _directional_guidance.getBearingFeasibilityOnTrack();
-	fixed_wing_lateral_guidance_status.signed_track_error = _directional_guidance.getSignedTrackError();
-	fixed_wing_lateral_guidance_status.track_error_bound = _directional_guidance.getTrackErrorBound();
-	fixed_wing_lateral_guidance_status.adapted_period = _directional_guidance.getAdaptedPeriod();
+	// 使用统一制导接口获取状态
+	fixed_wing_lateral_guidance_status.course_setpoint = _guidance_interface->getCourseSetpoint();
+	fixed_wing_lateral_guidance_status.lateral_acceleration_ff = _guidance_interface->getLateralAccelerationSetpoint();
+	fixed_wing_lateral_guidance_status.bearing_feas = _guidance_interface->getBearingFeasibility();
+	fixed_wing_lateral_guidance_status.bearing_feas_on_track = _guidance_interface->getBearingFeasibilityOnTrack();
+	fixed_wing_lateral_guidance_status.signed_track_error = _guidance_interface->getSignedTrackError();
+	fixed_wing_lateral_guidance_status.track_error_bound = _guidance_interface->getTrackErrorBound();
+	fixed_wing_lateral_guidance_status.adapted_period = _guidance_interface->getAdaptedPeriod();
 	fixed_wing_lateral_guidance_status.wind_est_valid = _wind_valid;
 
 	_fixed_wing_lateral_guidance_status_pub.publish(fixed_wing_lateral_guidance_status);
