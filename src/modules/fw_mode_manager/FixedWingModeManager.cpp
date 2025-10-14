@@ -2683,16 +2683,16 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLoiter(const Vector2f &l
 
 	const float path_curvature = loiter_direction_multiplier / radius;
 	_closest_point_on_path = unit_vec_center_to_closest_pt * radius + loiter_center;
-	
+
 	// 使用统一制导接口
 	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 			loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
-	
+
 	// 转换为DirectionalGuidanceOutput
 	DirectionalGuidanceOutput sp;
 	sp.course_setpoint = guidance_output.course_setpoint;
 	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
-	
+
 	return sp;
 }
 
@@ -2708,17 +2708,17 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePathTangent(const matrix
 
 	const Vector2f unit_path_tangent{tangent_setpoint.normalized()};
 	_closest_point_on_path = position_setpoint;
-	
+
 	// 使用统一制导接口
 	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(),
 			position_setpoint,
 			curvature);
-	
+
 	// 转换为DirectionalGuidanceOutput
 	DirectionalGuidanceOutput sp;
 	sp.course_setpoint = guidance_output.course_setpoint;
 	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
-	
+
 	return sp;
 }
 
@@ -2727,15 +2727,15 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Ve
 {
 	const Vector2f unit_path_tangent = Vector2f{cosf(bearing), sinf(bearing)};
 	_closest_point_on_path = vehicle_pos;
-	
+
 	// 使用统一制导接口
 	GuidanceOutput guidance_output = _guidance_interface->guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
-	
+
 	// 转换为DirectionalGuidanceOutput
 	DirectionalGuidanceOutput sp;
 	sp.course_setpoint = guidance_output.course_setpoint;
 	sp.lateral_acceleration_feedforward = guidance_output.lateral_acceleration_feedforward;
-	
+
 	return sp;
 }
 
@@ -2850,6 +2850,14 @@ void FixedWingModeManager::updateGuidanceMode()
 
 		case 2: // NPFG制导
 			_guidance_interface = _npfg_adapter;
+			// 设置NPFG参数到适配器内部的NPFG对象
+			_npfg_adapter->getDirectionalGuidance().setPeriod(_param_npfg_period.get());
+			_npfg_adapter->getDirectionalGuidance().setDamping(_param_npfg_damping.get());
+			_npfg_adapter->getDirectionalGuidance().enablePeriodLB(_param_npfg_en_period_lb.get());
+			_npfg_adapter->getDirectionalGuidance().enablePeriodUB(_param_npfg_en_period_ub.get());
+			_npfg_adapter->getDirectionalGuidance().setRollTimeConst(_param_npfg_roll_time_const.get());
+			_npfg_adapter->getDirectionalGuidance().setSwitchDistanceMultiplier(_param_npfg_switch_distance_multiplier.get());
+			_npfg_adapter->getDirectionalGuidance().setPeriodSafetyFactor(_param_npfg_period_safety_factor.get());
 			PX4_INFO("使用NPFG制导控制器");
 			break;
 
