@@ -54,7 +54,8 @@
 #include <lib/slew_rate/SlewRate.hpp>
 #include <lib/sticks/Sticks.hpp>
 #include <lib/guidance_interface/GuidanceInterface.hpp>
-#include <lib/guidance_interface/PIDAdapter.hpp>
+#include <lib/guidance_interface/PurePursuitAdapter.hpp>
+#include <lib/guidance_interface/LOSAdapter.hpp>
 #include <lib/guidance_interface/NPFGAdapter.hpp>
 #include <lib/guidance_interface/L1Adapter.hpp>
 #include <px4_platform_common/px4_config.h>
