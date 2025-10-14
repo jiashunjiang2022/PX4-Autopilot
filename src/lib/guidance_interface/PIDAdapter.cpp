@@ -53,7 +53,7 @@ GuidanceOutput PIDAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
 
     // 计算到最近点的距离
     float distance_to_path = (curr_pos_local - closest_point_on_path).length();
-    
+
     // 自适应前视距离：基于地速和轨迹误差
     // 当靠近路径时减小前视距离，远离时增大
     float base_lookahead = 20.0f; // 基础前视距离
@@ -62,11 +62,11 @@ GuidanceOutput PIDAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
         10.0f,  // 最小前视距离
         50.0f   // 最大前视距离
     );
-    
+
     // 计算前视点
     matrix::Vector2f lookahead_point = closest_point_on_path + unit_path_tangent * lookahead_distance;
     matrix::Vector2f vehicle_to_lookahead = lookahead_point - curr_pos_local;
-    
+
     // 如果距离太近，直接使用路径切线方向
     if (vehicle_to_lookahead.length() < 1.0f) {
         output.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
@@ -76,20 +76,20 @@ GuidanceOutput PIDAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
         _current_track_error = signed_track_error;
         return output;
     }
-    
+
     float bearing_to_lookahead = atan2f(vehicle_to_lookahead(1), vehicle_to_lookahead(0));
-    
+
     // 计算方位角误差（eta）
     float eta = normalizeAngle(bearing_to_lookahead - current_course);
-    
+
     // 限制eta到±90度（与L1相同）
     eta = math::constrain(eta, -M_PI_F / 2.0f, M_PI_F / 2.0f);
-    
+
     // 使用L1类似的公式计算横向加速度
     // a_lat = K * v^2 / L * sin(eta)
     float K_gain = 2.0f;
     float lateral_acceleration = K_gain * ground_speed * ground_speed / lookahead_distance * sinf(eta);
-    
+
     // 更保守的横向加速度限制
     lateral_acceleration = math::constrain(lateral_acceleration, -3.0f, 3.0f);
 

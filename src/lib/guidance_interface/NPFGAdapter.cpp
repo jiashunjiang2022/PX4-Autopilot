@@ -1,6 +1,8 @@
 #include "NPFGAdapter.hpp"
 #include <matrix/math.hpp>
+#include <lib/mathlib/mathlib.h>
 #include <math.h>
+#include <px4_platform_common/defines.h>
 
 NPFGAdapter::NPFGAdapter()
 {
@@ -16,14 +18,31 @@ GuidanceOutput NPFGAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
 {
     GuidanceOutput output;
 
+    // 检查输入有效性
+    if (!PX4_ISFINITE(curr_pos_local(0)) || !PX4_ISFINITE(curr_pos_local(1)) ||
+        !PX4_ISFINITE(ground_vel(0)) || !PX4_ISFINITE(ground_vel(1)) ||
+        ground_vel.length() < 0.1f) {
+        // 无效输入，返回安全的默认值
+        output.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
+        output.lateral_acceleration_feedforward = 0.0f;
+        return output;
+    }
+
     // 使用NPFG进行路径制导
-    // 调用NPFG的路径制导，参数顺序：curr_pos_local, ground_vel, wind_vel, unit_path_tangent, position_on_path, path_curvature
     DirectionalGuidanceOutput npfg_output = _directional_guidance.guideToPath(curr_pos_local, ground_vel, wind_vel,
                                     unit_path_tangent, closest_point_on_path, path_curvature);
 
-    // 获取制导输出
+    // 获取制导输出并限制
     output.course_setpoint = npfg_output.course_setpoint;
-    output.lateral_acceleration_feedforward = npfg_output.lateral_acceleration_feedforward;
+    output.lateral_acceleration_feedforward = math::constrain(npfg_output.lateral_acceleration_feedforward, -5.0f, 5.0f);
+
+    // 检查输出有效性
+    if (!PX4_ISFINITE(output.course_setpoint)) {
+        output.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
+    }
+    if (!PX4_ISFINITE(output.lateral_acceleration_feedforward)) {
+        output.lateral_acceleration_feedforward = 0.0f;
+    }
 
     return output;
 }
