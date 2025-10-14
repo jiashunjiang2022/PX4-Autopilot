@@ -2553,7 +2553,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 	const Vector2f vehicle_to_waypoint = waypoint_pos - vehicle_pos;
 
 	if (vehicle_to_waypoint.norm() < FLT_EPSILON) {
-		// degenerate case: the vehicle is on top of the single waypoint. (can happen). maintain the last command.
+		// degenerate case: the vehicle is on top of the single waypoint. (can happen). maintain the last npfg command.
 		return DirectionalGuidanceOutput{};
 	}
 
@@ -2561,11 +2561,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 	_closest_point_on_path = waypoint_pos;
 
 	const float path_curvature = 0.f;
-	DirectionalGuidanceOutput sp;
-
-	// 暂时只使用NPFG制导，确保稳定性
-	// TODO: 后续添加L1制导选项
-	sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
+	DirectionalGuidanceOutput sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 				       _closest_point_on_path, path_curvature);
 
 	return sp;
@@ -2588,10 +2584,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 	_closest_point_on_path = point_on_line_1 + point_1_to_vehicle.dot(unit_path_tangent) * unit_path_tangent;
 
 	const float path_curvature = 0.f;
-	DirectionalGuidanceOutput sp;
-
-	// 暂时只使用NPFG制导，确保稳定性
-	sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
+	const DirectionalGuidanceOutput sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
 
@@ -2608,10 +2601,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 	_closest_point_on_path = point_on_line + point_on_line_to_vehicle.dot(unit_path_tangent) * unit_path_tangent;
 
 	const float path_curvature = 0.f;
-	DirectionalGuidanceOutput sp;
-
-	// 暂时只使用NPFG制导，确保稳定性
-	sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
+	const DirectionalGuidanceOutput sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
 
@@ -2653,8 +2643,6 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLoiter(const Vector2f &l
 
 	const float path_curvature = loiter_direction_multiplier / radius;
 	_closest_point_on_path = unit_vec_center_to_closest_pt * radius + loiter_center;
-
-	// 暂时只使用NPFG制导，确保稳定性
 	return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 			loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
 }
@@ -2671,10 +2659,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePathTangent(const matrix
 
 	const Vector2f unit_path_tangent{tangent_setpoint.normalized()};
 	_closest_point_on_path = position_setpoint;
-
-	// 暂时只使用NPFG制导，确保稳定性
 	return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(),
-			position_setpoint, curvature);
+			position_setpoint,
+			curvature);
 }
 
 DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Vector2f &vehicle_pos, float bearing,
@@ -2682,8 +2669,6 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Ve
 {
 	const Vector2f unit_path_tangent = Vector2f{cosf(bearing), sinf(bearing)};
 	_closest_point_on_path = vehicle_pos;
-
-	// 暂时只使用NPFG制导，确保稳定性
 	return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
 }
 
@@ -2752,68 +2737,6 @@ lateral-longitudinal controller and and controllers below that (attitude, rate).
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
 	return 0;
-}
-
-DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2f &vehicle_pos,
-		const matrix::Vector2f &ground_vel,
-		const matrix::Vector2f &wind_vel,
-		const matrix::Vector2f &unit_path_tangent,
-		const matrix::Vector2f &closest_point_on_path,
-		const float &path_curvature)
-{
-	DirectionalGuidanceOutput sp{};
-
-	float ground_speed = ground_vel.length();
-
-	// 低速保护
-	if (ground_speed < 2.0f) {
-		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
-		sp.lateral_acceleration_feedforward = 0.0f;
-		return sp;
-	}
-
-	// L1制导核心算法
-	// L1距离 = L1周期 * 地速 / (2 * π)
-	float L1_period = _param_fw_l1_period.get();
-	float L1_distance = L1_period * ground_speed / (2.0f * M_PI_F);
-
-	// 限制L1距离范围
-	L1_distance = constrain(L1_distance, 10.0f, 100.0f);
-
-	// 计算L1点（在路径上距离closest_point前方L1_distance的点）
-	matrix::Vector2f L1_point = closest_point_on_path + unit_path_tangent * L1_distance;
-
-	// 从飞机到L1点的向量
-	matrix::Vector2f vehicle_to_L1 = L1_point - vehicle_pos;
-	float distance_to_L1 = vehicle_to_L1.length();
-
-	// 如果距离太近，直接使用路径切线方向
-	if (distance_to_L1 < 1.0f) {
-		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
-		sp.lateral_acceleration_feedforward = 0.0f;
-		return sp;
-	}
-
-	// 计算期望航向（从飞机指向L1点）
-	float desired_course = atan2f(vehicle_to_L1(1), vehicle_to_L1(0));
-
-	// 当前航向
-	float current_course = atan2f(ground_vel(1), ground_vel(0));
-
-	// 计算eta角（飞机航向与L1方向的夹角）
-	float eta = wrap_pi(desired_course - current_course);
-
-	// L1制导公式：横向加速度 = 2 * v² * sin(eta) / L1_distance
-	float lateral_acceleration = 2.0f * ground_speed * ground_speed * sinf(eta) / L1_distance;
-
-	// 限制横向加速度
-	lateral_acceleration = constrain(lateral_acceleration, -4.0f, 4.0f);
-
-	// 输出
-	sp.course_setpoint = desired_course;
-	sp.lateral_acceleration_feedforward = lateral_acceleration;
-
-	return sp;
 }
 
 extern "C" __EXPORT int fw_mode_manager_main(int argc, char *argv[])
