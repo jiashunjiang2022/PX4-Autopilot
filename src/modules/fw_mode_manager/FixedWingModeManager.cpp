@@ -2567,12 +2567,13 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 	int guidance_mode = _param_fw_guidance_mode.get();
 	
 	// 起飞阶段检测：低速或高度较低时使用更保守的控制
+	float ground_speed = ground_vel.length();
 	bool is_takeoff_phase = (ground_speed < 15.0f) || (_local_pos.z > -50.0f); // 假设起飞高度小于50米
-	
+
 	if (guidance_mode == 1) {
 		// L1制导
 		sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
-		
+
 		// 起飞阶段：进一步限制横向加速度
 		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
 			sp.lateral_acceleration_feedforward *= 0.5f; // 减半横向加速度
@@ -2607,14 +2608,14 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 
 	// 根据参数选择制导算法
 	int guidance_mode = _param_fw_guidance_mode.get();
-	
+
 	// 起飞阶段检测：低速或高度较低时使用更保守的控制
 	bool is_takeoff_phase = (ground_vel.length() < 15.0f) || (_local_pos.z > -50.0f);
-	
+
 	if (guidance_mode == 1) {
 		// L1制导
 		sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
-		
+
 		// 起飞阶段：进一步限制横向加速度
 		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
 			sp.lateral_acceleration_feedforward *= 0.5f;
@@ -2643,14 +2644,14 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 
 	// 根据参数选择制导算法
 	int guidance_mode = _param_fw_guidance_mode.get();
-	
+
 	// 起飞阶段检测：低速或高度较低时使用更保守的控制
 	bool is_takeoff_phase = (ground_vel.length() < 15.0f) || (_local_pos.z > -50.0f);
-	
+
 	if (guidance_mode == 1) {
 		// L1制导
 		sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
-		
+
 		// 起飞阶段：进一步限制横向加速度
 		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
 			sp.lateral_acceleration_feedforward *= 0.5f;
@@ -2729,19 +2730,19 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Ve
 
 	// 根据参数选择制导算法
 	int guidance_mode = _param_fw_guidance_mode.get();
-	
+
 	// 起飞阶段检测
 	bool is_takeoff_phase = (ground_vel.length() < 15.0f) || (_local_pos.z > -50.0f);
-	
+
 	if (guidance_mode == 1) {
 		// L1制导
 		DirectionalGuidanceOutput sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
-		
+
 		// 起飞阶段：进一步限制横向加速度
 		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
 			sp.lateral_acceleration_feedforward *= 0.5f;
 		}
-		
+
 		return sp;
 	} else {
 		// NPFG制导（默认）
