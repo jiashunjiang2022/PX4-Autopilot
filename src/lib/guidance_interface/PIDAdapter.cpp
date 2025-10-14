@@ -57,36 +57,34 @@ GuidanceOutput PIDAdapter::guideToPath(const matrix::Vector2f &curr_pos_local,
     
     _last_time = current_time;
 
-    // 轨迹误差修正（简单的比例控制）
-    float track_correction = math::constrain(signed_track_error * 0.05f, -math::radians(20.0f), math::radians(20.0f));
-
-    // PID控制航向误差
-    _course_integral = math::constrain(_course_integral + course_error * dt, -1.0f, 1.0f);
-    float course_derivative = (course_error - _course_error_prev) / dt;
-    _course_error_prev = course_error;
-
-    float course_correction = _course_kp * course_error +
-                            _course_ki * _course_integral +
-                            _course_kd * course_derivative +
-                            track_correction;
-
-    // 限制航向修正角度（更保守）
-    course_correction = math::constrain(course_correction, -math::radians(30.0f), math::radians(30.0f));
-
-    // 计算横向加速度（使用简化的向心加速度公式）
-    // 假设转弯半径 R = v / ω, 其中 ω 是角速度
-    // 横向加速度 a = v^2 / R = v * ω
-    float turn_rate = course_correction / dt; // 角速度
-    float lateral_acceleration = ground_speed * turn_rate;
+    // 计算目标方位角（考虑轨迹误差）
+    // 使用类似L1的逻辑：目标点在路径上前方一定距离
+    float lookahead_distance = 15.0f; // 前视距离，类似L1的period * ground_speed
+    matrix::Vector2f lookahead_point = closest_point_on_path + unit_path_tangent * lookahead_distance;
+    matrix::Vector2f vehicle_to_lookahead = lookahead_point - curr_pos_local;
+    float bearing_to_lookahead = atan2f(vehicle_to_lookahead(1), vehicle_to_lookahead(0));
     
-    // 限制横向加速度（更保守的限制）
-    lateral_acceleration = math::constrain(lateral_acceleration, -3.0f, 3.0f);
+    // 计算方位角误差（eta）
+    float eta = normalizeAngle(bearing_to_lookahead - current_course);
+    
+    // 限制eta到±90度（与L1相同）
+    eta = math::constrain(eta, -M_PI_F / 2.0f, M_PI_F / 2.0f);
+    
+    // 使用L1类似的公式计算横向加速度
+    // a_lat = K * v^2 / L * sin(eta)
+    // 其中 K 是增益，L 是特征长度
+    float K_gain = 2.0f; // 类似L1的增益
+    float characteristic_length = 20.0f; // 类似L1的distance
+    float lateral_acceleration = K_gain * ground_speed * ground_speed / characteristic_length * sinf(eta);
+    
+    // 限制横向加速度
+    lateral_acceleration = math::constrain(lateral_acceleration, -4.0f, 4.0f);
 
-    // 输出目标航向（不是修正后的航向，而是路径航向）
-    output.course_setpoint = path_course;
+    // 输出目标航向（方位角）
+    output.course_setpoint = bearing_to_lookahead;
     output.lateral_acceleration_feedforward = lateral_acceleration;
 
-    _current_course_setpoint = path_course;
+    _current_course_setpoint = bearing_to_lookahead;
     _current_lateral_acceleration = lateral_acceleration;
     _current_track_error = signed_track_error;
 
