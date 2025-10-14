@@ -11,7 +11,6 @@ px4_add_module(
         SRCS
         FwLateralLongitudinalControl.cpp
         FwLateralLongitudinalControl.hpp
-        fw_lat_long_params.c
         DEPENDS
         ${CONTROL_DEPENDENCIES}
 )
