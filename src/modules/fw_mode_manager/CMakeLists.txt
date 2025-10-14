@@ -43,7 +43,6 @@ set(POSCONTROL_DEPENDENCIES
 	motion_planning
 	performance_model
 	Sticks
-	guidance_interface  # 新增
 )
 
 if(CONFIG_FIGURE_OF_EIGHT)

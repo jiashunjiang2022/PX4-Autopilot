@@ -1,7 +1,6 @@
 set(CONTROL_DEPENDENCIES
         npfg
         tecs
-        guidance_interface  # 新增
 )
 
 
