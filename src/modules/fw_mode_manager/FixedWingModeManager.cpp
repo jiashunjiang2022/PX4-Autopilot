@@ -2566,9 +2566,17 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 	// 根据参数选择制导算法
 	int guidance_mode = _param_fw_guidance_mode.get();
 	
+	// 起飞阶段检测：低速或高度较低时使用更保守的控制
+	bool is_takeoff_phase = (ground_speed < 15.0f) || (_local_pos.z > -50.0f); // 假设起飞高度小于50米
+	
 	if (guidance_mode == 1) {
 		// L1制导
 		sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
+		
+		// 起飞阶段：进一步限制横向加速度
+		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
+			sp.lateral_acceleration_feedforward *= 0.5f; // 减半横向加速度
+		}
 	} else {
 		// NPFG制导（默认）
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
@@ -2600,9 +2608,17 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 	// 根据参数选择制导算法
 	int guidance_mode = _param_fw_guidance_mode.get();
 	
+	// 起飞阶段检测：低速或高度较低时使用更保守的控制
+	bool is_takeoff_phase = (ground_vel.length() < 15.0f) || (_local_pos.z > -50.0f);
+	
 	if (guidance_mode == 1) {
 		// L1制导
 		sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
+		
+		// 起飞阶段：进一步限制横向加速度
+		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
+			sp.lateral_acceleration_feedforward *= 0.5f;
+		}
 	} else {
 		// NPFG制导（默认）
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
@@ -2628,9 +2644,17 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 	// 根据参数选择制导算法
 	int guidance_mode = _param_fw_guidance_mode.get();
 	
+	// 起飞阶段检测：低速或高度较低时使用更保守的控制
+	bool is_takeoff_phase = (ground_vel.length() < 15.0f) || (_local_pos.z > -50.0f);
+	
 	if (guidance_mode == 1) {
 		// L1制导
 		sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
+		
+		// 起飞阶段：进一步限制横向加速度
+		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
+			sp.lateral_acceleration_feedforward *= 0.5f;
+		}
 	} else {
 		// NPFG制导（默认）
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
@@ -2706,9 +2730,19 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Ve
 	// 根据参数选择制导算法
 	int guidance_mode = _param_fw_guidance_mode.get();
 	
+	// 起飞阶段检测
+	bool is_takeoff_phase = (ground_vel.length() < 15.0f) || (_local_pos.z > -50.0f);
+	
 	if (guidance_mode == 1) {
 		// L1制导
-		return navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
+		DirectionalGuidanceOutput sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
+		
+		// 起飞阶段：进一步限制横向加速度
+		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
+			sp.lateral_acceleration_feedforward *= 0.5f;
+		}
+		
+		return sp;
 	} else {
 		// NPFG制导（默认）
 		return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
@@ -2725,8 +2759,8 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	DirectionalGuidanceOutput sp{};
 	float ground_speed = ground_vel.length();
 
-	// 低速保护
-	if (ground_speed < 2.0f) {
+	// 低速保护 - 提高阈值，避免起飞阶段不稳定
+	if (ground_speed < 5.0f) {
 		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
 		sp.lateral_acceleration_feedforward = 0.0f;
 		return sp;
@@ -2737,8 +2771,8 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	float L1_period = _param_fw_l1_period.get();
 	float L1_distance = L1_period * ground_speed / (2.0f * M_PI_F);
 
-	// 限制L1距离范围
-	L1_distance = constrain(L1_distance, 10.0f, 100.0f);
+	// 限制L1距离范围 - 减小范围，提高稳定性
+	L1_distance = constrain(L1_distance, 5.0f, 50.0f);
 
 	// 计算L1点（在路径上距离closest_point前方L1_distance的点）
 	matrix::Vector2f L1_point = closest_point_on_path + unit_path_tangent * L1_distance;
@@ -2748,7 +2782,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	float distance_to_L1 = vehicle_to_L1.length();
 
 	// 如果距离太近，直接使用路径切线方向
-	if (distance_to_L1 < 1.0f) {
+	if (distance_to_L1 < 2.0f) {
 		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
 		sp.lateral_acceleration_feedforward = 0.0f;
 		return sp;
@@ -2766,8 +2800,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	// L1制导公式：横向加速度 = 2 * v² * sin(eta) / L1_distance
 	float lateral_acceleration = 2.0f * ground_speed * ground_speed * sinf(eta) / L1_distance;
 
-	// 限制横向加速度
-	lateral_acceleration = constrain(lateral_acceleration, -4.0f, 4.0f);
+	// 限制横向加速度 - 根据速度动态调整限制
+	float max_lateral_accel = math::min(4.0f, ground_speed * 0.5f);
+	lateral_acceleration = constrain(lateral_acceleration, -max_lateral_accel, max_lateral_accel);
 
 	// 输出
 	sp.course_setpoint = desired_course;
