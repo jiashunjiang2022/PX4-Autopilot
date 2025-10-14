@@ -49,10 +49,6 @@
 #include <lib/tecs/TECS.hpp>
 #include <lib/mathlib/mathlib.h>
 #include <lib/perf/perf_counter.h>
-#include "lib/guidance_interface/GuidanceInterface.hpp"
-#include "lib/guidance_interface/NPFGAdapter.hpp"
-#include "lib/guidance_interface/PIDAdapter.hpp"
-#include "lib/guidance_interface/L1Adapter.hpp"
 #include <px4_platform_common/px4_config.h>
 #include <px4_platform_common/defines.h>
 #include <px4_platform_common/module.h>
@@ -109,9 +105,6 @@ public:
 
 private:
 	void Run() override;
-
-	// 制导模式管理
-	void updateGuidanceMode();
 
 	uORB::SubscriptionCallbackWorkItem _local_pos_sub{this, ORB_ID(vehicle_local_position)};
 
@@ -175,22 +168,7 @@ private:
 		(ParamFloat<px4::params::FW_LND_THRTC_SC>) _param_fw_thrtc_sc,
 		(ParamFloat<px4::params::FW_T_THR_LOW_HGT>) _param_fw_t_thr_low_hgt,
 		(ParamFloat<px4::params::FW_WIND_ARSP_SC>) _param_fw_wind_arsp_sc,
-		(ParamFloat<px4::params::FW_GND_SPD_MIN>) _param_fw_gnd_spd_min,
-		// 在DEFINE_PARAMETERS中添加PID参数：
-		(ParamFloat<px4::params::FW_PID_CRS_KP>) _param_fw_pid_crs_kp,
-		(ParamFloat<px4::params::FW_PID_CRS_KI>) _param_fw_pid_crs_ki,
-		(ParamFloat<px4::params::FW_PID_CRS_KD>) _param_fw_pid_crs_kd,
-		(ParamFloat<px4::params::FW_PID_HDG_KP>) _param_fw_pid_hdg_kp,
-		(ParamFloat<px4::params::FW_PID_HDG_KI>) _param_fw_pid_hdg_ki,
-		(ParamFloat<px4::params::FW_PID_HDG_KD>) _param_fw_pid_hdg_kd,
-		(ParamInt<px4::params::FW_PID_MODE>) _param_fw_pid_mode,
-		// L1控制器参数
-		(ParamFloat<px4::params::FW_L1_PERIOD>) _param_fw_l1_period,
-		(ParamFloat<px4::params::FW_L1_DAMPING>) _param_fw_l1_damping,
-		(ParamFloat<px4::params::FW_L1_ROLL_LIM>) _param_fw_l1_roll_lim,
-		(ParamFloat<px4::params::FW_L1_ROLL_SLEW>) _param_fw_l1_roll_slew,
-		// 制导模式选择
-		(ParamInt<px4::params::FW_GUIDANCE_MODE>) _param_fw_guidance_mode
+		(ParamFloat<px4::params::FW_GND_SPD_MIN>) _param_fw_gnd_spd_min
 	);
 
 	hrt_abstime _last_time_loop_ran{};
@@ -227,11 +205,6 @@ private:
 
 	PerformanceModel _performance_model;
 	TECS _tecs;
-	// 制导接口系统
-	NPFGAdapter _npfg_adapter;
-	PIDAdapter _pid_adapter;
-	L1Adapter _l1_adapter;
-	GuidanceInterface* _current_guidance{&_npfg_adapter}; // 默认使用NPFG
 	CourseToAirspeedRefMapper _course_to_airspeed;
 	AirspeedDirectionController _airspeed_direction_control;
 
