@@ -1975,6 +1975,11 @@ FixedWingModeManager::Run()
 
 	perf_begin(_loop_perf);
 
+	// 初始化制导接口（只执行一次）
+	if (!_guidance_initialized) {
+		initializeGuidanceInterface();
+	}
+
 	_vehicle_status_sub.update(&_vehicle_status);
 
 	/* only run controller if position changed and we are not running an external mode*/
