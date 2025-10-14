@@ -819,6 +819,24 @@ private:
 			const matrix::Vector2f &ground_vel,
 			const matrix::Vector2f &wind_vel);
 
+	/*
+	 * L1 Guidance Law implementation
+	 * Classic L1 guidance for path following
+	 *
+	 * @param[in] vehicle_pos Vehicle position in local coordinates. (N,E) [m]
+	 * @param[in] ground_vel Vehicle ground velocity vector [m/s]
+	 * @param[in] wind_vel Wind velocity vector [m/s]
+	 * @param[in] unit_path_tangent Unit vector along the path direction
+	 * @param[in] closest_point_on_path Closest point on path to vehicle
+	 * @param[in] path_curvature Path curvature [1/m]
+	 */
+	DirectionalGuidanceOutput navigateL1(const matrix::Vector2f &vehicle_pos,
+			const matrix::Vector2f &ground_vel,
+			const matrix::Vector2f &wind_vel,
+			const matrix::Vector2f &unit_path_tangent,
+			const matrix::Vector2f &closest_point_on_path,
+			const float &path_curvature);
+
 	void control_idle();
 	void publish_lateral_guidance_status(const hrt_abstime now);
 
@@ -834,6 +852,9 @@ private:
 		(ParamFloat<px4::params::NPFG_ROLL_TC>) _param_npfg_roll_time_const,
 		(ParamFloat<px4::params::NPFG_SW_DST_MLT>) _param_npfg_switch_distance_multiplier,
 		(ParamFloat<px4::params::NPFG_PERIOD_SF>) _param_npfg_period_safety_factor,
+
+		(ParamInt<px4::params::FW_GUIDANCE_MODE>) _param_fw_guidance_mode,
+		(ParamFloat<px4::params::FW_L1_PERIOD>) _param_fw_l1_period,
 
 		(ParamFloat<px4::params::FW_LND_AIRSPD>) _param_fw_lnd_airspd,
 		(ParamFloat<px4::params::FW_LND_ANG>) _param_fw_lnd_ang,

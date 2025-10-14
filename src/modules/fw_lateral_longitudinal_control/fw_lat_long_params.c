@@ -27,8 +27,31 @@ PARAM_DEFINE_FLOAT(FW_PN_R_SLEW_MAX, 90.0f);
  */
 PARAM_DEFINE_FLOAT(FW_GND_SPD_MIN, 5.0f);
 
+/**
+ * Guidance Algorithm Selection
+ * Select the guidance algorithm for fixed-wing path following:
+ * 0: NPFG - Advanced nonlinear guidance (default, proven)
+ * 1: L1 - Classic L1 guidance law
+ * @min 0
+ * @max 1
+ * @value 0 NPFG
+ * @value 1 L1
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_INT32(FW_GUIDANCE_MODE, 0);
 
-
+/**
+ * L1 Period
+ * The L1 period is the characteristic time constant of the L1 guidance law.
+ * Higher values result in a more damped response but slower convergence.
+ * @unit s
+ * @min 10.0
+ * @max 50.0
+ * @decimal 1
+ * @increment 1.0
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_L1_PERIOD, 25.0f);
 
 // ----------longitudinal params----------
 
