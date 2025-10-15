@@ -2580,20 +2580,6 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 		}
 	} else {
 		// NPFG制导（默认）
-		// 基于NPFG设计原理的优化：通过调整参数而不是修改输出
-		if (is_takeoff_phase) {
-			// 起飞阶段：调整NPFG参数以提高稳定性
-			// 增加周期和阻尼，使控制更保守
-			_directional_guidance.setPeriod(15.0f);  // 增加周期（默认10.0f）
-			_directional_guidance.setDamping(0.8f);  // 增加阻尼（默认0.7071f）
-			_directional_guidance.setRollTimeConst(0.5f);  // 设置滚转时间常数
-		} else {
-			// 正常飞行：使用默认参数
-			_directional_guidance.setPeriod(10.0f);
-			_directional_guidance.setDamping(0.7071f);
-			_directional_guidance.setRollTimeConst(0.0f);
-		}
-		
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 				       _closest_point_on_path, path_curvature);
 	}
@@ -2860,8 +2846,18 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	float max_lateral_accel = math::min(4.0f, ground_speed * 0.5f);
 	lateral_acceleration = constrain(lateral_acceleration, -max_lateral_accel, max_lateral_accel);
 
-	// 输出
-	sp.course_setpoint = desired_course;
+	// 航向平滑处理：避免突然的180度翻转
+	// 如果期望航向与当前航向相差超过90度，使用更保守的航向
+	float course_diff = wrap_pi(desired_course - current_course);
+	if (fabsf(course_diff) > M_PI_F / 2.0f) {
+		// 如果角度差太大，使用当前航向加上限制的角度变化
+		float max_course_change = M_PI_F / 4.0f; // 最大45度变化
+		float course_change = constrain(course_diff, -max_course_change, max_course_change);
+		sp.course_setpoint = wrap_pi(current_course + course_change);
+	} else {
+		sp.course_setpoint = desired_course;
+	}
+	
 	sp.lateral_acceleration_feedforward = lateral_acceleration;
 
 	return sp;
