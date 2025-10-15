@@ -2586,15 +2586,32 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 		}
 	} else {
 		// NPFG制导（默认）
+		// 起飞阶段检测：低速或高度较低时使用更保守的控制
+		float ground_speed = ground_vel.length();
+		bool is_takeoff_phase = (ground_speed < 15.0f) || (_local_pos.z > -50.0f);
+		
+		if (is_takeoff_phase) {
+			// 起飞阶段：临时调整NPFG参数以提高稳定性
+			_directional_guidance.setPeriod(15.0f);  // 增加周期
+			_directional_guidance.setDamping(0.8f);  // 增加阻尼
+			_directional_guidance.setRollTimeConst(0.8f);  // 增加滚转时间常数
+		} else {
+			// 正常飞行：恢复默认参数
+			_directional_guidance.setPeriod(_param_npfg_period.get());
+			_directional_guidance.setDamping(_param_npfg_damping.get());
+			_directional_guidance.setRollTimeConst(_param_npfg_roll_time_const.get());
+		}
+		
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 				       _closest_point_on_path, path_curvature);
 
-		// NPFG输出安全检查 - 只检查极端值
+		// NPFG输出安全检查 - 起飞阶段更严格
 		if (PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
-			// 只限制极端大的横向加速度
-			if (fabsf(sp.lateral_acceleration_feedforward) > 5.0f) {
-				sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, -5.0f, 5.0f);
-				PX4_WARN("NPFG lateral acceleration limited to %.2f m/s²", (double)sp.lateral_acceleration_feedforward);
+			float max_lateral_accel = is_takeoff_phase ? 2.5f : 5.0f;
+			if (fabsf(sp.lateral_acceleration_feedforward) > max_lateral_accel) {
+				sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, -max_lateral_accel, max_lateral_accel);
+				PX4_WARN("NPFG lateral acceleration limited to %.2f m/s² (takeoff: %s)", 
+					(double)sp.lateral_acceleration_feedforward, is_takeoff_phase ? "yes" : "no");
 			}
 		}
 	}
@@ -2716,10 +2733,10 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLoiter(const Vector2f &l
 
 	const float path_curvature = loiter_direction_multiplier / radius;
 	_closest_point_on_path = unit_vec_center_to_closest_pt * radius + loiter_center;
-	
+
 	// 根据参数选择制导算法
 	int guidance_mode = _param_fw_guidance_mode.get();
-	
+
 	if (guidance_mode == 1) {
 		// L1制导
 		return navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
@@ -2743,10 +2760,10 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePathTangent(const matrix
 
 	const Vector2f unit_path_tangent{tangent_setpoint.normalized()};
 	_closest_point_on_path = position_setpoint;
-	
+
 	// 根据参数选择制导算法
 	int guidance_mode = _param_fw_guidance_mode.get();
-	
+
 	if (guidance_mode == 1) {
 		// L1制导
 		return navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
@@ -2811,8 +2828,8 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	DirectionalGuidanceOutput sp{};
 	float ground_speed = ground_vel.length();
 
-	// 低速保护 - 提高阈值，避免起飞阶段不稳定
-	if (ground_speed < 5.0f) {
+	// 低速保护 - 降低阈值，让L1制导在起飞阶段也能工作
+	if (ground_speed < 3.0f) {
 		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
 		sp.lateral_acceleration_feedforward = 0.0f;
 		return sp;
@@ -2823,8 +2840,8 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	float L1_period = _param_fw_l1_period.get();
 	float L1_distance = L1_period * ground_speed / (2.0f * M_PI_F);
 
-	// 限制L1距离范围 - 减小范围，提高稳定性
-	L1_distance = constrain(L1_distance, 5.0f, 50.0f);
+	// 限制L1距离范围 - 增加最小距离，提高起飞阶段稳定性
+	L1_distance = constrain(L1_distance, 15.0f, 80.0f);
 
 	// 计算L1点（在路径上距离closest_point前方L1_distance的点）
 	matrix::Vector2f L1_point = closest_point_on_path + unit_path_tangent * L1_distance;
@@ -2867,8 +2884,15 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	// L1制导公式：横向加速度 = 2 * v² * sin(eta) / L1_distance
 	float lateral_acceleration = 2.0f * ground_speed * ground_speed * sinf(eta) / L1_distance;
 
-	// 限制横向加速度 - 根据速度动态调整限制
-	float max_lateral_accel = math::min(4.0f, ground_speed * 0.5f);
+	// 限制横向加速度 - 根据速度动态调整限制，起飞阶段更保守
+	float max_lateral_accel;
+	if (ground_speed < 15.0f) {
+		// 起飞阶段：更保守的限制
+		max_lateral_accel = math::min(2.0f, ground_speed * 0.2f);
+	} else {
+		// 正常飞行：标准限制
+		max_lateral_accel = math::min(4.0f, ground_speed * 0.5f);
+	}
 	lateral_acceleration = constrain(lateral_acceleration, -max_lateral_accel, max_lateral_accel);
 
 	sp.lateral_acceleration_feedforward = lateral_acceleration;
