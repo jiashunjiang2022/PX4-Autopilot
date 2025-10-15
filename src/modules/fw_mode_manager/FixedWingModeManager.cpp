@@ -2586,10 +2586,8 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 		}
 	} else {
 		// NPFG制导（默认）
-		// 起飞阶段检测：低速或高度较低时使用更保守的控制
-		float ground_speed = ground_vel.length();
-		bool is_takeoff_phase = (ground_speed < 15.0f) || (_local_pos.z > -50.0f);
-		
+		// 使用已声明的ground_speed和is_takeoff_phase变量
+
 		if (is_takeoff_phase) {
 			// 起飞阶段：临时调整NPFG参数以提高稳定性
 			_directional_guidance.setPeriod(15.0f);  // 增加周期
@@ -2601,7 +2599,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 			_directional_guidance.setDamping(_param_npfg_damping.get());
 			_directional_guidance.setRollTimeConst(_param_npfg_roll_time_const.get());
 		}
-		
+
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 				       _closest_point_on_path, path_curvature);
 
@@ -2610,7 +2608,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 			float max_lateral_accel = is_takeoff_phase ? 2.5f : 5.0f;
 			if (fabsf(sp.lateral_acceleration_feedforward) > max_lateral_accel) {
 				sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, -max_lateral_accel, max_lateral_accel);
-				PX4_WARN("NPFG lateral acceleration limited to %.2f m/s² (takeoff: %s)", 
+				PX4_WARN("NPFG lateral acceleration limited to %.2f m/s² (takeoff: %s)",
 					(double)sp.lateral_acceleration_feedforward, is_takeoff_phase ? "yes" : "no");
 			}
 		}
