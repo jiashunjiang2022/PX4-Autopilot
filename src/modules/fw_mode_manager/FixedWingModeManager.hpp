@@ -381,10 +381,7 @@ private:
 
 	// nonlinear path following guidance - lateral-directional position control
 	DirectionalGuidance _directional_guidance;
-	
-	// 航向保护机制
-	float _last_course_setpoint{NAN};
-	hrt_abstime _last_course_update_time{0};
+
 
 	// LANDING GEAR
 	int8_t _new_landing_gear_position{landing_gear_s::GEAR_KEEP};
@@ -840,9 +837,7 @@ private:
 			const matrix::Vector2f &unit_path_tangent,
 			const matrix::Vector2f &closest_point_on_path,
 			const float &path_curvature);
-	
-	// 航向保护机制
-	float limitCourseChangeRate(float new_course_setpoint, float current_course, float dt);
+
 
 	void control_idle();
 	void publish_lateral_guidance_status(const hrt_abstime now);
