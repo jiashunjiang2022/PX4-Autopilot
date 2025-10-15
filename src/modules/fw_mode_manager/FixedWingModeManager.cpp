@@ -2716,8 +2716,19 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLoiter(const Vector2f &l
 
 	const float path_curvature = loiter_direction_multiplier / radius;
 	_closest_point_on_path = unit_vec_center_to_closest_pt * radius + loiter_center;
-	return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
-			loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
+	
+	// 根据参数选择制导算法
+	int guidance_mode = _param_fw_guidance_mode.get();
+	
+	if (guidance_mode == 1) {
+		// L1制导
+		return navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
+				loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
+	} else {
+		// NPFG制导（默认）
+		return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
+				loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
+	}
 }
 
 DirectionalGuidanceOutput FixedWingModeManager::navigatePathTangent(const matrix::Vector2f &vehicle_pos,
@@ -2732,9 +2743,19 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePathTangent(const matrix
 
 	const Vector2f unit_path_tangent{tangent_setpoint.normalized()};
 	_closest_point_on_path = position_setpoint;
-	return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(),
-			position_setpoint,
-			curvature);
+	
+	// 根据参数选择制导算法
+	int guidance_mode = _param_fw_guidance_mode.get();
+	
+	if (guidance_mode == 1) {
+		// L1制导
+		return navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
+				position_setpoint, curvature);
+	} else {
+		// NPFG制导（默认）
+		return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(),
+				position_setpoint, curvature);
+	}
 }
 
 DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Vector2f &vehicle_pos, float bearing,
@@ -2836,7 +2857,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 		float max_course_change = M_PI_F / 4.0f; // 最大45度变化
 		float course_change = constrain(course_diff, -max_course_change, max_course_change);
 		sp.course_setpoint = wrap_pi(current_course + course_change);
-		
+
 		// 重新计算eta角用于横向加速度计算
 		eta = wrap_pi(sp.course_setpoint - current_course);
 	} else {
