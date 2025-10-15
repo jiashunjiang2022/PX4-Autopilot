@@ -120,7 +120,7 @@ PARAM_DEFINE_FLOAT(FW_T_THR_INTEG, 0.02f);
  * @increment 0.05
  * @group FW Longitudinal Control
  */
-PARAM_DEFINE_FLOAT(FW_T_I_GAIN_PIT, 0.1f);
+PARAM_DEFINE_FLOAT(FW_T_I_GAIN_PIT, 0.05f);
 
 /**
  * Maximum vertical acceleration
@@ -136,7 +136,7 @@ PARAM_DEFINE_FLOAT(FW_T_I_GAIN_PIT, 0.1f);
  * @increment 0.5
  * @group FW Longitudinal Control
  */
-PARAM_DEFINE_FLOAT(FW_T_VERT_ACC, 7.0f);
+PARAM_DEFINE_FLOAT(FW_T_VERT_ACC, 4.0f);
 
 /**
  * Airspeed measurement standard deviation
@@ -205,7 +205,7 @@ PARAM_DEFINE_FLOAT(FW_T_RLL2THR, 15.0f);
  * @increment 0.1
  * @group FW Longitudinal Control
  */
-PARAM_DEFINE_FLOAT(FW_T_PTCH_DAMP, 0.1f);
+PARAM_DEFINE_FLOAT(FW_T_PTCH_DAMP, 0.3f);
 
 /**
  * Altitude error time constant.
@@ -215,7 +215,7 @@ PARAM_DEFINE_FLOAT(FW_T_PTCH_DAMP, 0.1f);
  * @increment 0.5
  * @group FW Longitudinal Control
  */
-PARAM_DEFINE_FLOAT(FW_T_ALT_TC, 5.0f);
+PARAM_DEFINE_FLOAT(FW_T_ALT_TC, 8.0f);
 
 /**
  * Fast descend: minimum altitude error
