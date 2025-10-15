@@ -2833,13 +2833,13 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 		return sp;
 	}
 
-	// L1制导核心算法
-	// L1距离 = L1周期 * 地速 / (2 * π)
-	float L1_period = _param_fw_l1_period.get();
-	float L1_distance = L1_period * ground_speed / (2.0f * M_PI_F);
+	// L1制导核心算法 - 基于PX4原始实现
+	// 使用L1_ratio而不是L1_period计算L1距离
+	float L1_ratio = 5.0f;  // PX4默认值
+	float L1_distance = L1_ratio * ground_speed;
 
-	// 限制L1距离范围 - 增加最小距离，提高起飞阶段稳定性
-	L1_distance = constrain(L1_distance, 15.0f, 80.0f);
+	// 限制L1距离范围 - 基于PX4原始范围
+	L1_distance = constrain(L1_distance, 10.0f, 100.0f);
 
 	// 计算L1点（在路径上距离closest_point前方L1_distance的点）
 	matrix::Vector2f L1_point = closest_point_on_path + unit_path_tangent * L1_distance;
@@ -2855,14 +2855,32 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 		return sp;
 	}
 
-	// 计算期望航向（从飞机指向L1点）
-	float desired_course = atan2f(vehicle_to_L1(1), vehicle_to_L1(0));
-
+	// 基于PX4原始实现的eta角计算
+	// 计算eta2 (速度向量相对于路径的角度)
+	float xtrack_vel = ground_vel % unit_path_tangent;  // 横向速度
+	float ltrack_vel = ground_vel * unit_path_tangent;  // 纵向速度
+	float eta2 = atan2f(xtrack_vel, ltrack_vel);
+	
+	// 计算eta1 (到L1点的角度) - 基于PX4原始实现
+	matrix::Vector2f path_to_vehicle = vehicle_pos - closest_point_on_path;
+	float xtrackErr = path_to_vehicle % unit_path_tangent;  // 横向误差
+	float sine_eta1 = xtrackErr / math::max(L1_distance, 0.1f);
+	
+	// 限制sine_eta1到±45度 - PX4原始实现
+	sine_eta1 = math::constrain(sine_eta1, -0.7071f, 0.7071f); // sin(π/4) = 0.7071
+	float eta1 = asinf(sine_eta1);
+	
+	// 总eta角
+	float eta = eta1 + eta2;
+	
+	// 限制eta角到±90度 - PX4原始实现
+	eta = math::constrain(eta, -M_PI_F / 2.0f, M_PI_F / 2.0f);
+	
+	// 计算期望航向 - 基于PX4原始实现
+	float desired_course = atan2f(unit_path_tangent(1), unit_path_tangent(0)) + eta1;
+	
 	// 当前航向
 	float current_course = atan2f(ground_vel(1), ground_vel(0));
-
-	// 计算eta角（飞机航向与L1方向的夹角）
-	float eta = wrap_pi(desired_course - current_course);
 
 	// 航向平滑处理：避免突然的180度翻转
 	// 如果期望航向与当前航向相差超过90度，使用更保守的航向
@@ -2879,8 +2897,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 		sp.course_setpoint = desired_course;
 	}
 
-	// L1制导公式：横向加速度 = 2 * v² * sin(eta) / L1_distance
-	float lateral_acceleration = 2.0f * ground_speed * ground_speed * sinf(eta) / L1_distance;
+	// L1制导公式 - 使用PX4原始公式
+	float K_L1 = 2.0f;  // PX4默认值
+	float lateral_acceleration = K_L1 * ground_speed * ground_speed / L1_distance * sinf(eta);
 
 	// 限制横向加速度 - 根据速度动态调整限制，起飞阶段更保守
 	float max_lateral_accel;
