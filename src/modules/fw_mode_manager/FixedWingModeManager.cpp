@@ -790,9 +790,15 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 
 	if (pos_sp_curr.gliding_enabled) {
 		/* enable gliding with this waypoint */
-		throttle_min = 0.0;
-		throttle_max = 0.0;
-		_ctrl_configuration_handler.setSpeedWeight(2.f);
+		// 安全检查：只有在高度足够高时才允许滑翔模式
+		if (_current_altitude > 100.0f) { // 100米以上才允许滑翔
+			throttle_min = 0.0;
+			throttle_max = 0.0;
+			_ctrl_configuration_handler.setSpeedWeight(2.f);
+		} else {
+			// 低高度时禁用滑翔模式，保持正常油门控制
+			PX4_WARN("Gliding mode disabled at low altitude (%.1fm)", (double)_current_altitude);
+		}
 	}
 
 	_ctrl_configuration_handler.setThrottleMax(throttle_max);
@@ -2634,7 +2640,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 			_directional_guidance.setDamping(0.7071f);
 			_directional_guidance.setRollTimeConst(0.0f);
 		}
-		
+
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
@@ -2683,7 +2689,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 			_directional_guidance.setDamping(0.7071f);
 			_directional_guidance.setRollTimeConst(0.0f);
 		}
-		
+
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
@@ -2784,7 +2790,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Ve
 			_directional_guidance.setDamping(0.7071f);
 			_directional_guidance.setRollTimeConst(0.0f);
 		}
-		
+
 		DirectionalGuidanceOutput sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
 
 		return sp;
@@ -2857,7 +2863,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	} else {
 		sp.course_setpoint = desired_course;
 	}
-	
+
 	sp.lateral_acceleration_feedforward = lateral_acceleration;
 
 	return sp;
