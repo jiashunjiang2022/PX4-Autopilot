@@ -2588,6 +2588,30 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 		// NPFG制导（默认）
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 				       _closest_point_on_path, path_curvature);
+		
+		// NPFG输出安全检查
+		if (PX4_ISFINITE(sp.course_setpoint) && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
+			// 检查横向加速度是否过大
+			if (fabsf(sp.lateral_acceleration_feedforward) > 3.0f) {
+				sp.lateral_acceleration_feedforward = constrain(sp.lateral_acceleration_feedforward, -3.0f, 3.0f);
+				PX4_WARN("NPFG lateral acceleration limited to %.2f m/s²", (double)sp.lateral_acceleration_feedforward);
+			}
+			
+			// 检查航向设置点是否合理
+			float current_course = atan2f(ground_vel(1), ground_vel(0));
+			float course_diff = wrap_pi(sp.course_setpoint - current_course);
+			if (fabsf(course_diff) > M_PI_F / 3.0f) { // 超过60度变化
+				// 限制航向变化
+				float max_course_change = M_PI_F / 6.0f; // 最大30度变化
+				float course_change = constrain(course_diff, -max_course_change, max_course_change);
+				sp.course_setpoint = wrap_pi(current_course + course_change);
+				PX4_WARN("NPFG course setpoint limited to %.2f rad", (double)sp.course_setpoint);
+			}
+			
+			// 应用航向变化率限制
+			float dt = (hrt_absolute_time() - _last_course_update_time) * 1e-6f;
+			sp.course_setpoint = limitCourseChangeRate(sp.course_setpoint, current_course, dt);
+		}
 	}
 
 	return sp;
@@ -2845,28 +2869,70 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	// 计算eta角（飞机航向与L1方向的夹角）
 	float eta = wrap_pi(desired_course - current_course);
 
-	// L1制导公式：横向加速度 = 2 * v² * sin(eta) / L1_distance
-	float lateral_acceleration = 2.0f * ground_speed * ground_speed * sinf(eta) / L1_distance;
-
-	// 限制横向加速度 - 根据速度动态调整限制
-	float max_lateral_accel = math::min(4.0f, ground_speed * 0.5f);
-	lateral_acceleration = constrain(lateral_acceleration, -max_lateral_accel, max_lateral_accel);
-
 	// 航向平滑处理：避免突然的180度翻转
 	// 如果期望航向与当前航向相差超过90度，使用更保守的航向
 	float course_diff = wrap_pi(desired_course - current_course);
 	if (fabsf(course_diff) > M_PI_F / 2.0f) {
 		// 如果角度差太大，使用当前航向加上限制的角度变化
-		float max_course_change = M_PI_F / 4.0f; // 最大45度变化
+		float max_course_change = M_PI_F / 6.0f; // 最大30度变化（更保守）
 		float course_change = constrain(course_diff, -max_course_change, max_course_change);
 		sp.course_setpoint = wrap_pi(current_course + course_change);
+		
+		// 重新计算eta角用于横向加速度计算
+		eta = wrap_pi(sp.course_setpoint - current_course);
 	} else {
 		sp.course_setpoint = desired_course;
+	}
+	
+	// 应用航向变化率限制
+	float dt = (hrt_absolute_time() - _last_course_update_time) * 1e-6f;
+	sp.course_setpoint = limitCourseChangeRate(sp.course_setpoint, current_course, dt);
+
+	// L1制导公式：横向加速度 = 2 * v² * sin(eta) / L1_distance
+	float lateral_acceleration = 2.0f * ground_speed * ground_speed * sinf(eta) / L1_distance;
+
+	// 限制横向加速度 - 根据速度动态调整限制，更保守的限制
+	float max_lateral_accel = math::min(3.0f, ground_speed * 0.3f); // 更保守的限制
+	lateral_acceleration = constrain(lateral_acceleration, -max_lateral_accel, max_lateral_accel);
+	
+	// 额外的安全检查：如果横向加速度过大，进一步限制
+	if (fabsf(lateral_acceleration) > 2.0f) {
+		lateral_acceleration = constrain(lateral_acceleration, -2.0f, 2.0f);
+		PX4_WARN("L1 lateral acceleration limited to %.2f m/s²", (double)lateral_acceleration);
 	}
 
 	sp.lateral_acceleration_feedforward = lateral_acceleration;
 
 	return sp;
+}
+
+float FixedWingModeManager::limitCourseChangeRate(float new_course_setpoint, float current_course, float dt)
+{
+	// 航向变化率限制：最大30度/秒
+	const float max_course_rate = M_PI_F / 6.0f; // 30度/秒
+	
+	if (!PX4_ISFINITE(_last_course_setpoint) || dt <= 0.0f) {
+		// 第一次调用或时间无效，直接返回新航向
+		_last_course_setpoint = new_course_setpoint;
+		_last_course_update_time = hrt_absolute_time();
+		return new_course_setpoint;
+	}
+	
+	// 计算航向变化
+	float course_change = wrap_pi(new_course_setpoint - _last_course_setpoint);
+	float max_change = max_course_rate * dt;
+	
+	// 限制航向变化率
+	if (fabsf(course_change) > max_change) {
+		course_change = constrain(course_change, -max_change, max_change);
+		PX4_WARN("Course change rate limited: %.2f deg/s", (double)(fabsf(course_change) / dt * 180.0f / M_PI_F));
+	}
+	
+	float limited_course = wrap_pi(_last_course_setpoint + course_change);
+	_last_course_setpoint = limited_course;
+	_last_course_update_time = hrt_absolute_time();
+	
+	return limited_course;
 }
 
 void FixedWingModeManager::publish_lateral_guidance_status(const hrt_abstime now)
