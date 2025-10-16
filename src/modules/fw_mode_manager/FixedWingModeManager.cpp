@@ -2573,8 +2573,19 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 	int guidance_mode = _param_fw_guidance_mode.get();
 
 	if (guidance_mode == 1) {
-		// L1制导
-		sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
+		// L1制导 - 特殊处理从出发点到第一个航点的情况
+		float distance_to_waypoint = vehicle_to_waypoint.norm();
+		
+		// 检测是否是从出发点到第一个航点的情况
+		bool is_first_waypoint_approach = (distance_to_waypoint > 50.0f) && (ground_vel.length() < 20.0f);
+		
+		if (is_first_waypoint_approach) {
+			// 对于第一个航点，使用更保守的L1参数
+			sp = navigateL1Conservative(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
+		} else {
+			// 正常L1制导
+			sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
+		}
 	} else {
 		// NPFG制导（默认）
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
@@ -2862,6 +2873,99 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 
 	// 限制横向加速度 - 更保守的限制
 	float max_lateral_accel = 6.0f;  // 减少最大横向加速度
+	lateral_acceleration = math::constrain(lateral_acceleration, -max_lateral_accel, max_lateral_accel);
+
+	sp.lateral_acceleration_feedforward = lateral_acceleration;
+
+	return sp;
+}
+
+DirectionalGuidanceOutput FixedWingModeManager::navigateL1Conservative(const matrix::Vector2f &vehicle_pos,
+		const matrix::Vector2f &ground_vel,
+		const matrix::Vector2f &wind_vel,
+		const matrix::Vector2f &unit_path_tangent,
+		const matrix::Vector2f &closest_point_on_path,
+		const float &path_curvature)
+{
+	DirectionalGuidanceOutput sp{};
+
+	// 强制最小地速避免奇点
+	float ground_speed = math::max(ground_vel.length(), 0.1f);
+
+	// 更严格的低速保护
+	if (ground_speed < 5.0f) {
+		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
+		sp.lateral_acceleration_feedforward = 0.0f;
+		return sp;
+	}
+
+	// 更保守的L1参数设置
+	float L1_ratio = 8.0f;     // 增加L1比例，使L1距离更大
+	float K_L1 = 1.5f;         // 减少L1增益
+
+	// 计算L1距离 - 使用更大的最小距离
+	float L1_distance = L1_ratio * ground_speed;
+	L1_distance = math::constrain(L1_distance, 40.0f, 150.0f); // 更大的最小距离
+
+	matrix::Vector2f vector_AB = unit_path_tangent;
+
+	// 计算横向误差
+	matrix::Vector2f path_to_vehicle = vehicle_pos - closest_point_on_path;
+	float xtrackErr = path_to_vehicle % vector_AB;
+
+	// 计算eta1 - 更严格的角度限制
+	float sine_eta1 = xtrackErr / math::max(L1_distance, 0.1f);
+	sine_eta1 = math::constrain(sine_eta1, -0.3f, 0.3f); // 限制到±17度
+	float eta1 = asinf(sine_eta1);
+
+	// 计算eta2
+	float xtrack_vel = ground_vel % vector_AB;
+	float ltrack_vel = ground_vel * vector_AB;
+	
+	if (fabsf(ltrack_vel) < 0.1f) {
+		ltrack_vel = (ltrack_vel >= 0) ? 0.1f : -0.1f;
+	}
+	
+	float eta2 = atan2f(xtrack_vel, ltrack_vel);
+	float eta = eta1 + eta2;
+
+	// 更严格的eta角限制
+	eta = math::constrain(eta, -M_PI_F / 4.0f, M_PI_F / 4.0f); // 限制到±45度
+
+	// 计算期望航向 - 使用更平滑的航向计算
+	float path_course = atan2f(vector_AB(1), vector_AB(0));
+	float desired_course = path_course + eta1 * 0.5f; // 减少eta1的影响
+
+	// 更严格的航向平滑处理
+	uint64_t current_time = hrt_absolute_time();
+	float dt = 0.0f;
+	
+	if (_l1_last_time > 0) {
+		dt = (current_time - _l1_last_time) / 1e6f;
+		dt = math::constrain(dt, 0.001f, 0.1f);
+	}
+	
+	if (dt > 0.0f) {
+		float course_diff = matrix::wrap_pi(desired_course - _l1_last_course);
+		
+		// 更严格的航向变化率限制
+		float max_course_change_rate = M_PI_F / 6.0f; // 30度/秒
+		float max_course_change = max_course_change_rate * dt;
+		course_diff = math::constrain(course_diff, -max_course_change, max_course_change);
+		
+		desired_course = _l1_last_course + course_diff;
+	}
+	
+	_l1_last_course = desired_course;
+	_l1_last_time = current_time;
+
+	sp.course_setpoint = desired_course;
+
+	// L1制导公式 - 使用更保守的参数
+	float lateral_acceleration = K_L1 * ground_speed * ground_speed / L1_distance * sinf(eta);
+
+	// 更严格的横向加速度限制
+	float max_lateral_accel = 4.0f;  // 进一步减少最大横向加速度
 	lateral_acceleration = math::constrain(lateral_acceleration, -max_lateral_accel, max_lateral_accel);
 
 	sp.lateral_acceleration_feedforward = lateral_acceleration;

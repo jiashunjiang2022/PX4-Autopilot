@@ -838,6 +838,24 @@ private:
 			const matrix::Vector2f &closest_point_on_path,
 			const float &path_curvature);
 
+	/*
+	 * Conservative L1 Guidance Law implementation
+	 * More conservative version for first waypoint approach
+	 *
+	 * @param[in] vehicle_pos Vehicle position in local coordinates. (N,E) [m]
+	 * @param[in] ground_vel Vehicle ground velocity vector [m/s]
+	 * @param[in] wind_vel Wind velocity vector [m/s]
+	 * @param[in] unit_path_tangent Unit vector along the path direction
+	 * @param[in] closest_point_on_path Closest point on path to vehicle
+	 * @param[in] path_curvature Path curvature [1/m]
+	 */
+	DirectionalGuidanceOutput navigateL1Conservative(const matrix::Vector2f &vehicle_pos,
+			const matrix::Vector2f &ground_vel,
+			const matrix::Vector2f &wind_vel,
+			const matrix::Vector2f &unit_path_tangent,
+			const matrix::Vector2f &closest_point_on_path,
+			const float &path_curvature);
+
 private:
 	// L1航向平滑相关变量
 	float _l1_last_course{0.0f};
