@@ -2840,8 +2840,6 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	eta = math::constrain(eta, -M_PI_F / 3.0f, M_PI_F / 3.0f);
 
 	// 计算期望航向 - 使用NPFG风格的bearing vector方法
-	float path_course = atan2f(vector_AB(1), vector_AB(0));
-	
 	// 计算横向误差归一化值（类似NPFG的normalized_track_error）
 	float normalized_track_error = fabsf(xtrackErr) / math::max(L1_distance, 0.1f);
 	normalized_track_error = math::constrain(normalized_track_error, 0.0f, 1.0f);
@@ -2859,23 +2857,23 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	// 航向平滑处理 - 防止突然的航向变化
 	uint64_t current_time = hrt_absolute_time();
 	float dt = 0.0f;
-	
+
 	if (_l1_last_time > 0) {
 		dt = (current_time - _l1_last_time) / 1e6f; // 转换为秒
 		dt = math::constrain(dt, 0.001f, 0.1f); // 限制dt范围
 	}
-	
+
 	if (dt > 0.0f) {
 		float course_diff = matrix::wrap_pi(desired_course - _l1_last_course);
-		
+
 		// 限制航向变化率 - 基于时间常数
 		float max_course_change_rate = M_PI_F / 3.0f; // 60度/秒
 		float max_course_change = max_course_change_rate * dt;
 		course_diff = math::constrain(course_diff, -max_course_change, max_course_change);
-		
+
 		desired_course = _l1_last_course + course_diff;
 	}
-	
+
 	_l1_last_course = desired_course;
 	_l1_last_time = current_time;
 
@@ -2946,8 +2944,6 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1Conservative(const mat
 	eta = math::constrain(eta, -M_PI_F / 4.0f, M_PI_F / 4.0f); // 限制到±45度
 
 	// 计算期望航向 - 使用NPFG风格的bearing vector方法（保守版本）
-	float path_course = atan2f(vector_AB(1), vector_AB(0));
-	
 	// 计算横向误差归一化值（类似NPFG的normalized_track_error）
 	float normalized_track_error = fabsf(xtrackErr) / math::max(L1_distance, 0.1f);
 	normalized_track_error = math::constrain(normalized_track_error, 0.0f, 1.0f);
@@ -2965,23 +2961,23 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1Conservative(const mat
 	// 更严格的航向平滑处理
 	uint64_t current_time = hrt_absolute_time();
 	float dt = 0.0f;
-	
+
 	if (_l1_last_time > 0) {
 		dt = (current_time - _l1_last_time) / 1e6f;
 		dt = math::constrain(dt, 0.001f, 0.1f);
 	}
-	
+
 	if (dt > 0.0f) {
 		float course_diff = matrix::wrap_pi(desired_course - _l1_last_course);
-		
+
 		// 更严格的航向变化率限制
 		float max_course_change_rate = M_PI_F / 6.0f; // 30度/秒
 		float max_course_change = max_course_change_rate * dt;
 		course_diff = math::constrain(course_diff, -max_course_change, max_course_change);
-		
+
 		desired_course = _l1_last_course + course_diff;
 	}
-	
+
 	_l1_last_course = desired_course;
 	_l1_last_time = current_time;
 
