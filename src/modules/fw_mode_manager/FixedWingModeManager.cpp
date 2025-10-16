@@ -2576,10 +2576,10 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 	if (guidance_mode == 1) {
 		// L1制导 - 特殊处理从出发点到第一个航点的情况
 		float distance_to_waypoint = vehicle_to_waypoint.norm();
-		
+
 		// 检测是否是从出发点到第一个航点的情况
 		bool is_first_waypoint_approach = (distance_to_waypoint > 50.0f) && (ground_vel.length() < 20.0f);
-		
+
 		if (is_first_waypoint_approach) {
 			// 对于第一个航点，直接使用NPFG以避免翻转问题
 			sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
@@ -2866,14 +2866,29 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	}
 
 	if (dt > 0.0f) {
-		float course_diff = matrix::wrap_pi(desired_course - _l1_last_course);
-
+		// 计算航向差，避免wrap_pi导致的180度跳跃
+		float course_diff = desired_course - _l1_last_course;
+		
+		// 手动处理角度包装，避免突然跳跃
+		if (course_diff > M_PI_F) {
+			course_diff -= 2.0f * M_PI_F;
+		} else if (course_diff < -M_PI_F) {
+			course_diff += 2.0f * M_PI_F;
+		}
+		
 		// 限制航向变化率 - 基于时间常数
-		float max_course_change_rate = M_PI_F / 3.0f; // 60度/秒
+		float max_course_change_rate = M_PI_F / 4.0f; // 45度/秒，更保守
 		float max_course_change = max_course_change_rate * dt;
 		course_diff = math::constrain(course_diff, -max_course_change, max_course_change);
-
+		
 		desired_course = _l1_last_course + course_diff;
+		
+		// 确保航向在有效范围内
+		if (desired_course > M_PI_F) {
+			desired_course -= 2.0f * M_PI_F;
+		} else if (desired_course < -M_PI_F) {
+			desired_course += 2.0f * M_PI_F;
+		}
 	}
 
 	_l1_last_course = desired_course;
@@ -2970,14 +2985,29 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1Conservative(const mat
 	}
 
 	if (dt > 0.0f) {
-		float course_diff = matrix::wrap_pi(desired_course - _l1_last_course);
-
+		// 计算航向差，避免wrap_pi导致的180度跳跃
+		float course_diff = desired_course - _l1_last_course;
+		
+		// 手动处理角度包装，避免突然跳跃
+		if (course_diff > M_PI_F) {
+			course_diff -= 2.0f * M_PI_F;
+		} else if (course_diff < -M_PI_F) {
+			course_diff += 2.0f * M_PI_F;
+		}
+		
 		// 更严格的航向变化率限制
-		float max_course_change_rate = M_PI_F / 6.0f; // 30度/秒
+		float max_course_change_rate = M_PI_F / 8.0f; // 22.5度/秒，非常保守
 		float max_course_change = max_course_change_rate * dt;
 		course_diff = math::constrain(course_diff, -max_course_change, max_course_change);
-
+		
 		desired_course = _l1_last_course + course_diff;
+		
+		// 确保航向在有效范围内
+		if (desired_course > M_PI_F) {
+			desired_course -= 2.0f * M_PI_F;
+		} else if (desired_course < -M_PI_F) {
+			desired_course += 2.0f * M_PI_F;
+		}
 	}
 
 	_l1_last_course = desired_course;
