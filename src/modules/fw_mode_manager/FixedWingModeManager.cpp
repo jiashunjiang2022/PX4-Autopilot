@@ -839,25 +839,38 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	};
 
 	_longitudinal_ctrl_sp_pub.publish(fw_longitudinal_control_sp);
+	
+	// 调试：确认发布的值
+	static uint64_t last_publish_debug = 0;
+	if (hrt_absolute_time() - last_publish_debug > 1000000 || agl < 30.0f) {
+		PX4_INFO("PUBLISHED to TECS: Alt SP=%.1f, pitch=%s, throttle=%s",
+		         (double)fw_longitudinal_control_sp.altitude,
+		         PX4_ISFINITE(pitch_direct_cmd) ? "DIRECT" : "TECS",
+		         PX4_ISFINITE(throttle_direct_cmd) ? "DIRECT" : "TECS");
+		last_publish_debug = hrt_absolute_time();
+	}
 
 	float throttle_min = NAN;
 	float throttle_max = NAN;
 
+	// 强制禁用滑翔模式 - 这可能是导致持续下降的元凶！
 	if (pos_sp_curr.gliding_enabled) {
-		/* enable gliding with this waypoint */
-		// 安全检查：只有在高度足够高时才允许滑翔模式
-		if (_current_altitude > 100.0f) { // 100米以上才允许滑翔
-			throttle_min = 0.0;
-			throttle_max = 0.0;
-			_ctrl_configuration_handler.setSpeedWeight(2.f);
-		} else {
-			// 低高度时禁用滑翔模式，保持正常油门控制
-			PX4_WARN("Gliding mode disabled at low altitude (%.1fm)", (double)_current_altitude);
-		}
+		PX4_ERR("!!! GLIDING MODE DETECTED - FORCING DISABLE FOR SAFETY !!!");
+		// 完全不使用滑翔模式
+		// throttle_min和throttle_max保持NAN，使用正常控制
 	}
 
 	_ctrl_configuration_handler.setThrottleMax(throttle_max);
 	_ctrl_configuration_handler.setThrottleMin(throttle_min);
+	
+	// 调试：油门限制
+	static uint64_t last_throttle_debug = 0;
+	if (hrt_absolute_time() - last_throttle_debug > 2000000) {
+		PX4_INFO("Throttle limits: min=%s, max=%s",
+		         PX4_ISFINITE(throttle_min) ? "SET" : "NAN",
+		         PX4_ISFINITE(throttle_max) ? "SET" : "NAN");
+		last_throttle_debug = hrt_absolute_time();
+	}
 
 	Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
 	Vector2f curr_wp_local = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);
