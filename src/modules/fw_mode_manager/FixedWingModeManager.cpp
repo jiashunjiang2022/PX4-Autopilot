@@ -2797,9 +2797,12 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	L1_distance = math::constrain(L1_distance, 10.0f, 100.0f);
 	
 	// 完全按照PX4原始实现：沿路径飞行的情况
-	// 计算横向误差 - 使用unit_path_tangent作为路径方向
+	// 使用unit_path_tangent作为路径方向（相当于PX4的vector_AB）
+	matrix::Vector2f vector_AB = unit_path_tangent;  // 路径方向向量
+	
+	// 计算横向误差 - 使用vector_AB（路径方向）
 	matrix::Vector2f path_to_vehicle = vehicle_pos - closest_point_on_path;
-	float xtrackErr = path_to_vehicle % unit_path_tangent;  // 横向误差
+	float xtrackErr = path_to_vehicle % vector_AB;  // 横向误差
 	
 	// 计算eta1 (到L1点的角度) - 基于PX4原始实现
 	float sine_eta1 = xtrackErr / math::max(L1_distance, 0.1f);
@@ -2808,9 +2811,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	sine_eta1 = math::constrain(sine_eta1, -0.7071f, 0.7071f); // sin(π/4) = 0.7071
 	float eta1 = asinf(sine_eta1);
 	
-	// 计算eta2 (速度向量相对于路径的角度) - 使用unit_path_tangent
-	float xtrack_vel = ground_vel % unit_path_tangent;  // 横向速度
-	float ltrack_vel = ground_vel * unit_path_tangent;  // 纵向速度
+	// 计算eta2 (速度向量相对于路径的角度) - 使用vector_AB
+	float xtrack_vel = ground_vel % vector_AB;  // 横向速度
+	float ltrack_vel = ground_vel * vector_AB;  // 纵向速度
 	float eta2 = atan2f(xtrack_vel, ltrack_vel);
 	
 	// 总eta角
@@ -2820,8 +2823,8 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	eta = math::constrain(eta, -M_PI_F / 2.0f, M_PI_F / 2.0f);
 	
 	// 计算期望航向 - 完全按照PX4原始实现
-	// 使用unit_path_tangent作为路径方向，加上eta1修正
-	float desired_course = atan2f(unit_path_tangent(1), unit_path_tangent(0)) + eta1;
+	// 使用vector_AB（路径方向）加上eta1修正
+	float desired_course = atan2f(vector_AB(1), vector_AB(0)) + eta1;
 	
 	// 移除航向平滑处理，让L1算法按照原始逻辑工作
 	sp.course_setpoint = desired_course;
