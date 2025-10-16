@@ -809,9 +809,17 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 
 	DirectionalGuidanceOutput sp{};
 
-	if (_position_setpoint_previous_valid && pos_sp_prev.type != position_setpoint_s::SETPOINT_TYPE_TAKEOFF) {
+	if (_position_setpoint_previous_valid) {
 		Vector2f prev_wp_local = _global_local_proj_ref.project(pos_sp_prev.lat, pos_sp_prev.lon);
-		sp = navigateWaypoints(prev_wp_local, curr_wp_local, curr_pos_local, ground_speed, _wind_vel);
+		
+		// 特殊处理：从起飞航点到第一个航点的情况
+		if (pos_sp_prev.type == position_setpoint_s::SETPOINT_TYPE_TAKEOFF) {
+			// 使用更保守的单航点导航，避免翻转
+			sp = navigateWaypoint(curr_wp_local, curr_pos_local, ground_speed, _wind_vel);
+		} else {
+			// 正常航点间导航
+			sp = navigateWaypoints(prev_wp_local, curr_wp_local, curr_pos_local, ground_speed, _wind_vel);
+		}
 
 	} else {
 		sp = navigateWaypoint(curr_wp_local, curr_pos_local, ground_speed, _wind_vel);
@@ -2574,14 +2582,14 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 	int guidance_mode = _param_fw_guidance_mode.get();
 
 	if (guidance_mode == 1) {
-		// L1制导 - 特殊处理从出发点到第一个航点的情况
+		// L1制导 - 特殊处理从起飞到第一个航点的情况
 		float distance_to_waypoint = vehicle_to_waypoint.norm();
-
-		// 检测是否是从出发点到第一个航点的情况
-		bool is_first_waypoint_approach = (distance_to_waypoint > 50.0f) && (ground_vel.length() < 20.0f);
-
-		if (is_first_waypoint_approach) {
-			// 对于第一个航点，直接使用NPFG以避免翻转问题
+		
+		// 检测是否是从起飞到第一个航点的情况（更严格的检测）
+		bool is_takeoff_to_first_waypoint = (distance_to_waypoint > 30.0f) && (ground_vel.length() < 25.0f);
+		
+		if (is_takeoff_to_first_waypoint) {
+			// 对于起飞到第一个航点，强制使用NPFG以避免翻转问题
 			sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 					       _closest_point_on_path, path_curvature);
 		} else {
@@ -2589,7 +2597,22 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 			sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
 		}
 	} else {
-		// NPFG制导（默认）
+		// NPFG制导（默认）- 也添加起飞到第一个航点的特殊处理
+		float distance_to_waypoint = vehicle_to_waypoint.norm();
+		bool is_takeoff_to_first_waypoint = (distance_to_waypoint > 30.0f) && (ground_vel.length() < 25.0f);
+		
+		if (is_takeoff_to_first_waypoint) {
+			// 起飞到第一个航点时，使用更保守的NPFG参数
+			_directional_guidance.setPeriod(15.0f);  // 增加周期
+			_directional_guidance.setDamping(0.8f);  // 增加阻尼
+			_directional_guidance.setRollTimeConst(0.5f);  // 设置滚转时间常数
+		} else {
+			// 正常NPFG参数
+			_directional_guidance.setPeriod(10.0f);
+			_directional_guidance.setDamping(0.7071f);
+			_directional_guidance.setRollTimeConst(0.0f);
+		}
+		
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 				       _closest_point_on_path, path_curvature);
 	}
@@ -2868,21 +2891,21 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	if (dt > 0.0f) {
 		// 计算航向差，避免wrap_pi导致的180度跳跃
 		float course_diff = desired_course - _l1_last_course;
-		
+
 		// 手动处理角度包装，避免突然跳跃
 		if (course_diff > M_PI_F) {
 			course_diff -= 2.0f * M_PI_F;
 		} else if (course_diff < -M_PI_F) {
 			course_diff += 2.0f * M_PI_F;
 		}
-		
+
 		// 限制航向变化率 - 基于时间常数
 		float max_course_change_rate = M_PI_F / 4.0f; // 45度/秒，更保守
 		float max_course_change = max_course_change_rate * dt;
 		course_diff = math::constrain(course_diff, -max_course_change, max_course_change);
-		
+
 		desired_course = _l1_last_course + course_diff;
-		
+
 		// 确保航向在有效范围内
 		if (desired_course > M_PI_F) {
 			desired_course -= 2.0f * M_PI_F;
@@ -2987,21 +3010,21 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1Conservative(const mat
 	if (dt > 0.0f) {
 		// 计算航向差，避免wrap_pi导致的180度跳跃
 		float course_diff = desired_course - _l1_last_course;
-		
+
 		// 手动处理角度包装，避免突然跳跃
 		if (course_diff > M_PI_F) {
 			course_diff -= 2.0f * M_PI_F;
 		} else if (course_diff < -M_PI_F) {
 			course_diff += 2.0f * M_PI_F;
 		}
-		
+
 		// 更严格的航向变化率限制
 		float max_course_change_rate = M_PI_F / 8.0f; // 22.5度/秒，非常保守
 		float max_course_change = max_course_change_rate * dt;
 		course_diff = math::constrain(course_diff, -max_course_change, max_course_change);
-		
+
 		desired_course = _l1_last_course + course_diff;
-		
+
 		// 确保航向在有效范围内
 		if (desired_course > M_PI_F) {
 			desired_course -= 2.0f * M_PI_F;
