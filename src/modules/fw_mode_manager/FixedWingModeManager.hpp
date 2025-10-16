@@ -838,6 +838,11 @@ private:
 			const matrix::Vector2f &closest_point_on_path,
 			const float &path_curvature);
 
+private:
+	// L1航向平滑相关变量
+	float _l1_last_course{0.0f};
+	uint64_t _l1_last_time{0};
+
 
 	void control_idle();
 	void publish_lateral_guidance_status(const hrt_abstime now);
