@@ -747,40 +747,95 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	    ((pos_sp_prev.type == position_setpoint_s::SETPOINT_TYPE_POSITION) ||
 	     (pos_sp_prev.type == position_setpoint_s::SETPOINT_TYPE_LOITER))
 	   ) {
-		const float d_curr_prev = get_distance_to_next_waypoint(pos_sp_curr.lat, pos_sp_curr.lon, pos_sp_prev.lat,
-					  pos_sp_prev.lon);
+		// 检查前后航点高度是否基本相同（小于5米视为相同）
+		const float delta_alt = pos_sp_curr.alt - pos_sp_prev.alt;
+		const bool same_altitude = (fabsf(delta_alt) < 5.0f);
 
-		// Do not try to find a solution if the last waypoint is inside the acceptance radius of the current one
-		if (d_curr_prev > math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius))) {
-			// Calculate distance to current waypoint
-			const float d_curr = get_distance_to_next_waypoint(pos_sp_curr.lat, pos_sp_curr.lon, _current_latitude,
-					     _current_longitude);
+		if (same_altitude) {
+			// 相同高度的航点，直接使用当前航点高度，不使用FOH插值
+			position_sp_alt = pos_sp_curr.alt;
+		} else {
+			// 不同高度，使用FOH插值
+			const float d_curr_prev = get_distance_to_next_waypoint(pos_sp_curr.lat, pos_sp_curr.lon, pos_sp_prev.lat,
+						  pos_sp_prev.lon);
 
-			// Save distance to waypoint if it is the smallest ever achieved, however make sure that
-			// _min_current_sp_distance_xy is never larger than the distance between the current and the previous wp
-			_min_current_sp_distance_xy = math::min(d_curr, _min_current_sp_distance_xy, d_curr_prev);
+			// Do not try to find a solution if the last waypoint is inside the acceptance radius of the current one
+			if (d_curr_prev > math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius))) {
+				// Calculate distance to current waypoint
+				const float d_curr = get_distance_to_next_waypoint(pos_sp_curr.lat, pos_sp_curr.lon, _current_latitude,
+						     _current_longitude);
 
-			// if the minimal distance is smaller than the acceptance radius, we should be at waypoint alt
-			// navigator will soon switch to the next waypoint item (if there is one) as soon as we reach this altitude
-			if (_min_current_sp_distance_xy > math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius))) {
-				// The setpoint is set linearly and such that the system reaches the current altitude at the acceptance
-				// radius around the current waypoint
-				const float delta_alt = (pos_sp_curr.alt - pos_sp_prev.alt);
-				const float grad = -delta_alt / (d_curr_prev - math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius)));
-				const float a = pos_sp_prev.alt - grad * d_curr_prev;
+				// Save distance to waypoint if it is the smallest ever achieved, however make sure that
+				// _min_current_sp_distance_xy is never larger than the distance between the current and the previous wp
+				_min_current_sp_distance_xy = math::min(d_curr, _min_current_sp_distance_xy, d_curr_prev);
 
-				position_sp_alt = a + grad * _min_current_sp_distance_xy;
+				// if the minimal distance is smaller than the acceptance radius, we should be at waypoint alt
+				// navigator will soon switch to the next waypoint item (if there is one) as soon as we reach this altitude
+				if (_min_current_sp_distance_xy > math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius))) {
+					// The setpoint is set linearly and such that the system reaches the current altitude at the acceptance
+					// radius around the current waypoint
+					const float grad = -delta_alt / (d_curr_prev - math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius)));
+					const float a = pos_sp_prev.alt - grad * d_curr_prev;
+
+					const float foh_altitude = a + grad * _min_current_sp_distance_xy;
+					
+					// 关键修复：FOH不应指令下降到危险高度
+					// 如果FOH计算的高度会导致AGL<40米，强制提高
+					const float agl_at_foh = foh_altitude - (_current_altitude - (-_local_pos.z));
+					if (agl_at_foh < 40.0f) {
+						position_sp_alt = _current_altitude + (40.0f - agl_at_foh);
+					} else {
+						position_sp_alt = foh_altitude;
+					}
+				}
 			}
 		}
 	}
+
+	// ===== 心跳调试：确认代码正在运行 =====
+	static uint64_t last_heartbeat = 0;
+	if (hrt_absolute_time() - last_heartbeat > 1000000) {
+		PX4_INFO("=== HEARTBEAT: Alt=%.1f, AGL=%.1f, landed=%d ===", 
+		         (double)_current_altitude, (double)(-_local_pos.z), _landed);
+		last_heartbeat = hrt_absolute_time();
+	}
+
+	// ===== 低高度保护：强化版 =====
+	// 检查是否接近着陆点（下一个航点是着陆类型）
+	const bool approaching_landing = (_position_setpoint_next_valid && 
+	                                  _pos_sp_triplet.next.type == position_setpoint_s::SETPOINT_TYPE_LAND);
+	
+	const float agl = -_local_pos.z;
+	const float MIN_SAFE_AGL = 30.0f;  // 保护阈值：30米
+
+	// 调试：输出FOH计算的高度设定值
+	static uint64_t last_foh_debug = 0;
+	if (hrt_absolute_time() - last_foh_debug > 1000000 || agl < MIN_SAFE_AGL) {
+		PX4_INFO("FOH: Alt SP=%.1f, Current=%.1f, AGL=%.1f, landing=%d",
+		         (double)position_sp_alt, (double)_current_altitude, (double)agl, approaching_landing);
+		last_foh_debug = hrt_absolute_time();
+	}
+
+	// 低高度保护：关键修复 - 移除"要求下降"的条件
+	// 只要低空就强制设置安全高度，不管FOH计算的是什么
+	if (!_landed && !approaching_landing && (agl < MIN_SAFE_AGL)) {
+		const float safe_altitude = _current_altitude + (MIN_SAFE_AGL - agl) + 5.0f;
+		PX4_WARN("!!! LOW ALT PROTECT: AGL=%.1f < %.1f, Alt SP %.1f -> %.1f !!!",
+		         (double)agl, (double)MIN_SAFE_AGL,
+		         (double)position_sp_alt, (double)safe_altitude);
+		position_sp_alt = safe_altitude;
+	}
+
+	float pitch_direct_cmd = NAN;
+	float throttle_direct_cmd = NAN;
 
 	const fixed_wing_longitudinal_setpoint_s fw_longitudinal_control_sp = {
 		.timestamp = hrt_absolute_time(),
 		.altitude = position_sp_alt,
 		.height_rate = NAN,
 		.equivalent_airspeed = target_airspeed,
-		.pitch_direct = NAN,
-		.throttle_direct = NAN
+		.pitch_direct = pitch_direct_cmd,
+		.throttle_direct = throttle_direct_cmd
 	};
 
 	_longitudinal_ctrl_sp_pub.publish(fw_longitudinal_control_sp);
