@@ -2535,8 +2535,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoints(const Vector2f
 
 	if ((start_waypoint_to_end_waypoint.dot(start_waypoint_to_vehicle) < -FLT_EPSILON)
 	    && (start_waypoint_to_vehicle.norm() > _directional_guidance.switchDistance(500.0f))) {
-		// we are in front of the start waypoint, fly directly to it until we are within switch distance
-		return navigateWaypoint(start_waypoint, vehicle_pos, ground_vel, wind_vel);
+		// we are in front of the start waypoint, fly directly to the END waypoint instead
+		// This prevents the 180-degree flip issue when approaching the first waypoint
+		return navigateWaypoint(end_waypoint, vehicle_pos, ground_vel, wind_vel);
 	}
 
 	if (start_waypoint_to_end_waypoint.dot(end_waypoint_to_vehicle) > FLT_EPSILON) {
@@ -2575,13 +2576,14 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 	if (guidance_mode == 1) {
 		// L1制导 - 特殊处理从出发点到第一个航点的情况
 		float distance_to_waypoint = vehicle_to_waypoint.norm();
-
+		
 		// 检测是否是从出发点到第一个航点的情况
 		bool is_first_waypoint_approach = (distance_to_waypoint > 50.0f) && (ground_vel.length() < 20.0f);
-
+		
 		if (is_first_waypoint_approach) {
-			// 对于第一个航点，使用更保守的L1参数
-			sp = navigateL1Conservative(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
+			// 对于第一个航点，直接使用NPFG以避免翻转问题
+			sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
+					       _closest_point_on_path, path_curvature);
 		} else {
 			// 正常L1制导
 			sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
@@ -2843,14 +2845,14 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	// 计算横向误差归一化值（类似NPFG的normalized_track_error）
 	float normalized_track_error = fabsf(xtrackErr) / math::max(L1_distance, 0.1f);
 	normalized_track_error = math::constrain(normalized_track_error, 0.0f, 1.0f);
-	
+
 	// 计算前瞻角度（类似NPFG的lookAheadAngle）
 	float look_ahead_ang = M_PI_F / 2.0f * (normalized_track_error - 1.0f) * (normalized_track_error - 1.0f);
-	
+
 	// 计算bearing vector（类似NPFG的bearingVec）
 	matrix::Vector2f unit_path_normal(-vector_AB(1), vector_AB(0)); // 右转90度
 	matrix::Vector2f unit_track_error = -((xtrackErr < 0.0f) ? -1.0f : 1.0f) * unit_path_normal;
-	
+
 	matrix::Vector2f bearing_vec = cosf(look_ahead_ang) * unit_track_error + sinf(look_ahead_ang) * vector_AB;
 	float desired_course = atan2f(bearing_vec(1), bearing_vec(0));
 
@@ -2947,14 +2949,14 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1Conservative(const mat
 	// 计算横向误差归一化值（类似NPFG的normalized_track_error）
 	float normalized_track_error = fabsf(xtrackErr) / math::max(L1_distance, 0.1f);
 	normalized_track_error = math::constrain(normalized_track_error, 0.0f, 1.0f);
-	
+
 	// 计算前瞻角度（类似NPFG的lookAheadAngle，但更保守）
 	float look_ahead_ang = M_PI_F / 3.0f * (normalized_track_error - 1.0f) * (normalized_track_error - 1.0f);
-	
+
 	// 计算bearing vector（类似NPFG的bearingVec）
 	matrix::Vector2f unit_path_normal(-vector_AB(1), vector_AB(0)); // 右转90度
 	matrix::Vector2f unit_track_error = -((xtrackErr < 0.0f) ? -1.0f : 1.0f) * unit_path_normal;
-	
+
 	matrix::Vector2f bearing_vec = cosf(look_ahead_ang) * unit_track_error + sinf(look_ahead_ang) * vector_AB;
 	float desired_course = atan2f(bearing_vec(1), bearing_vec(0));
 
