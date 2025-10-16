@@ -2775,79 +2775,66 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 		const float &path_curvature)
 {
 	DirectionalGuidanceOutput sp{};
-
+	
 	// 强制最小地速避免奇点 - PX4原始实现
 	float ground_speed = math::max(ground_vel.length(), 0.1f);
-
+	
 	// 低速保护
 	if (ground_speed < 2.0f) {
 		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
 		sp.lateral_acceleration_feedforward = 0.0f;
 		return sp;
 	}
-
+	
 	// L1参数设置 - 基于PX4原始实现
 	float L1_ratio = 5.0f;     // PX4默认值
 	float K_L1 = 2.0f;         // PX4默认值
-
+	
 	// 计算L1距离 - 使用PX4原始公式
 	float L1_distance = L1_ratio * ground_speed;
-
+	
 	// 限制L1距离范围
 	L1_distance = math::constrain(L1_distance, 10.0f, 100.0f);
-
-	// 简化的L1实现：假设我们总是沿路径飞行
-	// 计算横向误差
+	
+	// 完全按照PX4原始实现：沿路径飞行的情况
+	// 计算横向误差 - 使用unit_path_tangent作为路径方向
 	matrix::Vector2f path_to_vehicle = vehicle_pos - closest_point_on_path;
 	float xtrackErr = path_to_vehicle % unit_path_tangent;  // 横向误差
-
+	
 	// 计算eta1 (到L1点的角度) - 基于PX4原始实现
 	float sine_eta1 = xtrackErr / math::max(L1_distance, 0.1f);
-
+	
 	// 限制sine_eta1到±45度 - PX4原始实现
 	sine_eta1 = math::constrain(sine_eta1, -0.7071f, 0.7071f); // sin(π/4) = 0.7071
 	float eta1 = asinf(sine_eta1);
-
-	// 计算eta2 (速度向量相对于路径的角度)
+	
+	// 计算eta2 (速度向量相对于路径的角度) - 使用unit_path_tangent
 	float xtrack_vel = ground_vel % unit_path_tangent;  // 横向速度
 	float ltrack_vel = ground_vel * unit_path_tangent;  // 纵向速度
 	float eta2 = atan2f(xtrack_vel, ltrack_vel);
-
+	
 	// 总eta角
 	float eta = eta1 + eta2;
-
+	
 	// 限制eta角到±90度 - PX4原始实现
 	eta = math::constrain(eta, -M_PI_F / 2.0f, M_PI_F / 2.0f);
-
-	// 计算期望航向 - 基于PX4原始实现
+	
+	// 计算期望航向 - 完全按照PX4原始实现
+	// 使用unit_path_tangent作为路径方向，加上eta1修正
 	float desired_course = atan2f(unit_path_tangent(1), unit_path_tangent(0)) + eta1;
-
-	// 当前航向
-	float current_course = atan2f(ground_vel(1), ground_vel(0));
-
-	// 航向平滑处理：避免突然的180度翻转
-	float course_diff = wrap_pi(desired_course - current_course);
-	if (fabsf(course_diff) > M_PI_F / 2.0f) {
-		// 如果角度差太大，使用当前航向加上限制的角度变化
-		float max_course_change = M_PI_F / 6.0f; // 最大30度变化
-		float course_change = constrain(course_diff, -max_course_change, max_course_change);
-		sp.course_setpoint = wrap_pi(current_course + course_change);
-
-		// 重新计算eta角用于横向加速度计算
-		eta = wrap_pi(sp.course_setpoint - current_course);
-	} else {
-		sp.course_setpoint = desired_course;
-	}
-
+	
+	// 移除航向平滑处理，让L1算法按照原始逻辑工作
+	sp.course_setpoint = desired_course;
+	
 	// L1制导公式 - 使用PX4原始公式
 	float lateral_acceleration = K_L1 * ground_speed * ground_speed / L1_distance * sinf(eta);
-
+	
 	// 限制横向加速度 - 基于PX4原始限制
 	float max_lateral_accel = 8.0f;  // PX4默认最大横向加速度
 	lateral_acceleration = math::constrain(lateral_acceleration, -max_lateral_accel, max_lateral_accel);
-
+	
 	sp.lateral_acceleration_feedforward = lateral_acceleration;
-
+	
 	return sp;
 }
 
