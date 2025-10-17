@@ -737,7 +737,20 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 		const Vector2f &ground_speed, const position_setpoint_s &pos_sp_prev, const position_setpoint_s &pos_sp_curr)
 {
 	const float acc_rad = _directional_guidance.switchDistance(500.0f);
-	const float target_airspeed = pos_sp_curr.cruising_speed > FLT_EPSILON ? pos_sp_curr.cruising_speed : NAN;
+	
+	// 关键修复：如果航点未设置巡航速度，使用默认巡航速度而不是NAN
+	// 空速为NAN会导致TECS无法正常工作！
+	float target_airspeed = pos_sp_curr.cruising_speed;
+	if (target_airspeed < FLT_EPSILON) {
+		// 航点未设置速度，使用默认巡航速度
+		target_airspeed = _param_fw_airspd_trim.get();
+		static uint64_t last_airspeed_fallback_msg = 0;
+		if (hrt_absolute_time() - last_airspeed_fallback_msg > 5000000) {
+			PX4_WARN("Waypoint cruising_speed not set, using default trim airspeed %.1f m/s", 
+			         (double)target_airspeed);
+			last_airspeed_fallback_msg = hrt_absolute_time();
+		}
+	}
 
 	// waypoint is a plain navigation waypoint
 	float position_sp_alt = pos_sp_curr.alt;
