@@ -802,6 +802,13 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	static bool first_auto_position_call = true;
 	static uint64_t last_debug = 0;
 	if (first_auto_position_call || (hrt_absolute_time() - last_debug > 2000000)) {
+		const float home_alt = _local_pos.ref_alt;
+		const float agl = _current_altitude - home_alt;
+		PX4_ERR("发布给TECS: altitude=%.1f(AMSL), curr_alt=%.1f(AMSL), home=%.1f, AGL=%.1f",
+		        (double)position_sp_alt,
+		        (double)_current_altitude,
+		        (double)home_alt,
+		        (double)agl);
 		PX4_WARN("AUTO_POSITION: alt_sp=%.1f, airspeed_sp=%.1f, height_rate=%s, curr_alt=%.1f",
 		         (double)position_sp_alt,
 		         (double)target_airspeed,
