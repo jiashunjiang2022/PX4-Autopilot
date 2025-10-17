@@ -755,38 +755,11 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	// waypoint is a plain navigation waypoint
 	float position_sp_alt = pos_sp_curr.alt;
 
-	// 计算AGL（相对地面高度），在多处使用
-	const float agl = -_local_pos.z;
-
 	// Altitude first order hold (FOH)
 	if (_position_setpoint_previous_valid &&
 	    ((pos_sp_prev.type == position_setpoint_s::SETPOINT_TYPE_POSITION) ||
 	     (pos_sp_prev.type == position_setpoint_s::SETPOINT_TYPE_LOITER))
 	   ) {
-	// ===== FOH高度插值逻辑 =====
-	// 关键修复：低空时禁用FOH，避免危险下降指令
-	const float DISABLE_FOH_AGL = 80.0f;  // AGL<80米时禁用FOH
-	
-	// 检查前后航点高度是否基本相同（小于5米视为相同）
-	const float delta_alt = pos_sp_curr.alt - pos_sp_prev.alt;
-	const bool same_altitude = (fabsf(delta_alt) < 5.0f);
-
-	if (agl < DISABLE_FOH_AGL) {
-		// 低空时强制使用目标航点高度，不使用FOH插值
-		// 这避免了FOH指令下降到线性路径上导致触地
-		position_sp_alt = pos_sp_curr.alt;
-		
-		static uint64_t last_foh_disable_msg = 0;
-		if (hrt_absolute_time() - last_foh_disable_msg > 2000000) {
-			PX4_WARN("FOH DISABLED: AGL=%.1f < %.1f, using target WP alt %.1f (not FOH interpolation)",
-			         (double)agl, (double)DISABLE_FOH_AGL, (double)position_sp_alt);
-			last_foh_disable_msg = hrt_absolute_time();
-		}
-	} else if (same_altitude) {
-		// 相同高度的航点，直接使用当前航点高度，不使用FOH插值
-		position_sp_alt = pos_sp_curr.alt;
-	} else {
-		// 高空且不同高度，使用FOH插值
 		const float d_curr_prev = get_distance_to_next_waypoint(pos_sp_curr.lat, pos_sp_curr.lon, pos_sp_prev.lat,
 					  pos_sp_prev.lon);
 
@@ -805,116 +778,11 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 			if (_min_current_sp_distance_xy > math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius))) {
 				// The setpoint is set linearly and such that the system reaches the current altitude at the acceptance
 				// radius around the current waypoint
+				const float delta_alt = (pos_sp_curr.alt - pos_sp_prev.alt);
 				const float grad = -delta_alt / (d_curr_prev - math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius)));
 				const float a = pos_sp_prev.alt - grad * d_curr_prev;
 
-				const float foh_alt = a + grad * _min_current_sp_distance_xy;
-				
-				// 安全检查：FOH不得指令下降到危险高度
-				const float ground_alt = _current_altitude - agl;
-				const float min_safe_msl = ground_alt + 50.0f;  // 保持AGL>50米
-				
-				if (foh_alt < min_safe_msl) {
-					position_sp_alt = min_safe_msl;
-					PX4_WARN("FOH safety clamp: %.1f -> %.1f (AGL would be <50m)", 
-					         (double)foh_alt, (double)position_sp_alt);
-				} else {
-					position_sp_alt = foh_alt;
-				}
-			}
-		}
-	}
-	}
-
-	// ===== 航点信息调试 =====
-	static uint64_t last_waypoint_debug = 0;
-	if (hrt_absolute_time() - last_waypoint_debug > 2000000) {
-		PX4_INFO("=== WAYPOINT INFO ===");
-		PX4_INFO("  Current WP: lat=%.6f, lon=%.6f, alt=%.1f (type=%d)",
-		         (double)pos_sp_curr.lat, (double)pos_sp_curr.lon, (double)pos_sp_curr.alt, pos_sp_curr.type);
-		if (_position_setpoint_previous_valid) {
-			PX4_INFO("  Previous WP: lat=%.6f, lon=%.6f, alt=%.1f (type=%d)",
-			         (double)pos_sp_prev.lat, (double)pos_sp_prev.lon, (double)pos_sp_prev.alt, pos_sp_prev.type);
-		}
-		PX4_INFO("  Current Aircraft: lat=%.6f, lon=%.6f, alt=%.1f",
-		         (double)_current_latitude, (double)_current_longitude, (double)_current_altitude);
-		PX4_INFO("  FOH calculated: position_sp_alt=%.1f", (double)position_sp_alt);
-		PX4_INFO("  AGL=%.1f, Airspeed=%.1f, Vz=%.2f", 
-		         (double)agl, (double)_airspeed_eas, (double)_local_pos.vz);
-		last_waypoint_debug = hrt_absolute_time();
-	}
-
-	// ===== 低高度保护（简化版） =====
-	// 检查是否接近着陆点（下一个航点是着陆类型）
-	const bool approaching_landing = (_position_setpoint_next_valid && 
-	                                  _pos_sp_triplet.next.type == position_setpoint_s::SETPOINT_TYPE_LAND);
-	
-	// ===== 失速检测和紧急处理 =====
-	// 检测失速条件：低速 + 下降
-	const float MIN_SAFE_AIRSPEED = _param_fw_airspd_min.get() * 1.2f;  // 最小速度的120%
-	const bool is_descending = _local_pos.vz > 0.5f;  // vz>0表示下降
-	const bool low_airspeed = _airspeed_eas < MIN_SAFE_AIRSPEED;
-	const bool stall_condition = (!_landed && !approaching_landing && low_airspeed && is_descending && agl < 50.0f);
-	
-	if (stall_condition) {
-		static uint64_t last_stall_warn = 0;
-		if (hrt_absolute_time() - last_stall_warn > 500000) {
-			PX4_ERR("!!! STALL DETECTED: Airspeed=%.1f < %.1f, Descending %.2f m/s, AGL=%.1f !!!",
-			        (double)_airspeed_eas, (double)MIN_SAFE_AIRSPEED,
-			        (double)_local_pos.vz, (double)agl);
-			last_stall_warn = hrt_absolute_time();
-		}
-		
-		// 失速时不要拉高！应该降低机头增加速度
-		// 暂时使用目标航点高度，让TECS自己平衡速度和高度
-		position_sp_alt = pos_sp_curr.alt;
-	}
-	
-	// agl已经在函数开头计算过了
-	const float MIN_SAFE_AGL = 40.0f;  // 低高度保护阈值
-
-	// 低高度保护：只要低空就强制安全高度（着陆阶段除外）
-	// 移除了"position_sp_alt < _current_altitude"条件，因为FOH被禁用后这个条件总是false
-	if (!_landed && !approaching_landing && (agl < MIN_SAFE_AGL)) {
-		const float safe_altitude = _current_altitude + (MIN_SAFE_AGL - agl) + 10.0f;
-		
-		// 只在实际修改时输出警告
-		if (position_sp_alt < safe_altitude) {
-			PX4_WARN("LOW ALT PROTECT: AGL=%.1f, Alt SP %.1f->%.1f",
-			         (double)agl, (double)position_sp_alt, (double)safe_altitude);
-			position_sp_alt = safe_altitude;
-		}
-	}
-
-	float pitch_direct_cmd = NAN;
-	float throttle_direct_cmd = NAN;
-
-	// ===== 紧急修复：低空时绕过TECS，直接控制 =====
-	// TECS收到正确设定值但不工作，低空时强制直接控制
-	if (!_landed && !approaching_landing && agl < 60.0f) {
-		// 低于60米AGL时，直接控制俯仰和油门
-		pitch_direct_cmd = math::radians(15.0f);  // 15度爬升姿态
-		throttle_direct_cmd = 0.9f;  // 90%油门
-		
-		static uint64_t last_direct_msg = 0;
-		if (hrt_absolute_time() - last_direct_msg > 1000000) {
-			PX4_ERR("!!! BYPASSING TECS: AGL=%.1f < 60m, DIRECT CONTROL: pitch=15deg, throttle=90%% !!!",
-			        (double)agl);
-			last_direct_msg = hrt_absolute_time();
-		}
-	}
-
-	// 确保空速设定值不低于最小安全速度（防止失速）
-	float safe_target_airspeed = target_airspeed;
-	if (PX4_ISFINITE(target_airspeed)) {
-		const float abs_min_airspeed = _param_fw_airspd_min.get() * 1.15f;  // 最小速度的115%
-		if (target_airspeed < abs_min_airspeed && agl < 100.0f) {
-			safe_target_airspeed = abs_min_airspeed;
-			static uint64_t last_airspeed_warn = 0;
-			if (hrt_absolute_time() - last_airspeed_warn > 2000000) {
-				PX4_WARN("Low altitude: increasing airspeed SP %.1f -> %.1f", 
-				         (double)target_airspeed, (double)safe_target_airspeed);
-				last_airspeed_warn = hrt_absolute_time();
+				position_sp_alt = a + grad * _min_current_sp_distance_xy;
 			}
 		}
 	}
@@ -923,60 +791,25 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 		.timestamp = hrt_absolute_time(),
 		.altitude = position_sp_alt,
 		.height_rate = NAN,
-		.equivalent_airspeed = safe_target_airspeed,
-		.pitch_direct = pitch_direct_cmd,
-		.throttle_direct = throttle_direct_cmd
+		.equivalent_airspeed = target_airspeed,
+		.pitch_direct = NAN,
+		.throttle_direct = NAN
 	};
 
 	_longitudinal_ctrl_sp_pub.publish(fw_longitudinal_control_sp);
-	
-	// 紧急诊断：确认实际发布给TECS的高度设定值
-	static uint64_t last_publish_confirm = 0;
-	if (hrt_absolute_time() - last_publish_confirm > 500000 || agl < 20.0f) {
-		PX4_ERR(">>> PUBLISHED TO TECS: altitude=%.1f, airspeed=%.1f, pitch=%s, throttle=%s <<<",
-		        (double)fw_longitudinal_control_sp.altitude,
-		        (double)fw_longitudinal_control_sp.equivalent_airspeed,
-		        PX4_ISFINITE(pitch_direct_cmd) ? "DIRECT" : "AUTO",
-		        PX4_ISFINITE(throttle_direct_cmd) ? "DIRECT" : "AUTO");
-		last_publish_confirm = hrt_absolute_time();
-	}
 
 	float throttle_min = NAN;
 	float throttle_max = NAN;
 
-	// 紧急诊断：检查滑翔模式
 	if (pos_sp_curr.gliding_enabled) {
-		PX4_ERR("!!! GLIDING MODE IS ENABLED IN WAYPOINT !!!");
-		PX4_ERR("!!! This will set throttle=0 and speed_weight=2.0 (altitude control disabled) !!!");
-		PX4_ERR("!!! Aircraft will descend uncontrollably !!!");
-		
-		// 完全禁用滑翔模式以防止触地
-		// /* enable gliding with this waypoint */
-		// // 安全检查：只有在高度足够高时才允许滑翔模式
-		// if (_current_altitude > 100.0f) { // 100米以上才允许滑翔
-		// 	throttle_min = 0.0;
-		// 	throttle_max = 0.0;
-		// 	_ctrl_configuration_handler.setSpeedWeight(2.f);
-		// } else {
-		// 	// 低高度时禁用滑翔模式，保持正常油门控制
-		// 	PX4_WARN("Gliding mode disabled at low altitude (%.1fm)", (double)_current_altitude);
-		// }
+		/* enable gliding with this waypoint */
+		throttle_min = 0.0;
+		throttle_max = 0.0;
+		_ctrl_configuration_handler.setSpeedWeight(2.f);
 	}
 
 	_ctrl_configuration_handler.setThrottleMax(throttle_max);
 	_ctrl_configuration_handler.setThrottleMin(throttle_min);
-	
-	// 紧急诊断：确认油门限制
-	static uint64_t last_limits_debug = 0;
-	if (hrt_absolute_time() - last_limits_debug > 2000000 || agl < 15.0f) {
-		if (PX4_ISFINITE(throttle_min) || PX4_ISFINITE(throttle_max)) {
-			PX4_ERR(">>> THROTTLE LIMITS: min=%.2f, max=%.2f (TECS is constrained!) <<<",
-			        (double)throttle_min, (double)throttle_max);
-		} else {
-			PX4_INFO(">>> THROTTLE LIMITS: min=NAN, max=NAN (TECS has full control) <<<");
-		}
-		last_limits_debug = hrt_absolute_time();
-	}
 
 	Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
 	Vector2f curr_wp_local = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);
