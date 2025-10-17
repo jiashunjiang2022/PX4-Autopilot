@@ -823,6 +823,11 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 
 	_ctrl_configuration_handler.setThrottleMax(throttle_max);
 	_ctrl_configuration_handler.setThrottleMin(throttle_min);
+	
+	// 关键修复：AUTO模式也需要设置爬升/下沉率目标！
+	// 主分支缺少这些配置，导致TECS使用不合适的默认值
+	_ctrl_configuration_handler.setClimbRateTarget(_param_climbrate_target.get());
+	_ctrl_configuration_handler.setSinkRateTarget(_param_sinkrate_target.get());
 
 	Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
 	Vector2f curr_wp_local = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);
