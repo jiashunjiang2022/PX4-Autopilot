@@ -797,6 +797,19 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	};
 
 	_longitudinal_ctrl_sp_pub.publish(fw_longitudinal_control_sp);
+	
+	// 调试：确认发布的值（特别是切换模式时）
+	static bool first_auto_position_call = true;
+	static uint64_t last_debug = 0;
+	if (first_auto_position_call || (hrt_absolute_time() - last_debug > 2000000)) {
+		PX4_WARN("AUTO_POSITION: alt_sp=%.1f, airspeed_sp=%.1f, height_rate=%s, curr_alt=%.1f",
+		         (double)position_sp_alt,
+		         (double)target_airspeed,
+		         PX4_ISFINITE(fw_longitudinal_control_sp.height_rate) ? "SET" : "NAN",
+		         (double)_current_altitude);
+		first_auto_position_call = false;
+		last_debug = hrt_absolute_time();
+	}
 
 	float throttle_min = NAN;
 	float throttle_max = NAN;
@@ -2929,8 +2942,11 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	// L1制导公式 - 使用PX4原始公式
 	float lateral_acceleration = K_L1 * ground_speed * ground_speed / L1_distance * sinf(eta);
 
-	// 限制横向加速度 - 更保守的限制
-	float max_lateral_accel = 6.0f;  // 减少最大横向加速度
+	// 关键修复：严格限制横向加速度以保持足够的垂直升力
+	// lateral_accel = 3 m/s² → roll ≈ 17度 → 垂直升力保持 = cos(17°) ≈ 96%
+	// lateral_accel = 6 m/s² → roll ≈ 31度 → 垂直升力保持 = cos(31°) ≈ 86% (损失14%!)
+	// 低空时必须保持小横滚角，否则升力不足会导致下降
+	float max_lateral_accel = 3.0f;  // 严格限制：最大横滚角约17度
 	lateral_acceleration = math::constrain(lateral_acceleration, -max_lateral_accel, max_lateral_accel);
 
 	sp.lateral_acceleration_feedforward = lateral_acceleration;
