@@ -227,16 +227,8 @@ void TECSAltitudeReferenceModel::initialize(const AltitudeReferenceState &state)
 	const float init_state_alt = PX4_ISFINITE(state.alt) ? state.alt : 0.f;
 	const float init_state_alt_rate = PX4_ISFINITE(state.alt_rate) ? state.alt_rate : 0.f;
 
-	PX4_ERR("TECSAltitudeReferenceModel::initialize() with alt=%.1f, rate=%.1f",
-	        (double)init_state_alt, (double)init_state_alt_rate);
-
 	_alt_control_traj_generator.reset(0.0f, init_state_alt_rate, init_state_alt);
 	_velocity_control_traj_generator.reset(0.f, init_state_alt_rate, init_state_alt);
-	
-	// 验证初始化后的值
-	float ref_alt = _alt_control_traj_generator.getCurrentPosition();
-	PX4_ERR("After init, altitude_reference=%.1f (should match init_state_alt=%.1f)",
-	        (double)ref_alt, (double)init_state_alt);
 }
 
 void TECSControl::initialize(const Setpoint &setpoint, const Input &input, Param &param, const Flag &flag)

@@ -2860,8 +2860,10 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	matrix::Vector2f vector_AB = unit_path_tangent;  // 路径方向向量
 
 	// 计算横向误差 - 使用vector_AB（路径方向）
+	// 注意：叉积的符号定义为 a×b = a(0)*b(1) - a(1)*b(0)
+	// 正值表示vehicle在路径右侧，负值表示在左侧
 	matrix::Vector2f path_to_vehicle = vehicle_pos - closest_point_on_path;
-	float xtrackErr = path_to_vehicle % vector_AB;  // 横向误差
+	float xtrackErr = path_to_vehicle % vector_AB;  // 横向误差（叉积）
 
 	// 计算eta1 (到L1点的角度) - 基于PX4原始实现
 	float sine_eta1 = xtrackErr / math::max(L1_distance, 0.1f);
@@ -2871,15 +2873,20 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	float eta1 = asinf(sine_eta1);
 
 	// 计算eta2 (速度向量相对于路径的角度) - 使用vector_AB
-	float xtrack_vel = ground_vel % vector_AB;  // 横向速度
-	float ltrack_vel = ground_vel * vector_AB;  // 纵向速度
+	// eta2 = atan2(横向速度, 纵向速度)
+	// 注意：叉积 ground_vel % vector_AB 给出的是"垂直于路径的速度分量"
+	// 但符号可能需要反转，取决于坐标系定义
+	float xtrack_vel = ground_vel % vector_AB;  // 横向速度（叉积）
+	float ltrack_vel = ground_vel * vector_AB;  // 纵向速度（点积）
 
 	// 避免除零错误
 	if (fabsf(ltrack_vel) < 0.1f) {
 		ltrack_vel = (ltrack_vel >= 0) ? 0.1f : -0.1f;
 	}
 
-	float eta2 = atan2f(xtrack_vel, ltrack_vel);
+	// 标准L1公式中，eta2应该表示"需要修正的角度"
+	// 如果速度向量已经偏离路径，eta2应该指向修正方向
+	float eta2 = -atan2f(xtrack_vel, ltrack_vel);  // 注意负号！
 
 	// 总eta角
 	float eta = eta1 + eta2;
@@ -2887,58 +2894,13 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	// 限制eta角到±60度 - 减少最大角度
 	eta = math::constrain(eta, -M_PI_F / 3.0f, M_PI_F / 3.0f);
 
-	// 计算期望航向 - 使用NPFG风格的bearing vector方法
-	// 计算横向误差归一化值（类似NPFG的normalized_track_error）
-	float normalized_track_error = fabsf(xtrackErr) / math::max(L1_distance, 0.1f);
-	normalized_track_error = math::constrain(normalized_track_error, 0.0f, 1.0f);
+	// 计算期望航向 - 使用标准L1公式：path_direction + eta
+	// 这是最简单、最直接的L1公式
+	float path_bearing = atan2f(vector_AB(1), vector_AB(0));
+	float desired_course = path_bearing + eta;
 
-	// 计算前瞻角度（类似NPFG的lookAheadAngle）
-	float look_ahead_ang = M_PI_F / 2.0f * (normalized_track_error - 1.0f) * (normalized_track_error - 1.0f);
-
-	// 计算bearing vector（类似NPFG的bearingVec）
-	matrix::Vector2f unit_path_normal(-vector_AB(1), vector_AB(0)); // 右转90度
-	matrix::Vector2f unit_track_error = -((xtrackErr < 0.0f) ? -1.0f : 1.0f) * unit_path_normal;
-
-	matrix::Vector2f bearing_vec = cosf(look_ahead_ang) * unit_track_error + sinf(look_ahead_ang) * vector_AB;
-	float desired_course = atan2f(bearing_vec(1), bearing_vec(0));
-
-	// 航向平滑处理 - 防止突然的航向变化
-	uint64_t current_time = hrt_absolute_time();
-	float dt = 0.0f;
-
-	if (_l1_last_time > 0) {
-		dt = (current_time - _l1_last_time) / 1e6f; // 转换为秒
-		dt = math::constrain(dt, 0.001f, 0.1f); // 限制dt范围
-	}
-
-	if (dt > 0.0f) {
-		// 计算航向差，避免wrap_pi导致的180度跳跃
-		float course_diff = desired_course - _l1_last_course;
-
-		// 手动处理角度包装，避免突然跳跃
-		if (course_diff > M_PI_F) {
-			course_diff -= 2.0f * M_PI_F;
-		} else if (course_diff < -M_PI_F) {
-			course_diff += 2.0f * M_PI_F;
-		}
-
-		// 限制航向变化率 - 基于时间常数
-		float max_course_change_rate = M_PI_F / 4.0f; // 45度/秒，更保守
-		float max_course_change = max_course_change_rate * dt;
-		course_diff = math::constrain(course_diff, -max_course_change, max_course_change);
-
-		desired_course = _l1_last_course + course_diff;
-
-		// 确保航向在有效范围内
-		if (desired_course > M_PI_F) {
-			desired_course -= 2.0f * M_PI_F;
-		} else if (desired_course < -M_PI_F) {
-			desired_course += 2.0f * M_PI_F;
-		}
-	}
-
-	_l1_last_course = desired_course;
-	_l1_last_time = current_time;
+	// 确保航向在[-π, π]范围内
+	desired_course = matrix::wrap_pi(desired_course);
 
 	sp.course_setpoint = desired_course;
 
@@ -2954,7 +2916,6 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	// 调试输出
 	static uint64_t last_l1_debug = 0;
 	if (hrt_absolute_time() - last_l1_debug > 1000000) {
-		float path_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
 		float current_heading = atan2f(ground_vel(1), ground_vel(0));
 		PX4_WARN("L1: XTE=%.1f eta1=%.1f° eta2=%.1f° eta=%.1f° path_dir=%.1f° heading=%.1f° desired_course=%.1f° lat_accel=%.2f",
 		         (double)xtrackErr,
