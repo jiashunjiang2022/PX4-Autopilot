@@ -747,49 +747,68 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	    ((pos_sp_prev.type == position_setpoint_s::SETPOINT_TYPE_POSITION) ||
 	     (pos_sp_prev.type == position_setpoint_s::SETPOINT_TYPE_LOITER))
 	   ) {
-		// 检查前后航点高度是否基本相同（小于5米视为相同）
-		const float delta_alt = pos_sp_curr.alt - pos_sp_prev.alt;
-		const bool same_altitude = (fabsf(delta_alt) < 5.0f);
+	// ===== FOH高度插值逻辑 =====
+	// 关键修复：低空时禁用FOH，避免危险下降指令
+	const float agl = -_local_pos.z;
+	const float DISABLE_FOH_AGL = 80.0f;  // AGL<80米时禁用FOH
+	
+	// 检查前后航点高度是否基本相同（小于5米视为相同）
+	const float delta_alt = pos_sp_curr.alt - pos_sp_prev.alt;
+	const bool same_altitude = (fabsf(delta_alt) < 5.0f);
 
-		if (same_altitude) {
-			// 相同高度的航点，直接使用当前航点高度，不使用FOH插值
-			position_sp_alt = pos_sp_curr.alt;
-		} else {
-			// 不同高度，使用FOH插值
-			const float d_curr_prev = get_distance_to_next_waypoint(pos_sp_curr.lat, pos_sp_curr.lon, pos_sp_prev.lat,
-						  pos_sp_prev.lon);
+	if (agl < DISABLE_FOH_AGL) {
+		// 低空时强制使用目标航点高度，不使用FOH插值
+		// 这避免了FOH指令下降到线性路径上导致触地
+		position_sp_alt = pos_sp_curr.alt;
+		
+		static uint64_t last_foh_disable_msg = 0;
+		if (hrt_absolute_time() - last_foh_disable_msg > 2000000) {
+			PX4_INFO("FOH DISABLED at low altitude: AGL=%.1f < %.1f, using target alt %.1f",
+			         (double)agl, (double)DISABLE_FOH_AGL, (double)position_sp_alt);
+			last_foh_disable_msg = hrt_absolute_time();
+		}
+	} else if (same_altitude) {
+		// 相同高度的航点，直接使用当前航点高度，不使用FOH插值
+		position_sp_alt = pos_sp_curr.alt;
+	} else {
+		// 高空且不同高度，使用FOH插值
+		const float d_curr_prev = get_distance_to_next_waypoint(pos_sp_curr.lat, pos_sp_curr.lon, pos_sp_prev.lat,
+					  pos_sp_prev.lon);
 
-			// Do not try to find a solution if the last waypoint is inside the acceptance radius of the current one
-			if (d_curr_prev > math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius))) {
-				// Calculate distance to current waypoint
-				const float d_curr = get_distance_to_next_waypoint(pos_sp_curr.lat, pos_sp_curr.lon, _current_latitude,
-						     _current_longitude);
+		// Do not try to find a solution if the last waypoint is inside the acceptance radius of the current one
+		if (d_curr_prev > math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius))) {
+			// Calculate distance to current waypoint
+			const float d_curr = get_distance_to_next_waypoint(pos_sp_curr.lat, pos_sp_curr.lon, _current_latitude,
+					     _current_longitude);
 
-				// Save distance to waypoint if it is the smallest ever achieved, however make sure that
-				// _min_current_sp_distance_xy is never larger than the distance between the current and the previous wp
-				_min_current_sp_distance_xy = math::min(d_curr, _min_current_sp_distance_xy, d_curr_prev);
+			// Save distance to waypoint if it is the smallest ever achieved, however make sure that
+			// _min_current_sp_distance_xy is never larger than the distance between the current and the previous wp
+			_min_current_sp_distance_xy = math::min(d_curr, _min_current_sp_distance_xy, d_curr_prev);
 
-				// if the minimal distance is smaller than the acceptance radius, we should be at waypoint alt
-				// navigator will soon switch to the next waypoint item (if there is one) as soon as we reach this altitude
-				if (_min_current_sp_distance_xy > math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius))) {
-					// The setpoint is set linearly and such that the system reaches the current altitude at the acceptance
-					// radius around the current waypoint
-					const float grad = -delta_alt / (d_curr_prev - math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius)));
-					const float a = pos_sp_prev.alt - grad * d_curr_prev;
+			// if the minimal distance is smaller than the acceptance radius, we should be at waypoint alt
+			// navigator will soon switch to the next waypoint item (if there is one) as soon as we reach this altitude
+			if (_min_current_sp_distance_xy > math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius))) {
+				// The setpoint is set linearly and such that the system reaches the current altitude at the acceptance
+				// radius around the current waypoint
+				const float grad = -delta_alt / (d_curr_prev - math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius)));
+				const float a = pos_sp_prev.alt - grad * d_curr_prev;
 
-					const float foh_altitude = a + grad * _min_current_sp_distance_xy;
-					
-					// 关键修复：FOH不应指令下降到危险高度
-					// 如果FOH计算的高度会导致AGL<40米，强制提高
-					const float agl_at_foh = foh_altitude - (_current_altitude - (-_local_pos.z));
-					if (agl_at_foh < 40.0f) {
-						position_sp_alt = _current_altitude + (40.0f - agl_at_foh);
-					} else {
-						position_sp_alt = foh_altitude;
-					}
+				const float foh_alt = a + grad * _min_current_sp_distance_xy;
+				
+				// 安全检查：FOH不得指令下降到危险高度
+				const float ground_alt = _current_altitude - agl;
+				const float min_safe_msl = ground_alt + 50.0f;  // 保持AGL>50米
+				
+				if (foh_alt < min_safe_msl) {
+					position_sp_alt = min_safe_msl;
+					PX4_WARN("FOH safety clamp: %.1f -> %.1f (AGL would be <50m)", 
+					         (double)foh_alt, (double)position_sp_alt);
+				} else {
+					position_sp_alt = foh_alt;
 				}
 			}
 		}
+	}
 	}
 
 	// ===== 心跳调试：确认代码正在运行 =====
@@ -800,30 +819,26 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 		last_heartbeat = hrt_absolute_time();
 	}
 
-	// ===== 低高度保护：强化版 =====
+	// ===== 低高度保护（简化版） =====
 	// 检查是否接近着陆点（下一个航点是着陆类型）
 	const bool approaching_landing = (_position_setpoint_next_valid && 
 	                                  _pos_sp_triplet.next.type == position_setpoint_s::SETPOINT_TYPE_LAND);
 	
-	const float agl = -_local_pos.z;
-	const float MIN_SAFE_AGL = 30.0f;  // 保护阈值：30米
+	// agl已经在FOH部分计算过了，这里直接使用
+	// const float agl = -_local_pos.z;
+	const float MIN_SAFE_AGL = 40.0f;  // 低高度保护阈值
 
-	// 调试：输出FOH计算的高度设定值
-	static uint64_t last_foh_debug = 0;
-	if (hrt_absolute_time() - last_foh_debug > 1000000 || agl < MIN_SAFE_AGL) {
-		PX4_INFO("FOH: Alt SP=%.1f, Current=%.1f, AGL=%.1f, landing=%d",
-		         (double)position_sp_alt, (double)_current_altitude, (double)agl, approaching_landing);
-		last_foh_debug = hrt_absolute_time();
-	}
-
-	// 低高度保护：关键修复 - 移除"要求下降"的条件
-	// 只要低空就强制设置安全高度，不管FOH计算的是什么
+	// 低高度保护：只要低空就强制安全高度（着陆阶段除外）
+	// 移除了"position_sp_alt < _current_altitude"条件，因为FOH被禁用后这个条件总是false
 	if (!_landed && !approaching_landing && (agl < MIN_SAFE_AGL)) {
-		const float safe_altitude = _current_altitude + (MIN_SAFE_AGL - agl) + 5.0f;
-		PX4_WARN("!!! LOW ALT PROTECT: AGL=%.1f < %.1f, Alt SP %.1f -> %.1f !!!",
-		         (double)agl, (double)MIN_SAFE_AGL,
-		         (double)position_sp_alt, (double)safe_altitude);
-		position_sp_alt = safe_altitude;
+		const float safe_altitude = _current_altitude + (MIN_SAFE_AGL - agl) + 10.0f;
+		
+		// 只在实际修改时输出警告
+		if (position_sp_alt < safe_altitude) {
+			PX4_WARN("LOW ALT PROTECT: AGL=%.1f, Alt SP %.1f->%.1f",
+			         (double)agl, (double)position_sp_alt, (double)safe_altitude);
+			position_sp_alt = safe_altitude;
+		}
 	}
 
 	float pitch_direct_cmd = NAN;
@@ -839,38 +854,25 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	};
 
 	_longitudinal_ctrl_sp_pub.publish(fw_longitudinal_control_sp);
-	
-	// 调试：确认发布的值
-	static uint64_t last_publish_debug = 0;
-	if (hrt_absolute_time() - last_publish_debug > 1000000 || agl < 30.0f) {
-		PX4_INFO("PUBLISHED to TECS: Alt SP=%.1f, pitch=%s, throttle=%s",
-		         (double)fw_longitudinal_control_sp.altitude,
-		         PX4_ISFINITE(pitch_direct_cmd) ? "DIRECT" : "TECS",
-		         PX4_ISFINITE(throttle_direct_cmd) ? "DIRECT" : "TECS");
-		last_publish_debug = hrt_absolute_time();
-	}
 
 	float throttle_min = NAN;
 	float throttle_max = NAN;
 
-	// 强制禁用滑翔模式 - 这可能是导致持续下降的元凶！
 	if (pos_sp_curr.gliding_enabled) {
-		PX4_ERR("!!! GLIDING MODE DETECTED - FORCING DISABLE FOR SAFETY !!!");
-		// 完全不使用滑翔模式
-		// throttle_min和throttle_max保持NAN，使用正常控制
+		/* enable gliding with this waypoint */
+		// 安全检查：只有在高度足够高时才允许滑翔模式
+		if (_current_altitude > 100.0f) { // 100米以上才允许滑翔
+			throttle_min = 0.0;
+			throttle_max = 0.0;
+			_ctrl_configuration_handler.setSpeedWeight(2.f);
+		} else {
+			// 低高度时禁用滑翔模式，保持正常油门控制
+			PX4_WARN("Gliding mode disabled at low altitude (%.1fm)", (double)_current_altitude);
+		}
 	}
 
 	_ctrl_configuration_handler.setThrottleMax(throttle_max);
 	_ctrl_configuration_handler.setThrottleMin(throttle_min);
-	
-	// 调试：油门限制
-	static uint64_t last_throttle_debug = 0;
-	if (hrt_absolute_time() - last_throttle_debug > 2000000) {
-		PX4_INFO("Throttle limits: min=%s, max=%s",
-		         PX4_ISFINITE(throttle_min) ? "SET" : "NAN",
-		         PX4_ISFINITE(throttle_max) ? "SET" : "NAN");
-		last_throttle_debug = hrt_absolute_time();
-	}
 
 	Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
 	Vector2f curr_wp_local = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);

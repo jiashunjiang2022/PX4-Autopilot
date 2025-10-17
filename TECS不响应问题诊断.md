@@ -109,3 +109,4 @@ PX4_INFO("Throttle limits: min=%s, max=%s",
 
 让我添加这些调试并强制禁用滑翔模式：
 
+
