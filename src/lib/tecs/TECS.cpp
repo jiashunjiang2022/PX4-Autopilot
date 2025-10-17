@@ -695,9 +695,6 @@ float TECS::calcTrueAirspeedSetpoint(float eas_to_tas, float eas_setpoint)
 void TECS::initialize(const float altitude, const float altitude_rate, const float equivalent_airspeed,
 		      float eas_to_tas)
 {
-	// 调试：记录初始化时的高度
-	PX4_ERR("TECS::initialize() called with altitude=%.1f (should be AMSL!)", (double)altitude);
-	
 	// Init subclasses
 	TECSAltitudeReferenceModel::AltitudeReferenceState current_state{.alt = altitude,
 			.alt_rate = altitude_rate};

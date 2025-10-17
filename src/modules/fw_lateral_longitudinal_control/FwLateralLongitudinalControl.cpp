@@ -387,27 +387,13 @@ FwLateralLongitudinalControl::tecs_update_pitch_throttle(const float control_int
 	// when flying tight turns. It's in this case much safer to just set the estimated airspeed rate to 0.
 	const float airspeed_rate_estimate = 0.f;
 
-	// CRITICAL FIX: Re-initialize TECS when first valid altitude setpoint is received
-	// Problem: TECS is initialized with altitude=0 at startup, then never re-initialized
-	// Solution: When we first get a valid altitude setpoint after takeoff, reinit TECS with current altitude
+	// CRITICAL FIX: Re-initialize TECS when first valid altitude setpoint is received after takeoff
+	// TECS is initialized with altitude=0 at startup. After takeoff, we need to reset the altitude
+	// reference to the current altitude so TECS can properly track altitude changes.
 	static bool tecs_reinit_done = false;
 	if (!tecs_reinit_done && PX4_ISFINITE(alt_sp) && alt_sp > 100.0f && _long_control_state.altitude_msl > 100.0f) {
-		PX4_ERR("*** TECS RE-INIT: Re-initializing TECS altitude_reference from 0 to current altitude %.1f",
-		        (double)_long_control_state.altitude_msl);
 		_tecs.handle_alt_step(_long_control_state.altitude_msl, _long_control_state.height_rate);
 		tecs_reinit_done = true;
-	}
-	
-	// 调试：确认传给TECS的值
-	static uint64_t last_tecs_debug = 0;
-	if (hrt_absolute_time() - last_tecs_debug > 2000000) {
-		PX4_ERR("传给TECS.update(): curr_alt=%.1f(AMSL), alt_sp=%.1f(AMSL), hgt_rate_sp=%s, climb=%.1f, sink=%.1f",
-		        (double)_long_control_state.altitude_msl,
-		        (double)alt_sp,
-		        PX4_ISFINITE(hgt_rate_sp) ? "SET" : "NAN",
-		        (double)desired_max_climbrate,
-		        (double)desired_max_sinkrate);
-		last_tecs_debug = hrt_absolute_time();
 	}
 
 	_tecs.update(_long_control_state.pitch_rad - radians(_param_fw_psp_off.get()),
