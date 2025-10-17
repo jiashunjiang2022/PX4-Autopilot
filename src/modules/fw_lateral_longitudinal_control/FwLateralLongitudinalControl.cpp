@@ -387,6 +387,18 @@ FwLateralLongitudinalControl::tecs_update_pitch_throttle(const float control_int
 	// when flying tight turns. It's in this case much safer to just set the estimated airspeed rate to 0.
 	const float airspeed_rate_estimate = 0.f;
 
+	// 调试：确认传给TECS的值
+	static uint64_t last_tecs_debug = 0;
+	if (hrt_absolute_time() - last_tecs_debug > 2000000) {
+		PX4_ERR("传给TECS.update(): curr_alt=%.1f(AMSL), alt_sp=%.1f(AMSL), hgt_rate_sp=%s, climb=%.1f, sink=%.1f",
+		        (double)_long_control_state.altitude_msl,
+		        (double)alt_sp,
+		        PX4_ISFINITE(hgt_rate_sp) ? "SET" : "NAN",
+		        (double)desired_max_climbrate,
+		        (double)desired_max_sinkrate);
+		last_tecs_debug = hrt_absolute_time();
+	}
+
 	_tecs.update(_long_control_state.pitch_rad - radians(_param_fw_psp_off.get()),
 		     _long_control_state.altitude_msl,
 		     alt_sp,
