@@ -2557,12 +2557,23 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoints(const Vector2f
 		return navigateWaypoint(end_waypoint, vehicle_pos, ground_vel, wind_vel);
 	}
 
-	if (start_waypoint_to_end_waypoint.dot(end_waypoint_to_vehicle) > FLT_EPSILON) {
+	const float dot_beyond = start_waypoint_to_end_waypoint.dot(end_waypoint_to_vehicle);
+	
+	if (dot_beyond > FLT_EPSILON) {
 		// we are beyond the end waypoint, fly back to it
 		// NOTE: this logic ideally never gets executed, as a waypoint switch should happen before passing the
 		// end waypoint. however this included here as a safety precaution if any navigator (module) switch condition
 		// is missed for any reason. in the future this logic should all be handled in one place in a dedicated
 		// flight mode state machine.
+		static uint64_t last_beyond_debug = 0;
+		if (hrt_absolute_time() - last_beyond_debug > 2000000) {
+			PX4_ERR("BEYOND END WP! WP1[%.1f,%.1f] WP2[%.1f,%.1f] Veh[%.1f,%.1f] dot=%.2f -> navigateWaypoint(WP2)",
+			        (double)start_waypoint(0), (double)start_waypoint(1),
+			        (double)end_waypoint(0), (double)end_waypoint(1),
+			        (double)vehicle_pos(0), (double)vehicle_pos(1),
+			        (double)dot_beyond);
+			last_beyond_debug = hrt_absolute_time();
+		}
 		return navigateWaypoint(end_waypoint, vehicle_pos, ground_vel, wind_vel);
 	}
 
