@@ -742,6 +742,9 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	// waypoint is a plain navigation waypoint
 	float position_sp_alt = pos_sp_curr.alt;
 
+	// 计算AGL（相对地面高度），在多处使用
+	const float agl = -_local_pos.z;
+
 	// Altitude first order hold (FOH)
 	if (_position_setpoint_previous_valid &&
 	    ((pos_sp_prev.type == position_setpoint_s::SETPOINT_TYPE_POSITION) ||
@@ -749,7 +752,6 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	   ) {
 	// ===== FOH高度插值逻辑 =====
 	// 关键修复：低空时禁用FOH，避免危险下降指令
-	const float agl = -_local_pos.z;
 	const float DISABLE_FOH_AGL = 80.0f;  // AGL<80米时禁用FOH
 	
 	// 检查前后航点高度是否基本相同（小于5米视为相同）
@@ -824,8 +826,7 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	const bool approaching_landing = (_position_setpoint_next_valid && 
 	                                  _pos_sp_triplet.next.type == position_setpoint_s::SETPOINT_TYPE_LAND);
 	
-	// agl已经在FOH部分计算过了，这里直接使用
-	// const float agl = -_local_pos.z;
+	// agl已经在函数开头计算过了
 	const float MIN_SAFE_AGL = 40.0f;  // 低高度保护阈值
 
 	// 低高度保护：只要低空就强制安全高度（着陆阶段除外）
