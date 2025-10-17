@@ -765,7 +765,7 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 		
 		static uint64_t last_foh_disable_msg = 0;
 		if (hrt_absolute_time() - last_foh_disable_msg > 2000000) {
-			PX4_INFO("FOH DISABLED at low altitude: AGL=%.1f < %.1f, using target alt %.1f",
+			PX4_WARN("FOH DISABLED: AGL=%.1f < %.1f, using target WP alt %.1f (not FOH interpolation)",
 			         (double)agl, (double)DISABLE_FOH_AGL, (double)position_sp_alt);
 			last_foh_disable_msg = hrt_absolute_time();
 		}
@@ -813,13 +813,22 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	}
 	}
 
-	// ===== 心跳调试：确认代码正在运行 =====
-	static uint64_t last_heartbeat = 0;
-	if (hrt_absolute_time() - last_heartbeat > 1000000) {
-		PX4_INFO("=== HEARTBEAT: Alt=%.1f, AGL=%.1f, Airspeed=%.1f, Vz=%.2f ===", 
-		         (double)_current_altitude, (double)(-_local_pos.z),
-		         (double)_airspeed_eas, (double)_local_pos.vz);
-		last_heartbeat = hrt_absolute_time();
+	// ===== 航点信息调试 =====
+	static uint64_t last_waypoint_debug = 0;
+	if (hrt_absolute_time() - last_waypoint_debug > 2000000) {
+		PX4_INFO("=== WAYPOINT INFO ===");
+		PX4_INFO("  Current WP: lat=%.6f, lon=%.6f, alt=%.1f (type=%d)",
+		         (double)pos_sp_curr.lat, (double)pos_sp_curr.lon, (double)pos_sp_curr.alt, pos_sp_curr.type);
+		if (_position_setpoint_previous_valid) {
+			PX4_INFO("  Previous WP: lat=%.6f, lon=%.6f, alt=%.1f (type=%d)",
+			         (double)pos_sp_prev.lat, (double)pos_sp_prev.lon, (double)pos_sp_prev.alt, pos_sp_prev.type);
+		}
+		PX4_INFO("  Current Aircraft: lat=%.6f, lon=%.6f, alt=%.1f",
+		         (double)_current_latitude, (double)_current_longitude, (double)_current_altitude);
+		PX4_INFO("  FOH calculated: position_sp_alt=%.1f", (double)position_sp_alt);
+		PX4_INFO("  AGL=%.1f, Airspeed=%.1f, Vz=%.2f", 
+		         (double)agl, (double)_airspeed_eas, (double)_local_pos.vz);
+		last_waypoint_debug = hrt_absolute_time();
 	}
 
 	// ===== 低高度保护（简化版） =====
