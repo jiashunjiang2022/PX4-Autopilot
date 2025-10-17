@@ -830,8 +830,11 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	_ctrl_configuration_handler.setSinkRateTarget(_param_sinkrate_target.get());
 	
 	// 确保俯仰角限制足够大以支持爬升
-	_ctrl_configuration_handler.setPitchMax(math::radians(_param_fw_p_lim_max.get()));
-	_ctrl_configuration_handler.setPitchMin(math::radians(_param_fw_p_lim_min.get()));
+	// 注意：参数已经是角度，需要转换为弧度
+	const float pitch_max_rad = math::radians(_param_fw_p_lim_max.get());
+	const float pitch_min_rad = math::radians(_param_fw_p_lim_min.get());
+	_ctrl_configuration_handler.setPitchMax(pitch_max_rad);
+	_ctrl_configuration_handler.setPitchMin(pitch_min_rad);
 	
 	// 调试：输出配置值和TECS实际输出
 	static uint64_t last_config_debug = 0;
@@ -845,11 +848,15 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 			        (double)math::degrees(tecs_status.pitch_sp_rad),
 			        (double)tecs_status.throttle_sp,
 			        (double)tecs_status.height_rate_setpoint);
-			PX4_WARN("Config: climb=%.1f, sink=%.1f, pitch[%.1f°,%.1f°]",
+			PX4_WARN("Config我们设置的: climb=%.1f, sink=%.1f",
 			         (double)_param_climbrate_target.get(),
-			         (double)_param_sinkrate_target.get(),
-			         (double)math::degrees(_param_fw_p_lim_min.get()),
-			         (double)math::degrees(_param_fw_p_lim_max.get()));
+			         (double)_param_sinkrate_target.get());
+			PX4_WARN("Pitch限制原始值: FW_P_LIM_MIN=%.1f°, FW_P_LIM_MAX=%.1f°",
+			         (double)_param_fw_p_lim_min.get(),
+			         (double)_param_fw_p_lim_max.get());
+			PX4_WARN("Pitch限制转弧度: min_rad=%.3f, max_rad=%.3f",
+			         (double)pitch_min_rad,
+			         (double)pitch_max_rad);
 		}
 		last_config_debug = hrt_absolute_time();
 	}
