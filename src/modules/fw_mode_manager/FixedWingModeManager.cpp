@@ -816,8 +816,9 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	// ===== 心跳调试：确认代码正在运行 =====
 	static uint64_t last_heartbeat = 0;
 	if (hrt_absolute_time() - last_heartbeat > 1000000) {
-		PX4_INFO("=== HEARTBEAT: Alt=%.1f, AGL=%.1f, landed=%d ===", 
-		         (double)_current_altitude, (double)(-_local_pos.z), _landed);
+		PX4_INFO("=== HEARTBEAT: Alt=%.1f, AGL=%.1f, Airspeed=%.1f, Vz=%.2f ===", 
+		         (double)_current_altitude, (double)(-_local_pos.z),
+		         (double)_airspeed_eas, (double)_local_pos.vz);
 		last_heartbeat = hrt_absolute_time();
 	}
 
@@ -825,6 +826,27 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	// 检查是否接近着陆点（下一个航点是着陆类型）
 	const bool approaching_landing = (_position_setpoint_next_valid && 
 	                                  _pos_sp_triplet.next.type == position_setpoint_s::SETPOINT_TYPE_LAND);
+	
+	// ===== 失速检测和紧急处理 =====
+	// 检测失速条件：低速 + 下降
+	const float MIN_SAFE_AIRSPEED = _param_fw_airspd_min.get() * 1.2f;  // 最小速度的120%
+	const bool is_descending = _local_pos.vz > 0.5f;  // vz>0表示下降
+	const bool low_airspeed = _airspeed_eas < MIN_SAFE_AIRSPEED;
+	const bool stall_condition = (!_landed && !approaching_landing && low_airspeed && is_descending && agl < 50.0f);
+	
+	if (stall_condition) {
+		static uint64_t last_stall_warn = 0;
+		if (hrt_absolute_time() - last_stall_warn > 500000) {
+			PX4_ERR("!!! STALL DETECTED: Airspeed=%.1f < %.1f, Descending %.2f m/s, AGL=%.1f !!!",
+			        (double)_airspeed_eas, (double)MIN_SAFE_AIRSPEED,
+			        (double)_local_pos.vz, (double)agl);
+			last_stall_warn = hrt_absolute_time();
+		}
+		
+		// 失速时不要拉高！应该降低机头增加速度
+		// 暂时使用目标航点高度，让TECS自己平衡速度和高度
+		position_sp_alt = pos_sp_curr.alt;
+	}
 	
 	// agl已经在函数开头计算过了
 	const float MIN_SAFE_AGL = 40.0f;  // 低高度保护阈值
@@ -845,11 +867,26 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	float pitch_direct_cmd = NAN;
 	float throttle_direct_cmd = NAN;
 
+	// 确保空速设定值不低于最小安全速度（防止失速）
+	float safe_target_airspeed = target_airspeed;
+	if (PX4_ISFINITE(target_airspeed)) {
+		const float abs_min_airspeed = _param_fw_airspd_min.get() * 1.15f;  // 最小速度的115%
+		if (target_airspeed < abs_min_airspeed && agl < 100.0f) {
+			safe_target_airspeed = abs_min_airspeed;
+			static uint64_t last_airspeed_warn = 0;
+			if (hrt_absolute_time() - last_airspeed_warn > 2000000) {
+				PX4_WARN("Low altitude: increasing airspeed SP %.1f -> %.1f", 
+				         (double)target_airspeed, (double)safe_target_airspeed);
+				last_airspeed_warn = hrt_absolute_time();
+			}
+		}
+	}
+
 	const fixed_wing_longitudinal_setpoint_s fw_longitudinal_control_sp = {
 		.timestamp = hrt_absolute_time(),
 		.altitude = position_sp_alt,
 		.height_rate = NAN,
-		.equivalent_airspeed = target_airspeed,
+		.equivalent_airspeed = safe_target_airspeed,
 		.pitch_direct = pitch_direct_cmd,
 		.throttle_direct = throttle_direct_cmd
 	};
