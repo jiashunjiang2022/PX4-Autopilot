@@ -889,6 +889,21 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	float pitch_direct_cmd = NAN;
 	float throttle_direct_cmd = NAN;
 
+	// ===== 紧急修复：低空时绕过TECS，直接控制 =====
+	// TECS收到正确设定值但不工作，低空时强制直接控制
+	if (!_landed && !approaching_landing && agl < 60.0f) {
+		// 低于60米AGL时，直接控制俯仰和油门
+		pitch_direct_cmd = math::radians(15.0f);  // 15度爬升姿态
+		throttle_direct_cmd = 0.9f;  // 90%油门
+		
+		static uint64_t last_direct_msg = 0;
+		if (hrt_absolute_time() - last_direct_msg > 1000000) {
+			PX4_ERR("!!! BYPASSING TECS: AGL=%.1f < 60m, DIRECT CONTROL: pitch=15deg, throttle=90%% !!!",
+			        (double)agl);
+			last_direct_msg = hrt_absolute_time();
+		}
+	}
+
 	// 确保空速设定值不低于最小安全速度（防止失速）
 	float safe_target_airspeed = target_airspeed;
 	if (PX4_ISFINITE(target_airspeed)) {
