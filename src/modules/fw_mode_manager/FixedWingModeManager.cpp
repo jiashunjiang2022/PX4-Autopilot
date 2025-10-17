@@ -737,20 +737,7 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 		const Vector2f &ground_speed, const position_setpoint_s &pos_sp_prev, const position_setpoint_s &pos_sp_curr)
 {
 	const float acc_rad = _directional_guidance.switchDistance(500.0f);
-	
-	// 关键修复：如果航点未设置巡航速度，使用默认巡航速度而不是NAN
-	// 空速为NAN会导致TECS无法正常工作！
-	float target_airspeed = pos_sp_curr.cruising_speed;
-	if (target_airspeed < FLT_EPSILON) {
-		// 航点未设置速度，使用默认巡航速度
-		target_airspeed = _param_fw_airspd_trim.get();
-		static uint64_t last_airspeed_fallback_msg = 0;
-		if (hrt_absolute_time() - last_airspeed_fallback_msg > 5000000) {
-			PX4_WARN("Waypoint cruising_speed not set, using default trim airspeed %.1f m/s", 
-			         (double)target_airspeed);
-			last_airspeed_fallback_msg = hrt_absolute_time();
-		}
-	}
+	const float target_airspeed = pos_sp_curr.cruising_speed > FLT_EPSILON ? pos_sp_curr.cruising_speed : NAN;
 
 	// waypoint is a plain navigation waypoint
 	float position_sp_alt = pos_sp_curr.alt;
@@ -760,31 +747,81 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	    ((pos_sp_prev.type == position_setpoint_s::SETPOINT_TYPE_POSITION) ||
 	     (pos_sp_prev.type == position_setpoint_s::SETPOINT_TYPE_LOITER))
 	   ) {
-		const float d_curr_prev = get_distance_to_next_waypoint(pos_sp_curr.lat, pos_sp_curr.lon, pos_sp_prev.lat,
-					  pos_sp_prev.lon);
+		// 检查前后航点高度是否基本相同（小于5米视为相同）
+		const float delta_alt = pos_sp_curr.alt - pos_sp_prev.alt;
+		const bool same_altitude = (fabsf(delta_alt) < 5.0f);
 
-		// Do not try to find a solution if the last waypoint is inside the acceptance radius of the current one
-		if (d_curr_prev > math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius))) {
-			// Calculate distance to current waypoint
-			const float d_curr = get_distance_to_next_waypoint(pos_sp_curr.lat, pos_sp_curr.lon, _current_latitude,
-					     _current_longitude);
+		if (same_altitude) {
+			// 相同高度的航点，直接使用当前航点高度，不使用FOH插值
+			position_sp_alt = pos_sp_curr.alt;
+		} else {
+			// 不同高度，使用FOH插值
+			const float d_curr_prev = get_distance_to_next_waypoint(pos_sp_curr.lat, pos_sp_curr.lon, pos_sp_prev.lat,
+						  pos_sp_prev.lon);
 
-			// Save distance to waypoint if it is the smallest ever achieved, however make sure that
-			// _min_current_sp_distance_xy is never larger than the distance between the current and the previous wp
-			_min_current_sp_distance_xy = math::min(d_curr, _min_current_sp_distance_xy, d_curr_prev);
+			// Do not try to find a solution if the last waypoint is inside the acceptance radius of the current one
+			if (d_curr_prev > math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius))) {
+				// Calculate distance to current waypoint
+				const float d_curr = get_distance_to_next_waypoint(pos_sp_curr.lat, pos_sp_curr.lon, _current_latitude,
+						     _current_longitude);
 
-			// if the minimal distance is smaller than the acceptance radius, we should be at waypoint alt
-			// navigator will soon switch to the next waypoint item (if there is one) as soon as we reach this altitude
-			if (_min_current_sp_distance_xy > math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius))) {
-				// The setpoint is set linearly and such that the system reaches the current altitude at the acceptance
-				// radius around the current waypoint
-				const float delta_alt = (pos_sp_curr.alt - pos_sp_prev.alt);
-				const float grad = -delta_alt / (d_curr_prev - math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius)));
-				const float a = pos_sp_prev.alt - grad * d_curr_prev;
+				// Save distance to waypoint if it is the smallest ever achieved, however make sure that
+				// _min_current_sp_distance_xy is never larger than the distance between the current and the previous wp
+				_min_current_sp_distance_xy = math::min(d_curr, _min_current_sp_distance_xy, d_curr_prev);
 
-				position_sp_alt = a + grad * _min_current_sp_distance_xy;
+				// if the minimal distance is smaller than the acceptance radius, we should be at waypoint alt
+				// navigator will soon switch to the next waypoint item (if there is one) as soon as we reach this altitude
+				if (_min_current_sp_distance_xy > math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius))) {
+					// The setpoint is set linearly and such that the system reaches the current altitude at the acceptance
+					// radius around the current waypoint
+					const float grad = -delta_alt / (d_curr_prev - math::max(acc_rad, fabsf(pos_sp_curr.loiter_radius)));
+					const float a = pos_sp_prev.alt - grad * d_curr_prev;
+
+					position_sp_alt = a + grad * _min_current_sp_distance_xy;
+				}
 			}
 		}
+	}
+
+	// ===== 心跳调试：确认代码正在运行 =====
+	static uint64_t last_heartbeat = 0;
+	if (hrt_absolute_time() - last_heartbeat > 1000000) {
+		PX4_INFO("=== HEARTBEAT: Alt=%.1f, AGL=%.1f, landed=%d ===", 
+		         (double)_current_altitude, (double)(-_local_pos.z), _landed);
+		last_heartbeat = hrt_absolute_time();
+	}
+
+	// ===== 低高度保护 & 硬地线爬升保护 =====
+	// 检查是否接近着陆点（下一个航点是着陆类型）
+	const bool approaching_landing = (_position_setpoint_next_valid && 
+	                                  _pos_sp_triplet.next.type == position_setpoint_s::SETPOINT_TYPE_LAND);
+	
+	const float agl = -_local_pos.z;
+	const float MIN_SAFE_AGL = 50.0f;  // 低高度保护阈值
+	const float HARD_DECK = 20.0f;     // 硬地线阈值
+
+	// 低高度保护：温和地调整高度设定值（着陆阶段禁用）
+	if (!_landed && !approaching_landing && (agl < MIN_SAFE_AGL) && (position_sp_alt < _current_altitude)) {
+		const float safe_altitude = _current_altitude + (MIN_SAFE_AGL - agl) + 5.0f;
+		PX4_WARN("LOW ALT PROTECT: AGL=%.1f, Alt SP %.1f->%.1f",
+		         (double)agl, (double)position_sp_alt, (double)safe_altitude);
+		position_sp_alt = safe_altitude;
+	}
+
+	// 硬地线强制爬升：极低高度时触发（着陆阶段禁用）
+	static bool hard_deck_active_prev = false;
+	const bool hard_deck_active = (!_landed && !approaching_landing && (agl < HARD_DECK));
+	if (hard_deck_active && !hard_deck_active_prev) {
+		PX4_ERR("!!! HARD-DECK: AGL=%.1f, FORCING CLIMB !!!", (double)agl);
+	}
+	hard_deck_active_prev = hard_deck_active;
+
+	float pitch_direct_cmd = NAN;
+	float throttle_direct_cmd = NAN;
+
+	if (hard_deck_active) {
+		pitch_direct_cmd = math::radians(20.0f);
+		throttle_direct_cmd = 1.0f;
 	}
 
 	const fixed_wing_longitudinal_setpoint_s fw_longitudinal_control_sp = {
@@ -792,81 +829,30 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 		.altitude = position_sp_alt,
 		.height_rate = NAN,
 		.equivalent_airspeed = target_airspeed,
-		.pitch_direct = NAN,
-		.throttle_direct = NAN
+		.pitch_direct = pitch_direct_cmd,
+		.throttle_direct = throttle_direct_cmd
 	};
 
 	_longitudinal_ctrl_sp_pub.publish(fw_longitudinal_control_sp);
-	
-	// 调试：确认发布的值（特别是切换模式时）
-	static bool first_auto_position_call = true;
-	static uint64_t last_debug = 0;
-	if (first_auto_position_call || (hrt_absolute_time() - last_debug > 2000000)) {
-		const float home_alt = _local_pos.ref_alt;
-		const float agl = _current_altitude - home_alt;
-		PX4_ERR("发布给TECS: altitude=%.1f(AMSL), curr_alt=%.1f(AMSL), home=%.1f, AGL=%.1f",
-		        (double)position_sp_alt,
-		        (double)_current_altitude,
-		        (double)home_alt,
-		        (double)agl);
-		PX4_WARN("AUTO_POSITION: alt_sp=%.1f, airspeed_sp=%.1f, height_rate=%s, curr_alt=%.1f",
-		         (double)position_sp_alt,
-		         (double)target_airspeed,
-		         PX4_ISFINITE(fw_longitudinal_control_sp.height_rate) ? "SET" : "NAN",
-		         (double)_current_altitude);
-		first_auto_position_call = false;
-		last_debug = hrt_absolute_time();
-	}
 
 	float throttle_min = NAN;
 	float throttle_max = NAN;
 
 	if (pos_sp_curr.gliding_enabled) {
 		/* enable gliding with this waypoint */
-		throttle_min = 0.0;
-		throttle_max = 0.0;
-		_ctrl_configuration_handler.setSpeedWeight(2.f);
+		// 安全检查：只有在高度足够高时才允许滑翔模式
+		if (_current_altitude > 100.0f) { // 100米以上才允许滑翔
+			throttle_min = 0.0;
+			throttle_max = 0.0;
+			_ctrl_configuration_handler.setSpeedWeight(2.f);
+		} else {
+			// 低高度时禁用滑翔模式，保持正常油门控制
+			PX4_WARN("Gliding mode disabled at low altitude (%.1fm)", (double)_current_altitude);
+		}
 	}
 
 	_ctrl_configuration_handler.setThrottleMax(throttle_max);
 	_ctrl_configuration_handler.setThrottleMin(throttle_min);
-	
-	// 关键修复：AUTO模式也需要设置爬升/下沉率目标！
-	// 主分支缺少这些配置，导致TECS使用不合适的默认值
-	_ctrl_configuration_handler.setClimbRateTarget(_param_climbrate_target.get());
-	_ctrl_configuration_handler.setSinkRateTarget(_param_sinkrate_target.get());
-	
-	// 确保俯仰角限制足够大以支持爬升
-	// 注意：参数已经是角度，需要转换为弧度
-	const float pitch_max_rad = math::radians(_param_fw_p_lim_max.get());
-	const float pitch_min_rad = math::radians(_param_fw_p_lim_min.get());
-	_ctrl_configuration_handler.setPitchMax(pitch_max_rad);
-	_ctrl_configuration_handler.setPitchMin(pitch_min_rad);
-	
-	// 调试：输出配置值和TECS实际输出
-	static uint64_t last_config_debug = 0;
-	if (hrt_absolute_time() - last_config_debug > 2000000) {
-		// 读取TECS状态
-		tecs_status_s tecs_status;
-		if (_tecs_status_sub.copy(&tecs_status)) {
-			PX4_ERR("TECS: alt_sp=%.1f, alt_ref=%.1f, pitch_sp=%.1f°, throttle_sp=%.2f, hgt_rate_sp=%.2f",
-			        (double)tecs_status.altitude_sp,
-			        (double)tecs_status.altitude_reference,
-			        (double)math::degrees(tecs_status.pitch_sp_rad),
-			        (double)tecs_status.throttle_sp,
-			        (double)tecs_status.height_rate_setpoint);
-			PX4_WARN("Config我们设置的: climb=%.1f, sink=%.1f",
-			         (double)_param_climbrate_target.get(),
-			         (double)_param_sinkrate_target.get());
-			PX4_WARN("Pitch限制原始值: FW_P_LIM_MIN=%.1f°, FW_P_LIM_MAX=%.1f°",
-			         (double)_param_fw_p_lim_min.get(),
-			         (double)_param_fw_p_lim_max.get());
-			PX4_WARN("Pitch限制转弧度: min_rad=%.3f, max_rad=%.3f",
-			         (double)pitch_min_rad,
-			         (double)pitch_max_rad);
-		}
-		last_config_debug = hrt_absolute_time();
-	}
 
 	Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
 	Vector2f curr_wp_local = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);
@@ -2986,11 +2972,8 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	// L1制导公式 - 使用PX4原始公式
 	float lateral_acceleration = K_L1 * ground_speed * ground_speed / L1_distance * sinf(eta);
 
-	// 关键修复：严格限制横向加速度以保持足够的垂直升力
-	// lateral_accel = 3 m/s² → roll ≈ 17度 → 垂直升力保持 = cos(17°) ≈ 96%
-	// lateral_accel = 6 m/s² → roll ≈ 31度 → 垂直升力保持 = cos(31°) ≈ 86% (损失14%!)
-	// 低空时必须保持小横滚角，否则升力不足会导致下降
-	float max_lateral_accel = 3.0f;  // 严格限制：最大横滚角约17度
+	// 限制横向加速度 - 更保守的限制
+	float max_lateral_accel = 6.0f;  // 减少最大横向加速度
 	lateral_acceleration = math::constrain(lateral_acceleration, -max_lateral_accel, max_lateral_accel);
 
 	sp.lateral_acceleration_feedforward = lateral_acceleration;
