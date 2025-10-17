@@ -929,21 +929,39 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	float throttle_min = NAN;
 	float throttle_max = NAN;
 
+	// 紧急诊断：检查滑翔模式
 	if (pos_sp_curr.gliding_enabled) {
-		/* enable gliding with this waypoint */
-		// 安全检查：只有在高度足够高时才允许滑翔模式
-		if (_current_altitude > 100.0f) { // 100米以上才允许滑翔
-			throttle_min = 0.0;
-			throttle_max = 0.0;
-			_ctrl_configuration_handler.setSpeedWeight(2.f);
-		} else {
-			// 低高度时禁用滑翔模式，保持正常油门控制
-			PX4_WARN("Gliding mode disabled at low altitude (%.1fm)", (double)_current_altitude);
-		}
+		PX4_ERR("!!! GLIDING MODE IS ENABLED IN WAYPOINT !!!");
+		PX4_ERR("!!! This will set throttle=0 and speed_weight=2.0 (altitude control disabled) !!!");
+		PX4_ERR("!!! Aircraft will descend uncontrollably !!!");
+		
+		// 完全禁用滑翔模式以防止触地
+		// /* enable gliding with this waypoint */
+		// // 安全检查：只有在高度足够高时才允许滑翔模式
+		// if (_current_altitude > 100.0f) { // 100米以上才允许滑翔
+		// 	throttle_min = 0.0;
+		// 	throttle_max = 0.0;
+		// 	_ctrl_configuration_handler.setSpeedWeight(2.f);
+		// } else {
+		// 	// 低高度时禁用滑翔模式，保持正常油门控制
+		// 	PX4_WARN("Gliding mode disabled at low altitude (%.1fm)", (double)_current_altitude);
+		// }
 	}
 
 	_ctrl_configuration_handler.setThrottleMax(throttle_max);
 	_ctrl_configuration_handler.setThrottleMin(throttle_min);
+	
+	// 紧急诊断：确认油门限制
+	static uint64_t last_limits_debug = 0;
+	if (hrt_absolute_time() - last_limits_debug > 2000000 || agl < 15.0f) {
+		if (PX4_ISFINITE(throttle_min) || PX4_ISFINITE(throttle_max)) {
+			PX4_ERR(">>> THROTTLE LIMITS: min=%.2f, max=%.2f (TECS is constrained!) <<<",
+			        (double)throttle_min, (double)throttle_max);
+		} else {
+			PX4_INFO(">>> THROTTLE LIMITS: min=NAN, max=NAN (TECS has full control) <<<");
+		}
+		last_limits_debug = hrt_absolute_time();
+	}
 
 	Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
 	Vector2f curr_wp_local = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);
