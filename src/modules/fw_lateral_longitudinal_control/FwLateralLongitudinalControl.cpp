@@ -387,6 +387,17 @@ FwLateralLongitudinalControl::tecs_update_pitch_throttle(const float control_int
 	// when flying tight turns. It's in this case much safer to just set the estimated airspeed rate to 0.
 	const float airspeed_rate_estimate = 0.f;
 
+	// CRITICAL FIX: Re-initialize TECS when first valid altitude setpoint is received
+	// Problem: TECS is initialized with altitude=0 at startup, then never re-initialized
+	// Solution: When we first get a valid altitude setpoint after takeoff, reinit TECS with current altitude
+	static bool tecs_reinit_done = false;
+	if (!tecs_reinit_done && PX4_ISFINITE(alt_sp) && alt_sp > 100.0f && _long_control_state.altitude_msl > 100.0f) {
+		PX4_ERR("*** TECS RE-INIT: Re-initializing TECS altitude_reference from 0 to current altitude %.1f",
+		        (double)_long_control_state.altitude_msl);
+		_tecs.handle_alt_step(_long_control_state.altitude_msl, _long_control_state.height_rate);
+		tecs_reinit_done = true;
+	}
+	
 	// 调试：确认传给TECS的值
 	static uint64_t last_tecs_debug = 0;
 	if (hrt_absolute_time() - last_tecs_debug > 2000000) {

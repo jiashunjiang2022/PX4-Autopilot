@@ -783,54 +783,13 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 		}
 	}
 
-	// ===== 心跳调试：确认代码正在运行 =====
-	static uint64_t last_heartbeat = 0;
-	if (hrt_absolute_time() - last_heartbeat > 1000000) {
-		PX4_INFO("=== HEARTBEAT: Alt=%.1f, AGL=%.1f, landed=%d ===", 
-		         (double)_current_altitude, (double)(-_local_pos.z), _landed);
-		last_heartbeat = hrt_absolute_time();
-	}
-
-	// ===== 低高度保护 & 硬地线爬升保护 =====
-	// 检查是否接近着陆点（下一个航点是着陆类型）
-	const bool approaching_landing = (_position_setpoint_next_valid && 
-	                                  _pos_sp_triplet.next.type == position_setpoint_s::SETPOINT_TYPE_LAND);
-	
-	const float agl = -_local_pos.z;
-	const float MIN_SAFE_AGL = 50.0f;  // 低高度保护阈值
-	const float HARD_DECK = 20.0f;     // 硬地线阈值
-
-	// 低高度保护：温和地调整高度设定值（着陆阶段禁用）
-	if (!_landed && !approaching_landing && (agl < MIN_SAFE_AGL) && (position_sp_alt < _current_altitude)) {
-		const float safe_altitude = _current_altitude + (MIN_SAFE_AGL - agl) + 5.0f;
-		PX4_WARN("LOW ALT PROTECT: AGL=%.1f, Alt SP %.1f->%.1f",
-		         (double)agl, (double)position_sp_alt, (double)safe_altitude);
-		position_sp_alt = safe_altitude;
-	}
-
-	// 硬地线强制爬升：极低高度时触发（着陆阶段禁用）
-	static bool hard_deck_active_prev = false;
-	const bool hard_deck_active = (!_landed && !approaching_landing && (agl < HARD_DECK));
-	if (hard_deck_active && !hard_deck_active_prev) {
-		PX4_ERR("!!! HARD-DECK: AGL=%.1f, FORCING CLIMB !!!", (double)agl);
-	}
-	hard_deck_active_prev = hard_deck_active;
-
-	float pitch_direct_cmd = NAN;
-	float throttle_direct_cmd = NAN;
-
-	if (hard_deck_active) {
-		pitch_direct_cmd = math::radians(20.0f);
-		throttle_direct_cmd = 1.0f;
-	}
-
 	const fixed_wing_longitudinal_setpoint_s fw_longitudinal_control_sp = {
 		.timestamp = hrt_absolute_time(),
 		.altitude = position_sp_alt,
 		.height_rate = NAN,
 		.equivalent_airspeed = target_airspeed,
-		.pitch_direct = pitch_direct_cmd,
-		.throttle_direct = throttle_direct_cmd
+		.pitch_direct = NAN,
+		.throttle_direct = NAN
 	};
 
 	_longitudinal_ctrl_sp_pub.publish(fw_longitudinal_control_sp);
