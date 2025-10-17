@@ -2865,46 +2865,38 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	matrix::Vector2f path_to_vehicle = vehicle_pos - closest_point_on_path;
 	float xtrackErr = path_to_vehicle % vector_AB;  // 横向误差（叉积）
 
-	// 计算eta1 (到L1点的角度) - 基于PX4原始实现
+	// 计算eta1 (到L1点的角度) - 完全按照ECL_L1标准实现
 	float sine_eta1 = xtrackErr / math::max(L1_distance, 0.1f);
-
-	// 限制sine_eta1到±30度 - 减少最大角度以避免剧烈变化
-	sine_eta1 = math::constrain(sine_eta1, -0.5f, 0.5f); // sin(π/6) = 0.5
+	
+	// 限制sine_eta1到±45° (ECL_L1标准)
+	sine_eta1 = math::constrain(sine_eta1, -0.7071f, 0.7071f); // sin(π/4) = 0.7071
 	float eta1 = asinf(sine_eta1);
 
-	// 计算eta2 (速度向量相对于路径的角度) - 使用vector_AB
-	// eta2 = atan2(横向速度, 纵向速度)
-	// 注意：叉积 ground_vel % vector_AB 给出的是"垂直于路径的速度分量"
-	// 但符号可能需要反转，取决于坐标系定义
+	// 计算eta2 (速度向量相对于路径的角度) - 完全按照ECL_L1标准实现
 	float xtrack_vel = ground_vel % vector_AB;  // 横向速度（叉积）
 	float ltrack_vel = ground_vel * vector_AB;  // 纵向速度（点积）
-
-	// 避免除零错误
-	if (fabsf(ltrack_vel) < 0.1f) {
-		ltrack_vel = (ltrack_vel >= 0) ? 0.1f : -0.1f;
-	}
-
-	// 标准L1公式中，eta2应该表示"需要修正的角度"
-	// 如果速度向量已经偏离路径，eta2应该指向修正方向
-	float eta2 = -atan2f(xtrack_vel, ltrack_vel);  // 注意负号！
+	
+	// 计算eta2 - ECL_L1标准公式，无负号！
+	float eta2 = atan2f(xtrack_vel, ltrack_vel);
 
 	// 总eta角
 	float eta = eta1 + eta2;
+	
+	// 限制总eta到±90° (ECL_L1标准)
+	eta = math::constrain(eta, -M_PI_F / 2.0f, M_PI_F / 2.0f);
 
-	// 限制eta角到±60度 - 减少最大角度
-	eta = math::constrain(eta, -M_PI_F / 3.0f, M_PI_F / 3.0f);
-
-	// 计算期望航向 - 使用标准L1公式：path_direction + eta
-	// 这是最简单、最直接的L1公式
+	// 计算期望航向 - ECL_L1标准：path_bearing + eta1 (不包括eta2!)
+	// ECL_L1源码第198行：_nav_bearing = atan2f(vector_AB(1), vector_AB(0)) + eta1;
 	float path_bearing = atan2f(vector_AB(1), vector_AB(0));
-	float desired_course = path_bearing + eta;
+	float desired_course = path_bearing + eta1;  // 只用eta1，不用eta2！
 
 	// 确保航向在[-π, π]范围内
 	desired_course = matrix::wrap_pi(desired_course);
 
 	sp.course_setpoint = desired_course;
 
-	// L1制导公式 - 使用PX4原始公式
+	// 横向加速度 - ECL_L1标准：使用完整的eta (eta1 + eta2)
+	// ECL_L1源码第203行：_lateral_accel = _K_L1 * ground_speed^2 / L1_distance * sin(eta)
 	float lateral_acceleration = K_L1 * ground_speed * ground_speed / L1_distance * sinf(eta);
 
 	// 限制横向加速度 - 更保守的限制
