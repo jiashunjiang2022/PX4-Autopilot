@@ -2557,23 +2557,12 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoints(const Vector2f
 		return navigateWaypoint(end_waypoint, vehicle_pos, ground_vel, wind_vel);
 	}
 
-	const float dot_beyond = start_waypoint_to_end_waypoint.dot(end_waypoint_to_vehicle);
-	
-	if (dot_beyond > FLT_EPSILON) {
+	if (start_waypoint_to_end_waypoint.dot(end_waypoint_to_vehicle) > FLT_EPSILON) {
 		// we are beyond the end waypoint, fly back to it
 		// NOTE: this logic ideally never gets executed, as a waypoint switch should happen before passing the
 		// end waypoint. however this included here as a safety precaution if any navigator (module) switch condition
 		// is missed for any reason. in the future this logic should all be handled in one place in a dedicated
 		// flight mode state machine.
-		static uint64_t last_beyond_debug = 0;
-		if (hrt_absolute_time() - last_beyond_debug > 2000000) {
-			PX4_ERR("BEYOND END WP! WP1[%.1f,%.1f] WP2[%.1f,%.1f] Veh[%.1f,%.1f] dot=%.2f -> navigateWaypoint(WP2)",
-			        (double)start_waypoint(0), (double)start_waypoint(1),
-			        (double)end_waypoint(0), (double)end_waypoint(1),
-			        (double)vehicle_pos(0), (double)vehicle_pos(1),
-			        (double)dot_beyond);
-			last_beyond_debug = hrt_absolute_time();
-		}
 		return navigateWaypoint(end_waypoint, vehicle_pos, ground_vel, wind_vel);
 	}
 
@@ -2663,21 +2652,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 	int guidance_mode = _param_fw_guidance_mode.get();
 
 	if (guidance_mode == 1) {
-		// L1制导 - 添加调试信息
-		static uint64_t last_line_debug = 0;
-		if (hrt_absolute_time() - last_line_debug > 1000000) {
-			const Vector2f vehicle_to_closest = _closest_point_on_path - vehicle_pos;
-			const float cross_track_error = vehicle_to_closest.length();
-			const float path_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
-			PX4_WARN("L1_LINE: WP1[%.1f,%.1f] WP2[%.1f,%.1f] Veh[%.1f,%.1f] XTE=%.1f path_dir=%.1f°",
-			         (double)point_on_line_1(0), (double)point_on_line_1(1),
-			         (double)point_on_line_2(0), (double)point_on_line_2(1),
-			         (double)vehicle_pos(0), (double)vehicle_pos(1),
-			         (double)cross_track_error,
-			         (double)math::degrees(path_bearing));
-			last_line_debug = hrt_absolute_time();
-		}
-		
+		// L1制导
 		sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
 	} else {
 		// NPFG制导（默认）
@@ -2915,22 +2890,6 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	lateral_acceleration = math::constrain(lateral_acceleration, -max_lateral_accel, max_lateral_accel);
 
 	sp.lateral_acceleration_feedforward = lateral_acceleration;
-
-	// 调试输出
-	static uint64_t last_l1_debug = 0;
-	if (hrt_absolute_time() - last_l1_debug > 1000000) {
-		float current_heading = atan2f(ground_vel(1), ground_vel(0));
-		PX4_WARN("L1: XTE=%.1f eta1=%.1f° eta2=%.1f° eta=%.1f° path_dir=%.1f° heading=%.1f° desired_course=%.1f° lat_accel=%.2f",
-		         (double)xtrackErr,
-		         (double)math::degrees(eta1),
-		         (double)math::degrees(eta2),
-		         (double)math::degrees(eta),
-		         (double)math::degrees(path_bearing),
-		         (double)math::degrees(current_heading),
-		         (double)math::degrees(desired_course),
-		         (double)lateral_acceleration);
-		last_l1_debug = hrt_absolute_time();
-	}
 
 	return sp;
 }
