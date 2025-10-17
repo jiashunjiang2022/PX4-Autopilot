@@ -828,6 +828,31 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	// 主分支缺少这些配置，导致TECS使用不合适的默认值
 	_ctrl_configuration_handler.setClimbRateTarget(_param_climbrate_target.get());
 	_ctrl_configuration_handler.setSinkRateTarget(_param_sinkrate_target.get());
+	
+	// 确保俯仰角限制足够大以支持爬升
+	_ctrl_configuration_handler.setPitchMax(math::radians(_param_fw_p_lim_max.get()));
+	_ctrl_configuration_handler.setPitchMin(math::radians(_param_fw_p_lim_min.get()));
+	
+	// 调试：输出配置值和TECS实际输出
+	static uint64_t last_config_debug = 0;
+	if (hrt_absolute_time() - last_config_debug > 2000000) {
+		// 读取TECS状态
+		tecs_status_s tecs_status;
+		if (_tecs_status_sub.copy(&tecs_status)) {
+			PX4_ERR("TECS: alt_sp=%.1f, alt_ref=%.1f, pitch_sp=%.1f°, throttle_sp=%.2f, hgt_rate_sp=%.2f",
+			        (double)tecs_status.altitude_sp,
+			        (double)tecs_status.altitude_reference,
+			        (double)math::degrees(tecs_status.pitch_sp_rad),
+			        (double)tecs_status.throttle_sp,
+			        (double)tecs_status.height_rate_setpoint);
+			PX4_WARN("Config: climb=%.1f, sink=%.1f, pitch[%.1f°,%.1f°]",
+			         (double)_param_climbrate_target.get(),
+			         (double)_param_sinkrate_target.get(),
+			         (double)math::degrees(_param_fw_p_lim_min.get()),
+			         (double)math::degrees(_param_fw_p_lim_max.get()));
+		}
+		last_config_debug = hrt_absolute_time();
+	}
 
 	Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
 	Vector2f curr_wp_local = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);
