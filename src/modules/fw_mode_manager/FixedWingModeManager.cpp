@@ -901,6 +901,17 @@ FixedWingModeManager::control_auto_position(const float control_interval, const 
 	};
 
 	_longitudinal_ctrl_sp_pub.publish(fw_longitudinal_control_sp);
+	
+	// 紧急诊断：确认实际发布给TECS的高度设定值
+	static uint64_t last_publish_confirm = 0;
+	if (hrt_absolute_time() - last_publish_confirm > 500000 || agl < 20.0f) {
+		PX4_ERR(">>> PUBLISHED TO TECS: altitude=%.1f, airspeed=%.1f, pitch=%s, throttle=%s <<<",
+		        (double)fw_longitudinal_control_sp.altitude,
+		        (double)fw_longitudinal_control_sp.equivalent_airspeed,
+		        PX4_ISFINITE(pitch_direct_cmd) ? "DIRECT" : "AUTO",
+		        PX4_ISFINITE(throttle_direct_cmd) ? "DIRECT" : "AUTO");
+		last_publish_confirm = hrt_absolute_time();
+	}
 
 	float throttle_min = NAN;
 	float throttle_max = NAN;
