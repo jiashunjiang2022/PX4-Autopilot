@@ -3143,43 +3143,59 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 		PX4_WARN("PID integral: %.2f", (double)_pid_xte.getIntegral());
 	}
 
-	// 计算期望航向 - 参考NPFG和L1的方法，直接根据横向误差计算
-	// 关键：航向设定点应该引导飞机回到路径，而不是从横向加速度推导
+	// 纯粹的PID控制：航向设定点基于路径方向和PID输出的横向加速度
+	// 关键原则：PID控制横向误差，航向设定点反映期望的转弯方向
 	float path_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
 	
-	// 计算一个"look-ahead"距离，用于前向引导（类似L1距离）
-	// 使用地速相关的动态距离，确保响应性
-	float look_ahead_distance = ground_speed * 2.0f;  // 2秒的前向距离
-	look_ahead_distance = math::constrain(look_ahead_distance, 10.0f, 100.0f);  // 限制在10-100m之间
+	// 方法：将横向加速度转换为航向修正角
+	// 物理原理：横向加速度 a_lat = v²/R，其中R是转弯半径
+	// 航向角速度 ω = v/R = a_lat / v
+	// 对于小角度，航向修正 ≈ 横向加速度产生的航向变化率 × 时间常数
+	// 
+	// 但更直接的PID方法：航向修正应该与横向误差成正比
+	// 使用PID的积分项（累积误差）和当前误差来计算航向修正
+	// 这样保持PID的反馈特性，而不是几何前瞻
 	
-	// 计算路径法向量（垂直于路径切线的方向）
-	// 右手坐标系：法向量 = (-tangent_y, tangent_x) 表示路径右侧
-	matrix::Vector2f unit_path_normal(-unit_path_tangent(1), unit_path_tangent(0));
+	float course_correction = 0.0f;
 	
-	// 计算横向误差方向（指向飞机的一侧）
-	// 如果cross_track_error < 0（左侧），需要向右转（正方向）
-	// 如果cross_track_error > 0（右侧），需要向左转（负方向）
-	matrix::Vector2f track_error_direction = (cross_track_error < 0.0f) ? unit_path_normal : -unit_path_normal;
-	
-	// 计算期望位置：路径上最近点 + 前向距离 + 横向修正
-	// 横向修正根据横向误差的大小和方向计算
-	float correction_factor = math::constrain(fabsf(cross_track_error) / look_ahead_distance, 0.0f, 1.0f);
-	matrix::Vector2f target_point_on_path = closest_point_on_path + 
-	                                unit_path_tangent * look_ahead_distance +
-	                                track_error_direction * correction_factor * fabsf(cross_track_error) * 0.5f;
-	
-	// 计算从飞机当前位置到目标点的向量
-	matrix::Vector2f vehicle_to_target = target_point_on_path - vehicle_pos;
-	
-	// 如果目标点太近，使用路径切线方向
-	float dist_to_target = vehicle_to_target.norm();
-	if (dist_to_target < 0.1f) {
-		sp.course_setpoint = path_bearing;
-	} else {
-		// 期望航向 = 指向目标点的方向
-		sp.course_setpoint = atan2f(vehicle_to_target(1), vehicle_to_target(0));
-		sp.course_setpoint = matrix::wrap_pi(sp.course_setpoint);
+	if (fabsf(ground_speed) > FLT_EPSILON) {
+		// 方法1：直接从横向加速度计算航向角速度，然后转换为角度
+		// ω = a_lat / v (rad/s)
+		// 假设期望的收敛时间常数 τ，则航向修正角 = ω × τ
+		// 使用动态时间常数，根据横向误差大小调整
+		float tau = 1.0f;  // 默认1秒时间常数
+		
+		// 如果横向误差大，需要更快的响应（更小的tau）
+		// 如果横向误差小，使用更平滑的响应（更大的tau）
+		float error_magnitude = fabsf(cross_track_error);
+		if (error_magnitude > 20.0f) {
+			tau = 0.5f;  // 大误差：快速响应
+		} else if (error_magnitude > 5.0f) {
+			tau = 1.0f;  // 中等误差：标准响应
+		} else {
+			tau = 2.0f;  // 小误差：平滑响应
+		}
+		
+		// 从横向加速度计算航向角速度
+		float omega = lateral_accel_cmd / ground_speed;
+		
+		// 航向修正 = 角速度 × 时间常数
+		course_correction = omega * tau;
+		
+		// 限制航向修正幅度（避免过大修正）
+		float max_correction = M_PI_F / 3.0f;  // 最大60度修正
+		course_correction = math::constrain(course_correction, -max_correction, max_correction);
+		
+		// 确保修正方向正确：负的横向误差（左侧）需要正的航向修正（向右转）
+		// 但这里omega已经包含了方向信息（通过lateral_accel_cmd的符号）
+		// 所以course_correction的方向应该已经正确
 	}
+	
+	// 期望航向 = 路径方向 + PID产生的航向修正
+	float desired_course = path_bearing + course_correction;
+	desired_course = matrix::wrap_pi(desired_course);
+	
+	sp.course_setpoint = desired_course;
 
 	return sp;
 }
