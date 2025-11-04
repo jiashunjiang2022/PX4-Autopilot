@@ -2601,14 +2601,24 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoints(const Vector2f
 	float dot_prod_end = start_waypoint_to_end_waypoint.dot(end_waypoint_to_vehicle);
 	float switch_dist = _directional_guidance.switchDistance(500.0f);
 
-	// 调试信息
+	// 调试信息（增强版）
 	static hrt_abstime last_waypoint_debug = 0;
 	if (hrt_elapsed_time(&last_waypoint_debug) > 1_s) {
 		last_waypoint_debug = hrt_absolute_time();
 		PX4_WARN("=== NAV WAYPOINTS DEBUG ===");
-		PX4_WARN("Dist to start WP: %.1fm, Dist to end WP: %.1fm", (double)dist_to_start, (double)dist_to_end);
+		PX4_WARN("Start WP: (%.6f, %.6f), End WP: (%.6f, %.6f)",
+			 (double)start_wp_local(0), (double)start_wp_local(1),
+			 (double)end_wp_local(0), (double)end_wp_local(1));
+		PX4_WARN("Vehicle: (%.1f, %.1f), Dist to start: %.1fm, Dist to end: %.1fm",
+			 (double)vehicle_pos_local(0), (double)vehicle_pos_local(1),
+			 (double)dist_to_start, (double)dist_to_end);
 		PX4_WARN("Segment length: %.1fm, Switch dist: %.1fm", (double)segment_length, (double)switch_dist);
 		PX4_WARN("Dot prod start: %.2f, Dot prod end: %.2f", (double)dot_prod_start, (double)dot_prod_end);
+		PX4_WARN("Line segment vector: (%.1f, %.1f), Unit tangent: (%.3f, %.3f)",
+			 (double)line_segment(0), (double)line_segment(1),
+			 (double)unit_path_tangent(0), (double)unit_path_tangent(1));
+		float path_bearing_debug = atan2f(unit_path_tangent(1), unit_path_tangent(0));
+		PX4_WARN("Path bearing: %.1f deg", (double)math::degrees(path_bearing_debug));
 	}
 
 	if (start_waypoint_to_end_waypoint.norm() < FLT_EPSILON) {
@@ -3092,6 +3102,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 	// 计算横向误差（Cross-Track Error, XTE）
 	matrix::Vector2f path_to_vehicle = vehicle_pos - closest_point_on_path;
 	float cross_track_error = path_to_vehicle % unit_path_tangent;  // 叉积得到横向距离
+	
+	// 调试：详细记录横向误差计算
+	const char* xte_side = (cross_track_error > 0.0f) ? "RIGHT" : "LEFT";
 
 	// 计算时间间隔（用于PID更新）
 	float dt = 0.0f;
@@ -3129,18 +3142,24 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 
 	sp.lateral_acceleration_feedforward = lateral_accel_cmd;
 
-	// 调试信息：PID状态
+	// 调试信息：PID状态（详细版本）
 	static hrt_abstime last_pid_debug = 0;
 	if (hrt_elapsed_time(&last_pid_debug) > 1_s) {
 		last_pid_debug = hrt_absolute_time();
 		PX4_WARN("=== PID GUIDANCE DEBUG ===");
-		PX4_WARN("XTE: %.2fm, dt: %.3fs", (double)cross_track_error, (double)dt);
+		PX4_WARN("XTE: %.2fm (%s), dt: %.3fs", (double)cross_track_error, xte_side, (double)dt);
 		PX4_WARN("PID output: %.2f m/s², Kp=%.2f Ki=%.2f Kd=%.2f", 
 			 (double)lateral_accel_cmd, 
 			 (double)_param_pid_xte_kp.get(),
 			 (double)_param_pid_xte_ki.get(),
 			 (double)_param_pid_xte_kd.get());
 		PX4_WARN("PID integral: %.2f", (double)_pid_xte.getIntegral());
+		PX4_WARN("Vehicle pos: (%.1f, %.1f), Closest point: (%.1f, %.1f)",
+			 (double)vehicle_pos(0), (double)vehicle_pos(1),
+			 (double)closest_point_on_path(0), (double)closest_point_on_path(1));
+		PX4_WARN("Path to vehicle: (%.1f, %.1f), Unit tangent: (%.3f, %.3f)",
+			 (double)path_to_vehicle(0), (double)path_to_vehicle(1),
+			 (double)unit_path_tangent(0), (double)unit_path_tangent(1));
 	}
 
 	// 纯粹的PID控制：航向设定点基于路径方向和PID输出的横向加速度
@@ -3151,22 +3170,13 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 	// 物理原理：横向加速度 a_lat = v²/R，其中R是转弯半径
 	// 航向角速度 ω = v/R = a_lat / v
 	// 对于小角度，航向修正 ≈ 横向加速度产生的航向变化率 × 时间常数
-	// 
-	// 但更直接的PID方法：航向修正应该与横向误差成正比
-	// 使用PID的积分项（累积误差）和当前误差来计算航向修正
-	// 这样保持PID的反馈特性，而不是几何前瞻
 	
 	float course_correction = 0.0f;
+	float tau = 1.0f;
+	float omega = 0.0f;
 	
 	if (fabsf(ground_speed) > FLT_EPSILON) {
-		// 方法1：直接从横向加速度计算航向角速度，然后转换为角度
-		// ω = a_lat / v (rad/s)
-		// 假设期望的收敛时间常数 τ，则航向修正角 = ω × τ
 		// 使用动态时间常数，根据横向误差大小调整
-		float tau = 1.0f;  // 默认1秒时间常数
-		
-		// 如果横向误差大，需要更快的响应（更小的tau）
-		// 如果横向误差小，使用更平滑的响应（更大的tau）
 		float error_magnitude = fabsf(cross_track_error);
 		if (error_magnitude > 20.0f) {
 			tau = 0.5f;  // 大误差：快速响应
@@ -3177,7 +3187,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 		}
 		
 		// 从横向加速度计算航向角速度
-		float omega = lateral_accel_cmd / ground_speed;
+		omega = lateral_accel_cmd / ground_speed;
 		
 		// 航向修正 = 角速度 × 时间常数
 		course_correction = omega * tau;
@@ -3186,14 +3196,41 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 		float max_correction = M_PI_F / 3.0f;  // 最大60度修正
 		course_correction = math::constrain(course_correction, -max_correction, max_correction);
 		
-		// 确保修正方向正确：负的横向误差（左侧）需要正的航向修正（向右转）
-		// 但这里omega已经包含了方向信息（通过lateral_accel_cmd的符号）
-		// 所以course_correction的方向应该已经正确
+		// 关键检查：确保修正方向正确
+		// 横向误差负值（左侧）→ 需要向右转（正航向修正）
+		// 横向误差正值（右侧）→ 需要向左转（负航向修正）
+		// lateral_accel_cmd的符号应该与cross_track_error相反（PID特性）
+		// 但是，如果PID的setpoint是0，误差为负时，PID输出为正（正确）
+		// 所以omega的符号应该已经正确了
 	}
 	
 	// 期望航向 = 路径方向 + PID产生的航向修正
 	float desired_course = path_bearing + course_correction;
 	desired_course = matrix::wrap_pi(desired_course);
+	
+	// 详细调试：航向计算过程
+	static hrt_abstime last_course_debug = 0;
+	if (hrt_elapsed_time(&last_course_debug) > 1_s) {
+		last_course_debug = hrt_absolute_time();
+		PX4_WARN("=== COURSE CALCULATION DEBUG ===");
+		PX4_WARN("Path bearing: %.1f deg", (double)math::degrees(path_bearing));
+		PX4_WARN("XTE: %.2fm (%s), Lat accel: %.2f m/s²", 
+			 (double)cross_track_error, xte_side, (double)lateral_accel_cmd);
+		PX4_WARN("Ground speed: %.1f m/s, Omega: %.3f rad/s, Tau: %.2f s",
+			 (double)ground_speed, (double)omega, (double)tau);
+		PX4_WARN("Course correction: %.1f deg", (double)math::degrees(course_correction));
+		PX4_WARN("Desired course: %.1f deg", (double)math::degrees(desired_course));
+		
+		// 计算实际航向用于对比
+		float actual_heading = atan2f(ground_vel(1), ground_vel(0));
+		float heading_error = matrix::wrap_pi(desired_course - actual_heading);
+		PX4_WARN("Actual heading: %.1f deg, Heading error: %.1f deg",
+			 (double)math::degrees(actual_heading), (double)math::degrees(heading_error));
+		
+		// 验证方向逻辑
+		PX4_WARN("Direction check: XTE %s -> Lat accel %.2f -> Omega %.3f -> Correction %.1f deg",
+			 xte_side, (double)lateral_accel_cmd, (double)omega, (double)math::degrees(course_correction));
+	}
 	
 	sp.course_setpoint = desired_course;
 
