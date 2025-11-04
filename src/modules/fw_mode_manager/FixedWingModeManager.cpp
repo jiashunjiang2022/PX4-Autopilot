@@ -104,6 +104,16 @@ FixedWingModeManager::parameters_update()
 	_directional_guidance.setRollTimeConst(_param_npfg_roll_time_const.get());
 	_directional_guidance.setSwitchDistanceMultiplier(_param_npfg_switch_distance_multiplier.get());
 	_directional_guidance.setPeriodSafetyFactor(_param_npfg_period_safety_factor.get());
+
+	// 初始化PID控制器参数
+	_pid_xte.setGains(
+		_param_pid_xte_kp.get(),
+		_param_pid_xte_ki.get(),
+		_param_pid_xte_kd.get()
+	);
+	_pid_xte.setOutputLimit(_param_pid_xte_max_accel.get());
+	_pid_xte.setIntegralLimit(_param_pid_xte_int_lim.get());
+	_pid_xte.setSetpoint(0.0f);  // 目标横向误差为0
 }
 
 void
@@ -2299,6 +2309,10 @@ FixedWingModeManager::reset_takeoff_state()
 	_launch_detected = false;
 
 	_takeoff_ground_alt = _current_altitude;
+
+	// 重置PID积分状态（起飞时重置）
+	_pid_xte.resetIntegral();
+	_pid_last_update_time = 0;  // 重置时间戳，下次调用时会正确计算dt
 }
 
 void
@@ -2928,6 +2942,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 		const matrix::Vector2f &closest_point_on_path,
 		const float &path_curvature)
 {
+	// 注意：path_curvature参数在此函数中未使用，仅为保持接口一致性
+	(void)path_curvature;  // 避免未使用参数警告
+{
 	DirectionalGuidanceOutput sp{};
 
 	// 强制最小地速避免奇点
@@ -2946,11 +2963,18 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 	float cross_track_error = path_to_vehicle % unit_path_tangent;  // 叉积得到横向距离
 
 	// 计算时间间隔（用于PID更新）
-	const float dt = math::constrain(
-		(hrt_absolute_time() - _pid_last_update_time) / 1e6f,
-		0.001f, 0.1f  // 限制在1ms到100ms之间
-	);
-	_pid_last_update_time = hrt_absolute_time();
+	float dt = 0.0f;
+	if (_pid_last_update_time == 0) {
+		// 第一次调用，使用默认时间间隔（20ms，对应50Hz）
+		dt = 0.02f;
+		_pid_last_update_time = hrt_absolute_time();
+	} else {
+		dt = math::constrain(
+			(hrt_absolute_time() - _pid_last_update_time) / 1e6f,
+			0.001f, 0.1f  // 限制在1ms到100ms之间
+		);
+		_pid_last_update_time = hrt_absolute_time();
+	}
 
 	// 更新PID参数（如果参数改变）
 	_pid_xte.setGains(
