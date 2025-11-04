@@ -30,9 +30,10 @@ PARAM_DEFINE_FLOAT(FW_GND_SPD_MIN, 5.0f);
 /**
  * Guidance Algorithm Selection
  * @min 0
- * @max 1
+ * @max 2
  * @value 0 NPFG
  * @value 1 L1
+ * @value 2 PID
  * @group FW Lateral Control
  */
 PARAM_DEFINE_INT32(FW_GUIDANCE_MODE, 0);
@@ -47,6 +48,74 @@ PARAM_DEFINE_INT32(FW_GUIDANCE_MODE, 0);
  * @group FW Lateral Control
  */
 PARAM_DEFINE_FLOAT(FW_L1_PERIOD, 25.0f);
+
+/**
+ * PID Guidance: Proportional Gain
+ * 
+ * Controls the responsiveness to cross-track error.
+ * Higher values = faster correction, but may cause oscillations.
+ * 
+ * @min 0.0
+ * @max 10.0
+ * @decimal 2
+ * @increment 0.1
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_PID_XTE_KP, 2.0f);
+
+/**
+ * PID Guidance: Integral Gain
+ * 
+ * Eliminates steady-state error. Use with caution to avoid windup.
+ * 
+ * @min 0.0
+ * @max 2.0
+ * @decimal 3
+ * @increment 0.01
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_PID_XTE_KI, 0.1f);
+
+/**
+ * PID Guidance: Derivative Gain
+ * 
+ * Provides damping, reduces overshoot. Higher values = more damping.
+ * 
+ * @min 0.0
+ * @max 5.0
+ * @decimal 2
+ * @increment 0.1
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_PID_XTE_KD, 1.0f);
+
+/**
+ * PID Guidance: Maximum Lateral Acceleration
+ * 
+ * Limits the maximum lateral acceleration output.
+ * 
+ * @unit m/s^2
+ * @min 1.0
+ * @max 10.0
+ * @decimal 1
+ * @increment 0.5
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_PID_XTE_MAX_ACCEL, 6.0f);
+
+/**
+ * PID Guidance: Integral Limit
+ * 
+ * Prevents integral windup. Set to maximum expected steady-state error.
+ * 
+ * @unit m
+ * @min 0.0
+ * @max 100.0
+ * @decimal 1
+ * @increment 1.0
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_PID_XTE_INT_LIM, 50.0f);
 
 // ----------longitudinal params----------
 

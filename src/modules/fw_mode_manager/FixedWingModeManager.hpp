@@ -49,6 +49,7 @@
 #include <lib/geo/geo.h>
 #include <lib/atmosphere/atmosphere.h>
 #include <lib/npfg/DirectionalGuidance.hpp>
+#include <lib/pid/PID.hpp>
 #include <lib/mathlib/mathlib.h>
 #include <lib/perf/perf_counter.h>
 #include <lib/slew_rate/SlewRate.hpp>
@@ -858,10 +859,30 @@ private:
 			const matrix::Vector2f &closest_point_on_path,
 			const float &path_curvature);
 
+	/**
+	 * PID制导算法
+	 * @param[in] vehicle_pos Current vehicle position
+	 * @param[in] ground_vel Ground velocity vector [m/s]
+	 * @param[in] wind_vel Wind velocity vector [m/s]
+	 * @param[in] unit_path_tangent Unit vector along the path direction
+	 * @param[in] closest_point_on_path Closest point on path to vehicle
+	 * @param[in] path_curvature Path curvature [1/m]
+	 */
+	DirectionalGuidanceOutput navigatePID(const matrix::Vector2f &vehicle_pos,
+					     const matrix::Vector2f &ground_vel,
+					     const matrix::Vector2f &wind_vel,
+					     const matrix::Vector2f &unit_path_tangent,
+					     const matrix::Vector2f &closest_point_on_path,
+					     const float &path_curvature);
+
 private:
 	// L1航向平滑相关变量
 	float _l1_last_course{0.0f};
 	uint64_t _l1_last_time{0};
+
+	// PID制导相关变量
+	PID _pid_xte;  // 横向误差PID控制器
+	uint64_t _pid_last_update_time{0};  // PID上次更新时间
 
 
 	void control_idle();
@@ -882,6 +903,11 @@ private:
 
 		(ParamInt<px4::params::FW_GUIDANCE_MODE>) _param_fw_guidance_mode,
 		(ParamFloat<px4::params::FW_L1_PERIOD>) _param_fw_l1_period,
+		(ParamFloat<px4::params::FW_PID_XTE_KP>) _param_pid_xte_kp,
+		(ParamFloat<px4::params::FW_PID_XTE_KI>) _param_pid_xte_ki,
+		(ParamFloat<px4::params::FW_PID_XTE_KD>) _param_pid_xte_kd,
+		(ParamFloat<px4::params::FW_PID_XTE_MAX_ACCEL>) _param_pid_xte_max_accel,
+		(ParamFloat<px4::params::FW_PID_XTE_INT_LIM>) _param_pid_xte_int_lim,
 
 		(ParamFloat<px4::params::FW_LND_AIRSPD>) _param_fw_lnd_airspd,
 		(ParamFloat<px4::params::FW_LND_ANG>) _param_fw_lnd_ang,

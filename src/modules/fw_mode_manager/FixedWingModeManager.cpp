@@ -2605,6 +2605,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 			// 正常L1制导
 			sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
 		}
+	} else if (guidance_mode == 2) {
+		// PID制导
+		sp = navigatePID(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
 	} else {
 		// NPFG制导（默认）- 也添加起飞到第一个航点的特殊处理
 		float distance_to_waypoint = vehicle_to_waypoint.norm();
@@ -2654,6 +2657,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 	if (guidance_mode == 1) {
 		// L1制导
 		sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
+	} else if (guidance_mode == 2) {
+		// PID制导
+		sp = navigatePID(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
 	} else {
 		// NPFG制导（默认）
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
@@ -2682,6 +2688,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 	if (guidance_mode == 1) {
 		// L1制导
 		sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
+	} else if (guidance_mode == 2) {
+		// PID制导
+		sp = navigatePID(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
 	} else {
 		// NPFG制导（默认）
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
@@ -2735,6 +2744,10 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLoiter(const Vector2f &l
 		// L1制导
 		return navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 				loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
+	} else if (guidance_mode == 2) {
+		// PID制导
+		return navigatePID(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
+				   loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
 	} else {
 		// NPFG制导（默认）
 		return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
@@ -2762,6 +2775,10 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePathTangent(const matrix
 		// L1制导
 		return navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 				position_setpoint, curvature);
+	} else if (guidance_mode == 2) {
+		// PID制导
+		return navigatePID(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
+				  position_setpoint, curvature);
 	} else {
 		// NPFG制导（默认）
 		return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(),
@@ -2784,6 +2801,16 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Ve
 	if (guidance_mode == 1) {
 		// L1制导
 		DirectionalGuidanceOutput sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
+
+		// 起飞阶段：进一步限制横向加速度
+		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
+			sp.lateral_acceleration_feedforward *= 0.5f;
+		}
+
+		return sp;
+	} else if (guidance_mode == 2) {
+		// PID制导
+		DirectionalGuidanceOutput sp = navigatePID(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
 
 		// 起飞阶段：进一步限制横向加速度
 		if (is_takeoff_phase && PX4_ISFINITE(sp.lateral_acceleration_feedforward)) {
@@ -2890,6 +2917,80 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	lateral_acceleration = math::constrain(lateral_acceleration, -max_lateral_accel, max_lateral_accel);
 
 	sp.lateral_acceleration_feedforward = lateral_acceleration;
+
+	return sp;
+}
+
+DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector2f &vehicle_pos,
+		const matrix::Vector2f &ground_vel,
+		const matrix::Vector2f &wind_vel,
+		const matrix::Vector2f &unit_path_tangent,
+		const matrix::Vector2f &closest_point_on_path,
+		const float &path_curvature)
+{
+	DirectionalGuidanceOutput sp{};
+
+	// 强制最小地速避免奇点
+	float ground_speed = math::max(ground_vel.length(), 0.1f);
+
+	// 低速保护
+	if (ground_speed < 3.0f) {
+		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
+		sp.lateral_acceleration_feedforward = 0.0f;
+		_pid_xte.resetIntegral();  // 重置积分
+		return sp;
+	}
+
+	// 计算横向误差（Cross-Track Error, XTE）
+	matrix::Vector2f path_to_vehicle = vehicle_pos - closest_point_on_path;
+	float cross_track_error = path_to_vehicle % unit_path_tangent;  // 叉积得到横向距离
+
+	// 计算时间间隔（用于PID更新）
+	const float dt = math::constrain(
+		(hrt_absolute_time() - _pid_last_update_time) / 1e6f,
+		0.001f, 0.1f  // 限制在1ms到100ms之间
+	);
+	_pid_last_update_time = hrt_absolute_time();
+
+	// 更新PID参数（如果参数改变）
+	_pid_xte.setGains(
+		_param_pid_xte_kp.get(),
+		_param_pid_xte_ki.get(),
+		_param_pid_xte_kd.get()
+	);
+	_pid_xte.setOutputLimit(_param_pid_xte_max_accel.get());
+	_pid_xte.setIntegralLimit(_param_pid_xte_int_lim.get());
+	_pid_xte.setSetpoint(0.0f);  // 目标横向误差为0
+
+	// PID控制器更新
+	float lateral_accel_cmd = _pid_xte.update(cross_track_error, dt);
+
+	// 限制横向加速度（双重保护）
+	lateral_accel_cmd = math::constrain(
+		lateral_accel_cmd,
+		-_param_pid_xte_max_accel.get(),
+		_param_pid_xte_max_accel.get()
+	);
+
+	sp.lateral_acceleration_feedforward = lateral_accel_cmd;
+
+	// 计算期望航向
+	float path_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
+
+	// 根据横向加速度计算航向修正
+	// 使用小角度近似：course_error ≈ lateral_accel / (ground_speed * 转弯率)
+	float course_correction = 0.0f;
+	if (fabsf(ground_speed) > FLT_EPSILON) {
+		// 使用反正切函数获得更平滑的响应
+		// 假设典型转弯率约为 1 rad/s，则 course_error ≈ atan2(lateral_accel, ground_speed²)
+		course_correction = atan2f(lateral_accel_cmd, ground_speed * ground_speed);
+		course_correction = math::constrain(course_correction, -M_PI_F / 3.0f, M_PI_F / 3.0f);
+	}
+
+	float desired_course = path_bearing + course_correction;
+	desired_course = matrix::wrap_pi(desired_course);
+
+	sp.course_setpoint = desired_course;
 
 	return sp;
 }
