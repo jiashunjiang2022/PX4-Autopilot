@@ -2606,14 +2606,16 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoints(const Vector2f
 	if (hrt_elapsed_time(&last_waypoint_debug) > 1_s) {
 		last_waypoint_debug = hrt_absolute_time();
 		PX4_WARN("=== NAV WAYPOINTS DEBUG ===");
-		PX4_WARN("Start WP: (%.6f, %.6f), End WP: (%.6f, %.6f)",
-			 (double)start_wp_local(0), (double)start_wp_local(1),
-			 (double)end_wp_local(0), (double)end_wp_local(1));
+		PX4_WARN("Start WP: (%.1f, %.1f), End WP: (%.1f, %.1f)",
+			 (double)start_waypoint(0), (double)start_waypoint(1),
+			 (double)end_waypoint(0), (double)end_waypoint(1));
 		PX4_WARN("Vehicle: (%.1f, %.1f), Dist to start: %.1fm, Dist to end: %.1fm",
-			 (double)vehicle_pos_local(0), (double)vehicle_pos_local(1),
+			 (double)vehicle_pos(0), (double)vehicle_pos(1),
 			 (double)dist_to_start, (double)dist_to_end);
 		PX4_WARN("Segment length: %.1fm, Switch dist: %.1fm", (double)segment_length, (double)switch_dist);
 		PX4_WARN("Dot prod start: %.2f, Dot prod end: %.2f", (double)dot_prod_start, (double)dot_prod_end);
+		Vector2f line_segment = start_waypoint_to_end_waypoint;
+		Vector2f unit_path_tangent = line_segment.normalized();
 		PX4_WARN("Line segment vector: (%.1f, %.1f), Unit tangent: (%.3f, %.3f)",
 			 (double)line_segment(0), (double)line_segment(1),
 			 (double)unit_path_tangent(0), (double)unit_path_tangent(1));
