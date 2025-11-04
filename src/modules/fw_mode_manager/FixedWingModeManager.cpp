@@ -2620,14 +2620,25 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoints(const Vector2f
 		return navigateWaypoint(end_waypoint, vehicle_pos, ground_vel, wind_vel);
 	}
 
+	// 修改：只有在距离起始航点非常远时才直接飞向结束航点
+	// 这样可以保持线段跟踪，避免过早切换导致偏离
 	if ((start_waypoint_to_end_waypoint.dot(start_waypoint_to_vehicle) < -FLT_EPSILON)
-	    && (start_waypoint_to_vehicle.norm() > switch_dist)) {
-		// we are in front of the start waypoint, fly directly to the END waypoint instead
+	    && (start_waypoint_to_vehicle.norm() > switch_dist * 3.0f)) {  // 增加到3倍切换距离
+		// we are far in front of the start waypoint, fly directly to the END waypoint instead
 		// This prevents the 180-degree flip issue when approaching the first waypoint
 		if (hrt_elapsed_time(&last_waypoint_debug) < 100_ms) {
-			PX4_WARN("Before start WP, flying directly to end WP");
+			PX4_WARN("Far before start WP (%.1fm > %.1fm), flying directly to end WP", 
+				 (double)start_waypoint_to_vehicle.norm(), (double)(switch_dist * 3.0f));
 		}
 		return navigateWaypoint(end_waypoint, vehicle_pos, ground_vel, wind_vel);
+	}
+	
+	// 如果距离起始航点较近但仍在前方，继续跟踪线段（不切换）
+	if (start_waypoint_to_end_waypoint.dot(start_waypoint_to_vehicle) < -FLT_EPSILON) {
+		if (hrt_elapsed_time(&last_waypoint_debug) < 100_ms) {
+			PX4_WARN("Near before start WP, but continuing line tracking");
+		}
+		// 继续执行线段跟踪逻辑
 	}
 
 	if (start_waypoint_to_end_waypoint.dot(end_waypoint_to_vehicle) > FLT_EPSILON) {
@@ -3136,12 +3147,38 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 	float path_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
 
 	// 根据横向加速度计算航向修正
-	// 使用小角度近似：course_error ≈ lateral_accel / (ground_speed * 转弯率)
+	// 横向加速度 a_lat = v²/r，其中 r 是转弯半径
+	// 航向角速度 ω = v/r = a_lat/v
+	// 对于路径跟踪，我们需要的是航向修正角度，而不是角速度
+	// 使用更直接的方法：根据横向误差和路径方向计算航向修正
 	float course_correction = 0.0f;
-	if (fabsf(ground_speed) > FLT_EPSILON) {
-		// 使用反正切函数获得更平滑的响应
-		// 假设典型转弯率约为 1 rad/s，则 course_error ≈ atan2(lateral_accel, ground_speed²)
-		course_correction = atan2f(lateral_accel_cmd, ground_speed * ground_speed);
+	if (fabsf(ground_speed) > FLT_EPSILON && fabsf(cross_track_error) > 0.1f) {
+		// 方法1：根据横向加速度和地速计算航向变化率，然后转换为角度
+		// 航向角速度 ω = a_lat / v (rad/s)
+		// 假设控制周期为 dt，航向修正 = ω * dt
+		// 但这里我们使用更保守的方法：直接根据横向误差比例计算
+		
+		// 方法2：根据横向误差直接计算航向修正（更直观）
+		// 横向误差越大，需要的航向修正越大
+		// 使用反正切函数平滑过渡
+		float max_correction_angle = M_PI_F / 4.0f;  // 最大45度修正
+		float error_scale = cross_track_error / (ground_speed * 2.0f);  // 归一化横向误差
+		course_correction = atan2f(error_scale, 1.0f);  // 使用反正切平滑
+		course_correction = math::constrain(course_correction, -max_correction_angle, max_correction_angle);
+		
+		// 确保修正方向正确：负的横向误差（左侧）需要正的航向修正（向右转）
+		// 正的横向误差（右侧）需要负的航向修正（向左转）
+		if (cross_track_error < 0) {
+			course_correction = fabsf(course_correction);  // 左侧误差，向右转（正修正）
+		} else {
+			course_correction = -fabsf(course_correction);  // 右侧误差，向左转（负修正）
+		}
+	} else if (fabsf(lateral_accel_cmd) > 0.1f && fabsf(ground_speed) > FLT_EPSILON) {
+		// 备用方法：根据横向加速度计算（当横向误差很小时）
+		// 横向加速度产生的航向角速度 ω = a_lat / v
+		// 假设期望的收敛时间为 2秒，则航向修正 ≈ ω * 2
+		float omega = lateral_accel_cmd / ground_speed;
+		course_correction = omega * 2.0f;  // 2秒收敛时间
 		course_correction = math::constrain(course_correction, -M_PI_F / 3.0f, M_PI_F / 3.0f);
 	}
 
