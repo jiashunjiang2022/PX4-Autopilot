@@ -906,8 +906,8 @@ private:
 		(ParamFloat<px4::params::FW_PID_XTE_KP>) _param_pid_xte_kp,
 		(ParamFloat<px4::params::FW_PID_XTE_KI>) _param_pid_xte_ki,
 		(ParamFloat<px4::params::FW_PID_XTE_KD>) _param_pid_xte_kd,
-		(ParamFloat<px4::params::FW_PID_XTE_MAX_ACCEL>) _param_pid_xte_max_accel,
-		(ParamFloat<px4::params::FW_PID_XTE_INT_LIM>) _param_pid_xte_int_lim,
+		(ParamFloat<px4::params::FW_PID_XTE_MAXACC>) _param_pid_xte_maxacc,
+		(ParamFloat<px4::params::FW_PID_XTE_ILIM>) _param_pid_xte_ilim,
 
 		(ParamFloat<px4::params::FW_LND_AIRSPD>) _param_fw_lnd_airspd,
 		(ParamFloat<px4::params::FW_LND_ANG>) _param_fw_lnd_ang,

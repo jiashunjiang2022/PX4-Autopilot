@@ -101,7 +101,7 @@ PARAM_DEFINE_FLOAT(FW_PID_XTE_KD, 1.0f);
  * @increment 0.5
  * @group FW Lateral Control
  */
-PARAM_DEFINE_FLOAT(FW_PID_XTE_MAX_ACCEL, 6.0f);
+PARAM_DEFINE_FLOAT(FW_PID_XTE_MAXACC, 6.0f);
 
 /**
  * PID Guidance: Integral Limit
@@ -115,7 +115,7 @@ PARAM_DEFINE_FLOAT(FW_PID_XTE_MAX_ACCEL, 6.0f);
  * @increment 1.0
  * @group FW Lateral Control
  */
-PARAM_DEFINE_FLOAT(FW_PID_XTE_INT_LIM, 50.0f);
+PARAM_DEFINE_FLOAT(FW_PID_XTE_ILIM, 50.0f);
 
 // ----------longitudinal params----------
 
