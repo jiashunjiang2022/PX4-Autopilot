@@ -2751,8 +2751,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 	_closest_point_on_path = point_on_line_1 + point_1_to_vehicle.dot(unit_path_tangent) * unit_path_tangent;
 
 	// 计算横向误差（有符号，用于调试）
+	// 注意：使用与NPFG相同的符号约定
 	Vector2f path_to_vehicle = vehicle_pos - _closest_point_on_path;
-	float cross_track_error_signed = path_to_vehicle % unit_path_tangent;  // 叉积，有符号横向误差
+	float cross_track_error_signed = unit_path_tangent.cross(path_to_vehicle);  // 与NPFG一致的叉积顺序
 	float cross_track_error = fabsf(cross_track_error_signed);  // 无符号横向误差（用于显示）
 	float path_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
 	
@@ -3102,8 +3103,11 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 	}
 
 	// 计算横向误差（Cross-Track Error, XTE）
+	// 注意：使用与NPFG相同的符号约定
+	// NPFG使用：unit_path_tangent.cross(path_pos_to_vehicle)
+	// 为了保持一致，我们也要使用相同的顺序和符号
 	matrix::Vector2f path_to_vehicle = vehicle_pos - closest_point_on_path;
-	float cross_track_error = path_to_vehicle % unit_path_tangent;  // 叉积得到横向距离
+	float cross_track_error = unit_path_tangent.cross(path_to_vehicle);  // 与NPFG一致的叉积顺序
 	
 	// 调试：详细记录横向误差计算
 	const char* xte_side = (cross_track_error > 0.0f) ? "RIGHT" : "LEFT";
