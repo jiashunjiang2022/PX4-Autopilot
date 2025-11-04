@@ -2738,14 +2738,14 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 	const Vector2f point_1_to_vehicle = vehicle_pos - point_on_line_1;
 	_closest_point_on_path = point_on_line_1 + point_1_to_vehicle.dot(unit_path_tangent) * unit_path_tangent;
 
-	// 计算横向误差（用于调试）
+	// 计算横向误差（有符号，用于调试）
 	Vector2f path_to_vehicle = vehicle_pos - _closest_point_on_path;
-	float cross_track_error = path_to_vehicle.norm();
+	float cross_track_error_signed = path_to_vehicle % unit_path_tangent;  // 叉积，有符号横向误差
+	float cross_track_error = fabsf(cross_track_error_signed);  // 无符号横向误差（用于显示）
 	float path_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
 	
 	// 判断车辆在路径的哪一侧（用于调试）
-	float side = path_to_vehicle % unit_path_tangent;  // 叉积，正负表示左右侧
-	const char* side_str = (side > 0) ? "RIGHT" : "LEFT";
+	const char* side_str = (cross_track_error_signed > 0) ? "RIGHT" : "LEFT";
 
 	// 调试信息
 	static hrt_abstime last_line_debug = 0;
