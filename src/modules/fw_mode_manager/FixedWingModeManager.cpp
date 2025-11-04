@@ -111,7 +111,7 @@ FixedWingModeManager::parameters_update()
 		_param_pid_xte_ki.get(),
 		_param_pid_xte_kd.get()
 	);
-	_pid_xte.setOutputLimit(_param_pid_xte_maxacc.get());
+	_pid_xte.setOutputLimit(_param_pid_xte_maxa.get());
 	_pid_xte.setIntegralLimit(_param_pid_xte_ilim.get());
 	_pid_xte.setSetpoint(0.0f);  // 目标横向误差为0
 }
@@ -2982,7 +2982,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 		_param_pid_xte_ki.get(),
 		_param_pid_xte_kd.get()
 	);
-	_pid_xte.setOutputLimit(_param_pid_xte_maxacc.get());
+	_pid_xte.setOutputLimit(_param_pid_xte_maxa.get());
 	_pid_xte.setIntegralLimit(_param_pid_xte_ilim.get());
 	_pid_xte.setSetpoint(0.0f);  // 目标横向误差为0
 
@@ -2992,8 +2992,8 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 	// 限制横向加速度（双重保护）
 	lateral_accel_cmd = math::constrain(
 		lateral_accel_cmd,
-		-_param_pid_xte_maxacc.get(),
-		_param_pid_xte_maxacc.get()
+		-_param_pid_xte_maxa.get(),
+		_param_pid_xte_maxa.get()
 	);
 
 	sp.lateral_acceleration_feedforward = lateral_accel_cmd;
