@@ -1,0 +1,13 @@
+#!/bin/sh
+#
+# Board-specific extras started by rcS (see rcS around 'rc.board_extras').
+# Use this to start custom modules after core init.
+#
+
+# Start flapping RPM controller (Peripheral via Actuator SetX backend)
+if command -v flap_rpm_controller >/dev/null 2>&1
+then
+    echo "Starting flap_rpm_controller"
+    flap_rpm_controller start
+fi
+

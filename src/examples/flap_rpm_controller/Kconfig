@@ -1,0 +1,6 @@
+menuconfig EXAMPLES_FLAP_RPM_CONTROLLER
+	bool "flap_rpm_controller"
+	default n
+	---help---
+	  Flapping main-wing RPM controller using Peripheral via Actuator SetX.
+

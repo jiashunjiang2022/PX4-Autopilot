@@ -1,0 +1,101 @@
+module_name: Flap RPM Controller
+
+parameters:
+  - group: FlapRPM
+    definitions:
+      FRP_SLOT:
+        description:
+          short: Actuator Set slot index (1..6)
+          long: |
+            Which Actuator Set parameter (1..6) to drive for the flapping motor.
+            The physical output must be mapped to 'Peripheral via Actuator SetX' accordingly.
+        type: int32
+        min: 1
+        max: 6
+        default: 1
+
+      FRP_MIN_HZ:
+        description:
+          short: Minimum flapping frequency at throttle=0
+        type: float
+        unit: Hz
+        min: 0.0
+        max: 200.0
+        decimal: 2
+        default: 5.0
+
+      FRP_MAX_HZ:
+        description:
+          short: Maximum flapping frequency at throttle=1
+        type: float
+        unit: Hz
+        min: 0.0
+        max: 400.0
+        decimal: 2
+        default: 20.0
+
+      FRP_KP:
+        description:
+          short: RPM controller proportional gain
+        type: float
+        min: 0.0
+        max: 5.0
+        decimal: 3
+        default: 0.3
+
+      FRP_KI:
+        description:
+          short: RPM controller integral gain
+        type: float
+        min: 0.0
+        max: 5.0
+        decimal: 3
+        default: 0.1
+
+      FRP_KD:
+        description:
+          short: RPM controller derivative gain
+        type: float
+        min: 0.0
+        max: 5.0
+        decimal: 3
+        default: 0.0
+
+      FRP_U_MIN:
+        description:
+          short: Output lower limit (normalized)
+        type: float
+        min: 0.0
+        max: 1.0
+        decimal: 3
+        default: 0.0
+
+      FRP_U_MAX:
+        description:
+          short: Output upper limit (normalized)
+        type: float
+        min: 0.0
+        max: 1.0
+        decimal: 3
+        default: 1.0
+
+      FRP_RATE_HZ:
+        description:
+          short: Controller run rate
+        type: float
+        unit: Hz
+        min: 5.0
+        max: 200.0
+        decimal: 1
+        default: 50.0
+
+      FRP_TIMEOUT_MS:
+        description:
+          short: RPM feedback timeout
+          long: Consider RPM invalid if no update was received within this time.
+        type: int32
+        unit: ms
+        min: 50
+        max: 5000
+        default: 300
+

@@ -136,7 +136,7 @@ MavlinkReceiver::acknowledge(uint8_t sysid, uint8_t compid, uint16_t command, ui
 void
 MavlinkReceiver::handle_message(mavlink_message_t *msg)
 {
-	switch (msg->msgid) {
+    switch (msg->msgid) {
 	case MAVLINK_MSG_ID_COMMAND_LONG:
 		handle_message_command_long(msg);
 		break;
@@ -268,6 +268,17 @@ MavlinkReceiver::handle_message(mavlink_message_t *msg)
 	case MAVLINK_MSG_ID_STATUSTEXT:
 		handle_message_statustext(msg);
 		break;
+
+	case MAVLINK_MSG_ID_RAW_RPM: {
+		mavlink_raw_rpm_t rpm_mavlink{};
+		mavlink_msg_raw_rpm_decode(msg, &rpm_mavlink);
+
+		rpm_s rpm_uorb{};
+		rpm_uorb.timestamp = hrt_absolute_time();
+		rpm_uorb.rpm_estimate = rpm_mavlink.frequency;
+		_rpm_pub.publish(rpm_uorb);
+		break;
+	}
 
 	case MAVLINK_MSG_ID_OPEN_DRONE_ID_OPERATOR_ID:
 		handle_message_open_drone_id_operator_id(msg);
