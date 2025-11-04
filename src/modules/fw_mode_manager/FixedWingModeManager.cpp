@@ -3154,22 +3154,22 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 	
 	// 计算路径法向量（垂直于路径切线的方向）
 	// 右手坐标系：法向量 = (-tangent_y, tangent_x) 表示路径右侧
-	Vector2f unit_path_normal(-unit_path_tangent(1), unit_path_tangent(0));
+	matrix::Vector2f unit_path_normal(-unit_path_tangent(1), unit_path_tangent(0));
 	
 	// 计算横向误差方向（指向飞机的一侧）
 	// 如果cross_track_error < 0（左侧），需要向右转（正方向）
 	// 如果cross_track_error > 0（右侧），需要向左转（负方向）
-	Vector2f track_error_direction = (cross_track_error < 0.0f) ? unit_path_normal : -unit_path_normal;
+	matrix::Vector2f track_error_direction = (cross_track_error < 0.0f) ? unit_path_normal : -unit_path_normal;
 	
 	// 计算期望位置：路径上最近点 + 前向距离 + 横向修正
 	// 横向修正根据横向误差的大小和方向计算
 	float correction_factor = math::constrain(fabsf(cross_track_error) / look_ahead_distance, 0.0f, 1.0f);
-	Vector2f target_point_on_path = closest_point_on_path + 
+	matrix::Vector2f target_point_on_path = closest_point_on_path + 
 	                                unit_path_tangent * look_ahead_distance +
 	                                track_error_direction * correction_factor * fabsf(cross_track_error) * 0.5f;
 	
 	// 计算从飞机当前位置到目标点的向量
-	Vector2f vehicle_to_target = target_point_on_path - vehicle_pos;
+	matrix::Vector2f vehicle_to_target = target_point_on_path - vehicle_pos;
 	
 	// 如果目标点太近，使用路径切线方向
 	float dist_to_target = vehicle_to_target.norm();
@@ -3180,8 +3180,6 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 		sp.course_setpoint = atan2f(vehicle_to_target(1), vehicle_to_target(0));
 		sp.course_setpoint = matrix::wrap_pi(sp.course_setpoint);
 	}
-
-	sp.course_setpoint = desired_course;
 
 	return sp;
 }
