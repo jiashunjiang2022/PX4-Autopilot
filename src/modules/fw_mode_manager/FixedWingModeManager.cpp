@@ -2944,7 +2944,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 {
 	// 注意：path_curvature参数在此函数中未使用，仅为保持接口一致性
 	(void)path_curvature;  // 避免未使用参数警告
-{
+
 	DirectionalGuidanceOutput sp{};
 
 	// 强制最小地速避免奇点
