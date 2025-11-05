@@ -3260,7 +3260,13 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 	desired_course = matrix::wrap_pi(desired_course);
 	
 	// 航向平滑处理：防止突然的航向变化（仅在误差较小时启用，大误差时需要快速响应）
-	if (error_magnitude < 10.0f && _pid_last_update_time > 0) {
+	// 重要：只有在_pid_last_course已经初始化过（不是初始值0）时才应用平滑
+	// 检查是否已初始化：如果_pid_last_course与desired_course相差很大（>90度），说明可能是第一次调用
+	// 或者_pid_last_course仍然是初始值0.0f
+	float course_diff_abs = fabsf(matrix::wrap_pi(desired_course - _pid_last_course));
+	bool course_initialized = (course_diff_abs < M_PI_F / 2.0f) && (_pid_last_course != 0.0f || course_diff_abs < 0.1f);
+	
+	if (error_magnitude < 10.0f && course_initialized) {
 		float course_diff = matrix::wrap_pi(desired_course - _pid_last_course);
 		// 限制航向变化率：最大30度/秒
 		float max_course_change_rate = M_PI_F / 6.0f;  // 30度/秒
@@ -3268,6 +3274,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 		course_diff = math::constrain(course_diff, -max_course_change, max_course_change);
 		desired_course = _pid_last_course + course_diff;
 		desired_course = matrix::wrap_pi(desired_course);
+	} else {
+		// 第一次调用或大误差：直接使用计算出的期望航向，不应用平滑
+		// 这样确保能正确飞向第一个航点
 	}
 	
 	_pid_last_course = desired_course;

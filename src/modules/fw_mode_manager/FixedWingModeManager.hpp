@@ -869,11 +869,11 @@ private:
 	 * @param[in] path_curvature Path curvature [1/m]
 	 */
 	DirectionalGuidanceOutput navigatePID(const matrix::Vector2f &vehicle_pos,
-					     const matrix::Vector2f &ground_vel,
-					     const matrix::Vector2f &wind_vel,
-					     const matrix::Vector2f &unit_path_tangent,
-					     const matrix::Vector2f &closest_point_on_path,
-					     const float &path_curvature);
+			const matrix::Vector2f &ground_vel,
+			const matrix::Vector2f &wind_vel,
+			const matrix::Vector2f &unit_path_tangent,
+			const matrix::Vector2f &closest_point_on_path,
+			const float &path_curvature);
 
 private:
 	// L1航向平滑相关变量
