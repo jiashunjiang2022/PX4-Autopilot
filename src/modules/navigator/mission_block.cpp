@@ -364,8 +364,12 @@ MissionBlock::is_mission_item_reached_or_completed()
 									 &vector_curr_to_vehicle_east);
 
 					// if dot product of vectors is positive, we are passed the current waypoint (the terminal point on the line segment) and should switch to next mission item
-					passed_curr_wp = vector_prev_to_curr_north * vector_curr_to_vehicle_north + vector_prev_to_curr_east *
+				// However, only consider it "passed" if we're also reasonably close to the waypoint (within 2x acceptance radius)
+				// This prevents premature waypoint switching when the aircraft is far from the waypoint
+				float passed_threshold = acceptance_radius * 2.0f;
+				bool beyond_waypoint = vector_prev_to_curr_north * vector_curr_to_vehicle_north + vector_curr_to_vehicle_east *
 							 vector_curr_to_vehicle_east > 0.0f;
+				passed_curr_wp = beyond_waypoint && (dist_xy <= passed_threshold);
 				}
 			}
 
