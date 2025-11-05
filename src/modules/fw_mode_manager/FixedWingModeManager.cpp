@@ -2366,6 +2366,7 @@ FixedWingModeManager::reset_takeoff_state()
 	// 重置PID积分状态（起飞时重置）
 	_pid_xte.resetIntegral();
 	_pid_last_update_time = 0;
+	_pid_last_course = 0.0f;
 	_pid_debug_last_time = 0;
 	_pid_update_freq = 0.0f;
 	_pid_update_freq_sum = 0.0f;
@@ -3212,18 +3213,40 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 		
 		if (error_magnitude > 20.0f || pid_saturated) {
 			// 当误差大或PID饱和时，使用几何修正作为主要修正
-			// 计算需要转向的角度：基于横向误差和前瞻距离
-			float lookahead_distance = math::max(ground_speed * tau, 20.0f);  // 至少20米前瞻
-			float geometric_correction = atan2f(cross_track_error, lookahead_distance);
-			geometric_correction = math::constrain(geometric_correction, -M_PI_F / 3.0f, M_PI_F / 3.0f);
+			// 自适应前瞻距离：误差越大，前瞻距离越小（更激进的修正）
+			// 但至少保持一定的前瞻以避免过度修正
+			float base_lookahead = ground_speed * tau;
+			float adaptive_factor = 1.0f;
 			
-			// 如果PID饱和，主要使用几何修正；否则混合使用
-			if (pid_saturated && error_magnitude > 30.0f) {
-				// PID饱和且误差大：主要使用几何修正
-				course_correction = geometric_correction * 0.8f + course_correction * 0.2f;
+			if (error_magnitude > 50.0f) {
+				adaptive_factor = 0.5f;  // 大误差：减小前瞻，更激进
+			} else if (error_magnitude > 30.0f) {
+				adaptive_factor = 0.7f;  // 中等大误差
 			} else {
-				// 混合PID修正和几何修正
-				course_correction = course_correction * 0.6f + geometric_correction * 0.4f;
+				adaptive_factor = 0.9f;  // 中等误差
+			}
+			
+			float lookahead_distance = math::max(base_lookahead * adaptive_factor, 15.0f);  // 至少15米前瞻
+			
+			// 几何修正：直接计算需要转向的角度
+			float geometric_correction = atan2f(cross_track_error, lookahead_distance);
+			// 允许更大的修正角度以提高响应速度
+			float max_geometric_angle = M_PI_F / 2.5f;  // 约72度
+			geometric_correction = math::constrain(geometric_correction, -max_geometric_angle, max_geometric_angle);
+			
+			// 根据PID饱和状态和误差大小决定混合比例
+			if (pid_saturated && error_magnitude > 25.0f) {
+				// PID饱和且误差大：完全使用几何修正（100%）
+				course_correction = geometric_correction;
+			} else if (pid_saturated) {
+				// PID饱和但误差中等：主要使用几何修正（90%）
+				course_correction = geometric_correction * 0.9f + course_correction * 0.1f;
+			} else if (error_magnitude > 30.0f) {
+				// 误差大但PID未饱和：混合使用（70%几何，30%PID）
+				course_correction = geometric_correction * 0.7f + course_correction * 0.3f;
+			} else {
+				// 误差中等：混合使用（50%几何，50%PID）
+				course_correction = geometric_correction * 0.5f + course_correction * 0.5f;
 			}
 		}
 		
@@ -3236,6 +3259,18 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 	float desired_course = path_bearing + course_correction;
 	desired_course = matrix::wrap_pi(desired_course);
 	
+	// 航向平滑处理：防止突然的航向变化（仅在误差较小时启用，大误差时需要快速响应）
+	if (error_magnitude < 10.0f && _pid_last_update_time > 0) {
+		float course_diff = matrix::wrap_pi(desired_course - _pid_last_course);
+		// 限制航向变化率：最大30度/秒
+		float max_course_change_rate = M_PI_F / 6.0f;  // 30度/秒
+		float max_course_change = max_course_change_rate * dt;
+		course_diff = math::constrain(course_diff, -max_course_change, max_course_change);
+		desired_course = _pid_last_course + course_diff;
+		desired_course = matrix::wrap_pi(desired_course);
+	}
+	
+	_pid_last_course = desired_course;
 	sp.course_setpoint = desired_course;
 	
 	// 调试信息输出（每0.5秒输出一次，避免日志过多）

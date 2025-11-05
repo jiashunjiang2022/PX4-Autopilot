@@ -884,6 +884,7 @@ private:
 	PID _pid_xte;  // 横向误差PID控制器
 	uint64_t _pid_last_update_time{0};  // PID上次更新时间
 	hrt_abstime _pid_debug_last_time{0};  // 上次调试信息输出时间
+	float _pid_last_course{0.0f};  // 上次PID航向设定值（用于平滑）
 	float _pid_update_freq{0.0f};  // PID更新频率统计
 	float _pid_update_freq_sum{0.0f};  // 频率累计值
 	int _pid_update_count{0};  // 更新次数统计
