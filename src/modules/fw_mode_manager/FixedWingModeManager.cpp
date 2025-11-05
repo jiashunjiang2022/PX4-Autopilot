@@ -2048,6 +2048,16 @@ FixedWingModeManager::Run()
 		const float control_interval = math::constrain((now - _last_time_position_control_called) * 1e-6f,
 					       MIN_AUTO_TIMESTEP, MAX_AUTO_TIMESTEP);
 		_last_time_position_control_called = now;
+		
+		// 调试信息：控制循环频率（仅在PID模式时输出，每2秒一次）
+		static hrt_abstime ctrl_debug_last_time = 0;
+		int guidance_mode = _param_fw_guidance_mode.get();
+		if (guidance_mode == 2 && (now - ctrl_debug_last_time) > 2000000) {  // 每2秒
+			float ctrl_freq = (control_interval > FLT_EPSILON) ? (1.0f / control_interval) : 0.0f;
+			PX4_INFO("[CTRL] ControlLoop: dt=%.3fs, Freq=%.1fHz", 
+				(double)control_interval, (double)ctrl_freq);
+			ctrl_debug_last_time = now;
+		}
 
 		// check for parameter updates
 		if (_parameter_update_sub.updated()) {
@@ -2356,6 +2366,10 @@ FixedWingModeManager::reset_takeoff_state()
 	// 重置PID积分状态（起飞时重置）
 	_pid_xte.resetIntegral();
 	_pid_last_update_time = 0;
+	_pid_debug_last_time = 0;
+	_pid_update_freq = 0.0f;
+	_pid_update_freq_sum = 0.0f;
+	_pid_update_count = 0;
 }
 
 void
@@ -3125,14 +3139,35 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 	float cross_track_error = path_to_vehicle % unit_path_tangent;
 	
 	// 计算时间间隔（用于PID更新）
+	hrt_abstime current_time = hrt_absolute_time();
+	// 限制dt在合理范围内：如果上次更新时间未初始化，使用默认值20ms（50Hz）
+	float dt_raw = (_pid_last_update_time > 0) ? 
+		((current_time - _pid_last_update_time) / 1e6f) : 0.02f;
 	const float dt = math::constrain(
-		(hrt_absolute_time() - _pid_last_update_time) / 1e6f,
-		0.001f, 0.1f  // 限制在1ms到100ms之间
+		dt_raw,
+		0.001f, 0.05f  // 限制在1ms到50ms之间（确保至少20Hz）
 	);
-	_pid_last_update_time = hrt_absolute_time();
+	_pid_last_update_time = current_time;
+	
+	// 统计PID更新频率
+	_pid_update_count++;
+	_pid_update_freq_sum += (dt > FLT_EPSILON) ? (1.0f / dt) : 0.0f;
+	if (_pid_update_count >= 50) {  // 每50次更新计算一次平均频率
+		_pid_update_freq = _pid_update_freq_sum / _pid_update_count;
+		_pid_update_freq_sum = 0.0f;
+		_pid_update_count = 0;
+	}
 	
 	// PID控制器更新
+	float pid_integral = _pid_xte.getIntegral();  // 获取积分项（用于调试，在update之前）
+	float pid_error = 0.0f - cross_track_error;  // setpoint - feedback
 	float lateral_accel_cmd = _pid_xte.update(cross_track_error, dt);
+	
+	// 计算PID各项贡献（用于调试）
+	// 注意：这是近似值，因为D项依赖于_last_feedback，我们无法直接访问
+	float pid_p = _param_pid_xte_kp.get() * pid_error;
+	float pid_i = pid_integral;
+	// D项的精确计算需要访问PID内部的_last_feedback，这里仅显示已计算的积分项
 	
 	// 限制横向加速度
 	lateral_accel_cmd = math::constrain(
@@ -3151,15 +3186,11 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 	// 角速度：omega = v/R = lateral_accel / v
 	// 航向修正：course_correction = omega * tau，其中tau是时间常数
 	float course_correction = 0.0f;
+	float error_magnitude = fabsf(cross_track_error);
+	float tau = 1.0f;  // 默认时间常数
 	
 	if (fabsf(ground_speed) > FLT_EPSILON) {
-		// 计算角速度：omega = lateral_accel / v
-		float omega = lateral_accel_cmd / ground_speed;
-		
 		// 根据XTE大小动态调整时间常数
-		float error_magnitude = fabsf(cross_track_error);
-		float tau = 1.0f;  // 默认时间常数
-		
 		if (error_magnitude > 50.0f) {
 			tau = 0.3f;  // 大误差：快速响应（0.3秒）
 		} else if (error_magnitude > 20.0f) {
@@ -3170,15 +3201,30 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 			tau = 2.0f;  // 很小误差：平滑响应（2秒）
 		}
 		
-		// 计算航向修正：course_correction = omega * tau
+		// 计算角速度：omega = lateral_accel / v
+		float omega = lateral_accel_cmd / ground_speed;
+		
+		// 基础航向修正：course_correction = omega * tau
 		course_correction = omega * tau;
 		
-		// 对于大误差，增加额外的航向修正以加快响应
-		if (error_magnitude > 20.0f) {
-			// 额外修正：基于误差大小直接计算角度
-			float additional_correction = atan2f(cross_track_error, math::max(ground_speed * tau, 10.0f));
-			additional_correction = math::constrain(additional_correction, -M_PI_F / 4.0f, M_PI_F / 4.0f);
-			course_correction += additional_correction * 0.5f;  // 混合50%的额外修正
+		// 对于大误差或PID饱和的情况，使用更直接的几何修正
+		bool pid_saturated = (fabsf(lateral_accel_cmd) >= _param_pid_xte_maxa.get() - 0.1f);
+		
+		if (error_magnitude > 20.0f || pid_saturated) {
+			// 当误差大或PID饱和时，使用几何修正作为主要修正
+			// 计算需要转向的角度：基于横向误差和前瞻距离
+			float lookahead_distance = math::max(ground_speed * tau, 20.0f);  // 至少20米前瞻
+			float geometric_correction = atan2f(cross_track_error, lookahead_distance);
+			geometric_correction = math::constrain(geometric_correction, -M_PI_F / 3.0f, M_PI_F / 3.0f);
+			
+			// 如果PID饱和，主要使用几何修正；否则混合使用
+			if (pid_saturated && error_magnitude > 30.0f) {
+				// PID饱和且误差大：主要使用几何修正
+				course_correction = geometric_correction * 0.8f + course_correction * 0.2f;
+			} else {
+				// 混合PID修正和几何修正
+				course_correction = course_correction * 0.6f + geometric_correction * 0.4f;
+			}
 		}
 		
 		// 限制最大修正角度
@@ -3191,6 +3237,36 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 	desired_course = matrix::wrap_pi(desired_course);
 	
 	sp.course_setpoint = desired_course;
+	
+	// 调试信息输出（每0.5秒输出一次，避免日志过多）
+	if ((current_time - _pid_debug_last_time) > 500000) {  // 0.5秒 = 500000微秒
+		float current_heading = atan2f(ground_vel(1), ground_vel(0));
+		float heading_error = matrix::wrap_pi(desired_course - current_heading);
+		
+		// 获取更新后的积分值（用于调试）
+		float pid_integral_after = _pid_xte.getIntegral();
+		bool pid_saturated = (fabsf(lateral_accel_cmd) >= _param_pid_xte_maxa.get() - 0.1f);
+		
+		PX4_INFO("[PID] XTE=%.2fm, LatAccel=%.2fm/s², dt=%.3fs, Freq=%.1fHz, Sat=%d", 
+			(double)cross_track_error, 
+			(double)lateral_accel_cmd, 
+			(double)dt,
+			(double)_pid_update_freq,
+			(int)pid_saturated);
+		PX4_INFO("[PID] PID: P=%.3f, I=%.3f(%.3f), Error=%.2fm, Total=%.3f", 
+			(double)pid_p, (double)pid_i, (double)pid_integral_after, (double)pid_error, (double)lateral_accel_cmd);
+		PX4_INFO("[PID] PathBearing=%.1f°, CourseCorr=%.1f°, DesiredCourse=%.1f°, HeadingErr=%.1f°", 
+			(double)math::degrees(path_bearing),
+			(double)math::degrees(course_correction),
+			(double)math::degrees(desired_course),
+			(double)math::degrees(heading_error));
+		PX4_INFO("[PID] GroundSpeed=%.1fm/s, Tau=%.2fs, ErrorMag=%.1fm", 
+			(double)ground_speed,
+			(double)tau,
+			(double)error_magnitude);
+		
+		_pid_debug_last_time = current_time;
+	}
 	
 	return sp;
 }
