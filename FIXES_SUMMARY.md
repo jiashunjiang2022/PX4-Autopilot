@@ -123,3 +123,9 @@ Latest commit: `365914536f`
 - L1 course calculation issue would cause poor tracking for any L1 user
 - AUTO mode configuration issue affects altitude control in missions
 
+
+
+
+
+
+
