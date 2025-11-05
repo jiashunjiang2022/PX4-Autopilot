@@ -3161,8 +3161,8 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 	
 	// PID控制器更新
 	float pid_integral = _pid_xte.getIntegral();  // 获取积分项（用于调试，在update之前）
-	float pid_error = 0.0f - cross_track_error;  // setpoint - feedback
-	float lateral_accel_cmd = _pid_xte.update(cross_track_error, dt);
+	float pid_error = cross_track_error;  // 实际误差（期望=0，反馈=-XTE）
+	float lateral_accel_cmd = _pid_xte.update(-cross_track_error, dt);
 	
 	// 计算PID各项贡献（用于调试）
 	// 注意：这是近似值，因为D项依赖于_last_feedback，我们无法直接访问
