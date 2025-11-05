@@ -3156,31 +3156,29 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 		// 计算角速度：omega = lateral_accel / v
 		float omega = lateral_accel_cmd / ground_speed;
 		
-		// 根据XTE大小动态调整时间常数，提高响应速度
+		// 根据XTE大小动态调整时间常数
 		float error_magnitude = fabsf(cross_track_error);
 		float tau = 1.0f;  // 默认时间常数
 		
 		if (error_magnitude > 50.0f) {
-			tau = 0.4f;  // 大误差：快速响应（0.4秒）
+			tau = 0.3f;  // 大误差：快速响应（0.3秒）
 		} else if (error_magnitude > 20.0f) {
-			tau = 0.6f;  // 中等误差：标准响应（0.6秒）
+			tau = 0.5f;  // 中等误差：标准响应（0.5秒）
 		} else if (error_magnitude > 5.0f) {
 			tau = 1.0f;  // 小误差：标准响应（1秒）
 		} else {
-			tau = 1.5f;  // 很小误差：平滑响应（1.5秒）
+			tau = 2.0f;  // 很小误差：平滑响应（2秒）
 		}
 		
 		// 计算航向修正：course_correction = omega * tau
 		course_correction = omega * tau;
 		
-		// 对于大误差，增加额外的航向修正以加快响应，提高精度
-		if (error_magnitude > 15.0f) {
-			// 额外修正：基于误差大小直接计算角度，使用更短的前瞻距离以提高精度
-			float lookahead_dist = math::max(ground_speed * tau, 15.0f);
-			float additional_correction = atan2f(cross_track_error, lookahead_dist);
-			additional_correction = math::constrain(additional_correction, -M_PI_F / 3.0f, M_PI_F / 3.0f);
-			// 混合PID输出和几何修正（60% PID, 40% 几何），提高响应速度
-			course_correction = 0.6f * course_correction + 0.4f * additional_correction;
+		// 对于大误差，增加额外的航向修正以加快响应
+		if (error_magnitude > 20.0f) {
+			// 额外修正：基于误差大小直接计算角度
+			float additional_correction = atan2f(cross_track_error, math::max(ground_speed * tau, 10.0f));
+			additional_correction = math::constrain(additional_correction, -M_PI_F / 4.0f, M_PI_F / 4.0f);
+			course_correction += additional_correction * 0.5f;  // 混合50%的额外修正
 		}
 		
 		// 限制最大修正角度
