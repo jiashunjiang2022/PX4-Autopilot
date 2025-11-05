@@ -115,6 +115,14 @@ FixedWingModeManager::parameters_update()
 	_pid_xte.setOutputLimit(_param_pid_xte_maxa.get());
 	_pid_xte.setIntegralLimit(_param_pid_xte_ilim.get());
 	_pid_xte.setSetpoint(0.0f);  // 目标横向误差为0
+
+	_latest_guidance_output = DirectionalGuidanceOutput{};
+	_latest_track_error = NAN;
+	_latest_bearing_feas = NAN;
+	_latest_bearing_feas_on_track = NAN;
+	_latest_track_error_bound = NAN;
+	_latest_adapted_period = NAN;
+	_latest_guidance_mode = -1;
 }
 
 void
@@ -2673,6 +2681,11 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 			// 对于第一个航点，直接使用NPFG以避免翻转问题
 			sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 					       _closest_point_on_path, path_curvature);
+			updateGuidanceTelemetry(0, sp, _directional_guidance.getSignedTrackError(),
+						_directional_guidance.getBearingFeasibility(),
+						_directional_guidance.getBearingFeasibilityOnTrack(),
+						_directional_guidance.getTrackErrorBound(),
+						_directional_guidance.getAdaptedPeriod());
 		} else {
 			// 正常L1制导
 			sp = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
@@ -2684,6 +2697,11 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateWaypoint(const Vector2f 
 		// NPFG制导（默认）
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
 				       _closest_point_on_path, path_curvature);
+		updateGuidanceTelemetry(0, sp, _directional_guidance.getSignedTrackError(),
+					_directional_guidance.getBearingFeasibility(),
+					_directional_guidance.getBearingFeasibilityOnTrack(),
+					_directional_guidance.getTrackErrorBound(),
+					_directional_guidance.getAdaptedPeriod());
 	}
 
 	return sp;
@@ -2722,6 +2740,11 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
+		updateGuidanceTelemetry(0, sp, _directional_guidance.getSignedTrackError(),
+					_directional_guidance.getBearingFeasibility(),
+					_directional_guidance.getBearingFeasibilityOnTrack(),
+					_directional_guidance.getTrackErrorBound(),
+					_directional_guidance.getAdaptedPeriod());
 	}
 
 	return sp;
@@ -2753,6 +2776,11 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLine(const Vector2f &poi
 		sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel,
 					     unit_path_tangent,
 					     _closest_point_on_path, path_curvature);
+		updateGuidanceTelemetry(0, sp, _directional_guidance.getSignedTrackError(),
+					_directional_guidance.getBearingFeasibility(),
+					_directional_guidance.getBearingFeasibilityOnTrack(),
+					_directional_guidance.getTrackErrorBound(),
+					_directional_guidance.getAdaptedPeriod());
 	}
 
 	return sp;
@@ -2807,8 +2835,14 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateLoiter(const Vector2f &l
 				loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
 	} else {
 		// NPFG制导（默认）
-		return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
-				loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
+		DirectionalGuidanceOutput sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
+					      loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
+		updateGuidanceTelemetry(0, sp, _directional_guidance.getSignedTrackError(),
+					_directional_guidance.getBearingFeasibility(),
+					_directional_guidance.getBearingFeasibilityOnTrack(),
+					_directional_guidance.getTrackErrorBound(),
+					_directional_guidance.getAdaptedPeriod());
+		return sp;
 	}
 }
 
@@ -2838,8 +2872,14 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePathTangent(const matrix
 				position_setpoint, curvature);
 	} else {
 		// NPFG制导（默认）
-		return _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(),
-				position_setpoint, curvature);
+		DirectionalGuidanceOutput sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(),
+					      position_setpoint, curvature);
+		updateGuidanceTelemetry(0, sp, _directional_guidance.getSignedTrackError(),
+					_directional_guidance.getBearingFeasibility(),
+					_directional_guidance.getBearingFeasibilityOnTrack(),
+					_directional_guidance.getTrackErrorBound(),
+					_directional_guidance.getAdaptedPeriod());
+		return sp;
 	}
 }
 
@@ -2891,7 +2931,11 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateBearing(const matrix::Ve
 		}
 
 		DirectionalGuidanceOutput sp = _directional_guidance.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
-
+		updateGuidanceTelemetry(0, sp, _directional_guidance.getSignedTrackError(),
+					_directional_guidance.getBearingFeasibility(),
+					_directional_guidance.getBearingFeasibilityOnTrack(),
+					_directional_guidance.getTrackErrorBound(),
+					_directional_guidance.getAdaptedPeriod());
 		return sp;
 	}
 }
@@ -2915,15 +2959,13 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 		return sp;
 	}
 
-	// L1参数设置 - 基于PX4原始实现，但增加自适应调整
-	float L1_ratio = 5.0f;     // PX4默认值
-	float K_L1 = 2.0f;         // PX4默认值
+	const float l1_period = math::max(_param_fw_l1_period.get(), 0.1f);
+	const float l1_damping = math::max(_param_fw_l1_damping.get(), 0.1f);
+	const float L1_ratio = (1.0f / M_PI_F) * l1_damping * l1_period;
+	const float K_L1 = 4.0f * l1_damping * l1_damping;
 
-	// 计算L1距离 - 使用PX4原始公式，但增加最小距离保护
 	float L1_distance = L1_ratio * ground_speed;
-
-	// 限制L1距离范围 - 增加最小距离以避免过度敏感
-	L1_distance = math::constrain(L1_distance, 20.0f, 100.0f);
+	L1_distance = math::max(L1_distance, 1.0f);
 
 	// 完全按照PX4原始实现：沿路径飞行的情况
 	// 使用unit_path_tangent作为路径方向（相当于PX4的vector_AB）
@@ -2936,8 +2978,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	// 计算eta1 (到L1点的角度) - 基于PX4原始实现
 	float sine_eta1 = xtrackErr / math::max(L1_distance, 0.1f);
 
-	// 限制sine_eta1到±30度 - 减少最大角度以避免剧烈变化
-	sine_eta1 = math::constrain(sine_eta1, -0.5f, 0.5f); // sin(π/6) = 0.5
+	sine_eta1 = math::constrain(sine_eta1, -1.0f, 1.0f);
 	float eta1 = asinf(sine_eta1);
 
 	// 计算eta2 (速度向量相对于路径的角度) - 使用vector_AB
@@ -2954,23 +2995,9 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 	// 总eta角
 	float eta = eta1 + eta2;
 
-	// 限制eta角到±60度 - 减少最大角度
-	eta = math::constrain(eta, -M_PI_F / 3.0f, M_PI_F / 3.0f);
+	eta = math::constrain(eta, -M_PI_F / 2.0f, M_PI_F / 2.0f);
 
-	// 计算期望航向 - 使用NPFG风格的bearing vector方法
-	// 计算横向误差归一化值（类似NPFG的normalized_track_error）
-	float normalized_track_error = fabsf(xtrackErr) / math::max(L1_distance, 0.1f);
-	normalized_track_error = math::constrain(normalized_track_error, 0.0f, 1.0f);
-
-	// 计算前瞻角度（类似NPFG的lookAheadAngle）
-	float look_ahead_ang = M_PI_F / 2.0f * (normalized_track_error - 1.0f) * (normalized_track_error - 1.0f);
-
-	// 计算bearing vector（类似NPFG的bearingVec）
-	matrix::Vector2f unit_path_normal(-vector_AB(1), vector_AB(0)); // 右转90度
-	matrix::Vector2f unit_track_error = -((xtrackErr < 0.0f) ? -1.0f : 1.0f) * unit_path_normal;
-
-	matrix::Vector2f bearing_vec = cosf(look_ahead_ang) * unit_track_error + sinf(look_ahead_ang) * vector_AB;
-	float desired_course = atan2f(bearing_vec(1), bearing_vec(0));
+	float desired_course = atan2f(vector_AB(1), vector_AB(0)) + eta1;
 
 	// 航向平滑处理 - 防止突然的航向变化
 	uint64_t current_time = hrt_absolute_time();
@@ -2997,15 +3024,11 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1(const matrix::Vector2
 
 	sp.course_setpoint = desired_course;
 
-	// L1制导公式 - 使用PX4原始公式
-	float lateral_acceleration = K_L1 * ground_speed * ground_speed / L1_distance * sinf(eta);
-
-	// 限制横向加速度 - 更保守的限制
-	float max_lateral_accel = 6.0f;  // 减少最大横向加速度
-	lateral_acceleration = math::constrain(lateral_acceleration, -max_lateral_accel, max_lateral_accel);
+	const float lateral_acceleration = K_L1 * ground_speed * ground_speed / L1_distance * sinf(eta);
 
 	sp.lateral_acceleration_feedforward = lateral_acceleration;
 
+	updateGuidanceTelemetry(1, sp, xtrackErr);
 	return sp;
 }
 
@@ -3110,6 +3133,7 @@ DirectionalGuidanceOutput FixedWingModeManager::navigateL1Conservative(const mat
 
 	sp.lateral_acceleration_feedforward = lateral_acceleration;
 
+	updateGuidanceTelemetry(1, sp, xtrackErr);
 	return sp;
 }
 
@@ -3256,23 +3280,37 @@ DirectionalGuidanceOutput FixedWingModeManager::navigatePID(const matrix::Vector
 	
 	_pid_last_course = desired_course;
 	sp.course_setpoint = desired_course;
-	
+
+	updateGuidanceTelemetry(2, sp, cross_track_error);
 	return sp;
 }
 
+
+void FixedWingModeManager::updateGuidanceTelemetry(int guidance_mode, const DirectionalGuidanceOutput &sp,
+		float track_error, float bearing_feas, float bearing_feas_on_track,
+		float track_error_bound, float adapted_period)
+{
+	_latest_guidance_mode = guidance_mode;
+	_latest_guidance_output = sp;
+	_latest_track_error = track_error;
+	_latest_bearing_feas = bearing_feas;
+	_latest_bearing_feas_on_track = bearing_feas_on_track;
+	_latest_track_error_bound = track_error_bound;
+	_latest_adapted_period = adapted_period;
+}
 
 void FixedWingModeManager::publish_lateral_guidance_status(const hrt_abstime now)
 {
 	fixed_wing_lateral_guidance_status_s fixed_wing_lateral_guidance_status{};
 
 	fixed_wing_lateral_guidance_status.timestamp = now;
-	fixed_wing_lateral_guidance_status.course_setpoint = _directional_guidance.getCourseSetpoint();
-	fixed_wing_lateral_guidance_status.lateral_acceleration_ff = _directional_guidance.getLateralAccelerationSetpoint();
-	fixed_wing_lateral_guidance_status.bearing_feas = _directional_guidance.getBearingFeasibility();
-	fixed_wing_lateral_guidance_status.bearing_feas_on_track = _directional_guidance.getBearingFeasibilityOnTrack();
-	fixed_wing_lateral_guidance_status.signed_track_error = _directional_guidance.getSignedTrackError();
-	fixed_wing_lateral_guidance_status.track_error_bound = _directional_guidance.getTrackErrorBound();
-	fixed_wing_lateral_guidance_status.adapted_period = _directional_guidance.getAdaptedPeriod();
+	fixed_wing_lateral_guidance_status.course_setpoint = _latest_guidance_output.course_setpoint;
+	fixed_wing_lateral_guidance_status.lateral_acceleration_ff = _latest_guidance_output.lateral_acceleration_feedforward;
+	fixed_wing_lateral_guidance_status.bearing_feas = _latest_bearing_feas;
+	fixed_wing_lateral_guidance_status.bearing_feas_on_track = _latest_bearing_feas_on_track;
+	fixed_wing_lateral_guidance_status.signed_track_error = _latest_track_error;
+	fixed_wing_lateral_guidance_status.track_error_bound = _latest_track_error_bound;
+	fixed_wing_lateral_guidance_status.adapted_period = _latest_adapted_period;
 	fixed_wing_lateral_guidance_status.wind_est_valid = _wind_valid;
 
 	_fixed_wing_lateral_guidance_status_pub.publish(fixed_wing_lateral_guidance_status);

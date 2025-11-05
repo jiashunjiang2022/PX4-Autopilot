@@ -889,6 +889,17 @@ private:
 	int _pid_update_count{0};  // 更新次数统计
 	float _pid_last_error{NAN};  // 上次横向误差，用于检测穿越
 	float _pid_kd{0.0f};  // PID微分增益（单独处理）
+	DirectionalGuidanceOutput _latest_guidance_output{};
+	float _latest_track_error{NAN};
+	float _latest_bearing_feas{NAN};
+	float _latest_bearing_feas_on_track{NAN};
+	float _latest_track_error_bound{NAN};
+	float _latest_adapted_period{NAN};
+	int _latest_guidance_mode{-1};
+
+	void updateGuidanceTelemetry(int guidance_mode, const DirectionalGuidanceOutput &sp, float track_error,
+				     float bearing_feas = NAN, float bearing_feas_on_track = NAN,
+				     float track_error_bound = NAN, float adapted_period = NAN);
 
 
 	void control_idle();
@@ -909,6 +920,7 @@ private:
 
 		(ParamInt<px4::params::FW_GUIDANCE_MODE>) _param_fw_guidance_mode,
 		(ParamFloat<px4::params::FW_L1_PERIOD>) _param_fw_l1_period,
+		(ParamFloat<px4::params::FW_L1_DAMPING>) _param_fw_l1_damping,
 		(ParamFloat<px4::params::FW_PID_XTE_KP>) _param_pid_xte_kp,
 		(ParamFloat<px4::params::FW_PID_XTE_KI>) _param_pid_xte_ki,
 		(ParamFloat<px4::params::FW_PID_XTE_KD>) _param_pid_xte_kd,

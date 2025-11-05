@@ -1,251 +1,82 @@
 # 固定翼制导算法对比
 
-本项目实现了4种不同的固定翼路径跟踪制导算法，用于对比研究。
+本项目提供了 **3 种** 固定翼路径跟踪制导算法，可通过参数 `FW_GUIDANCE_MODE`
+在运行时自由切换，用于做 A/B 测试：
 
-## 🎯 算法概述
+| 算法 | 模式值 | 主要参数 | 特点 | 适用场景 |
+|------|--------|----------|------|----------|
+| **NPFG** | 0 | `NPFG_*` 全套参数 | 官方默认的非线性路径跟踪，性能全面 | 高速 / 曲线密集任务的通用选择 |
+| **L1** | 1 | `FW_L1_PERIOD`、`FW_L1_DAMPING` | 基于 L1 控制律，参数含义与 PX4 官方一致 | 需要复现/比较 PX4 原生 L1 行为时 |
+| **PID** | 2 | `FW_PID_XTE_*` 系列参数 | 简单可解释的误差反馈控制器 | 需要快速调参或教学演示时 |
 
-| 算法 | 模式值 | 复杂度 | 特点 | 适用场景 |
-|------|--------|--------|------|----------|
-| **L1** | 0 | 中等 | PX4原生，经过充分验证 | 通用，默认推荐 |
-| **Pure Pursuit** | 1 | 简单 | 经典几何算法，易于理解 | 教学、低速、大转弯半径 |
-| **LOS** | 2 | 简单 | 鲁棒，带侧风补偿 | 直线段，有风环境 |
-| **NPFG** | 3 | 复杂 | 先进非线性制导 | 高速、复杂路径 |
-
-## 📚 算法详解
-
-### 1. L1 Guidance（L1制导）
-
-**原理**：基于L1自适应控制理论的制导算法
-
-**核心公式**：
-```
-L1_distance = period * ground_speed / (2 * π)
-lateral_accel = K * v² / L1_distance * sin(eta)
-```
-
-**优点**：
-- ✅ 经过多年验证，非常稳定
-- ✅ 自适应特性好
-- ✅ 适用范围广
-
-**缺点**：
-- ❌ 参数调优相对复杂
-- ❌ 理论理解门槛较高
-
-**参数**：
-- `FW_L1_PERIOD`：L1周期（默认25s）
-- `FW_L1_DAMPING`：阻尼比（默认0.75）
-- `FW_L1_ROLL_LIM`：最大滚转角限制（默认30°）
+> **提示**：首段航线在 L1 模式下仍会退回 NPFG，以避免起飞后 180° 翻转问题。
+> 正式对比时建议从第二段航线或 loiter 段开始采样。
 
 ---
 
-### 2. Pure Pursuit（纯追踪）
+## NPFG（模式 0）
 
-**原理**：追踪路径上前方固定距离的"胡萝卜"点
+**原理**：使用 PX4 原生 Nonlinear Path Following Guidance（NPFG）模块，考虑到风、车辆性能、路径曲率，自动调节周期与阻尼。
 
-**核心公式**：
-```
-lookahead_distance = gain * ground_speed
-curvature = 2 * sin(alpha) / lookahead_distance
-lateral_accel = v² * curvature
-```
+**可调参数**：
+- `NPFG_PERIOD`、`NPFG_DAMPING`
+- `NPFG_ROLL_TIME_CONST`、`NPFG_SW_DST_MLT`、`NPFG_PERIOD_SF`
 
-**优点**：
-- ✅ 算法简单，易于理解
-- ✅ 计算量小
-- ✅ 适合教学和入门
-
-**缺点**：
-- ❌ 不考虑风的影响
-- ❌ 在高速或小转弯半径时性能下降
-- ❌ 轨迹跟踪精度相对较低
-
-**参数**（硬编码）：
-- `lookahead_gain`：前视距离增益（默认2.0）
-- `min_lookahead`：最小前视距离（默认10m）
-- `max_lookahead`：最大前视距离（默认50m）
-
-**适用场景**：
-- 低速飞行（<20 m/s）
-- 大转弯半径路径
-- 教学演示
+**优势**：在高速、复杂航路下表现稳定，是 PX4 默认推荐方案。
 
 ---
 
-### 3. LOS (Line-of-Sight)（视线制导）
+## L1 Guidance（模式 1）
 
-**原理**：基于视线角的路径跟踪，广泛应用于海洋船舶导航
+**原理**：恢复至 PX4 官方 L1 控制律实现，横向加速度由 `FW_L1_PERIOD` 和 `FW_L1_DAMPING`
+推导得到，公式与 upstream 保持一致。
 
-**核心公式**：
-```
-course_correction = -atan(cross_track_error / lookahead_distance)
-desired_course = path_course + course_correction
-wind_correction = asin(crosswind / airspeed)  # 侧风补偿
+**可调参数**：
+- `FW_L1_PERIOD`
+- `FW_L1_DAMPING`
+- `FW_L1_ROLL_LIM`
+
+**使用建议**：
+- 若需要和官方固件直接对比，请使用同一套 L1 参数。
+- 如需更保守的入轨，可结合 `FW_L1_ROLL_LIM` 限制滚转。
+
+---
+
+## PID Guidance（模式 2）
+
+**原理**：对横向误差 (`cross_track_error`) 使用 PID 控制，支持积分限幅、误差过零重置、
+以及几何前视航向修正，避免出现蛇形摆动。
+
+**可调参数**：
+- `FW_PID_XTE_KP`、`FW_PID_XTE_KI`、`FW_PID_XTE_KD`
+- `FW_PID_XTE_ILIM`（积分限幅）
+- `FW_PID_XTE_MAXA`（最大横向加速度限制）
+
+**使用建议**：
+- `KP` 决定响应速度，`KD` 负责阻尼，`KI` 只在需要消除稳态误差时少量启用。
+- 当误差跨越 0 或进入 ±0.5 m 内会自动清零积分，便于切换航线时快速收敛。
+
+---
+
+## 数据记录与对比
+
+- `fixed_wing_lateral_guidance_status` 现在在三种算法下都会更新：
+  - `course_setpoint` / `lateral_acceleration_ff` 反映当前期望航向与横向加速度。
+  - `signed_track_error` 始终为最新横向误差。
+  - 对于 NPFG，`bearing_feas*`、`track_error_bound`、`adapted_period` 等字段保留原始信息；
+    当算法为 L1/PID 时，这些字段会填 `NaN`，可据此区分。
+- `fixed_wing_lateral_status`（由纵向/侧向控制器发布）同样包含实际加速度与滚转指令，可与以上话题联合分析。
+- 在 QGroundControl 中修改 `FW_GUIDANCE_MODE` 后即可实时对比三种算法的航迹表现。
+
+---
+
+## 测试流程示例
+
+```bash
+make px4_sitl gazebo-classic
+# 启动后在 QGC 中依次设置 FW_GUIDANCE_MODE = 0 / 1 / 2
+# 记录 fixed_wing_lateral_guidance_status 和 fixed_wing_lateral_status 对比控制效果
 ```
 
-**优点**：
-- ✅ 简单鲁棒
-- ✅ 有理论基础（Lyapunov稳定性）
-- ✅ 内置侧风补偿
-- ✅ 适合直线段跟踪
-
-**缺点**：
-- ❌ 在曲线路径上性能一般
-- ❌ 需要准确的风速估计
-
-**参数**（硬编码）：
-- `lookahead_distance`：前视距离（默认20m）
-- `max_course_error`：最大航向修正角（默认60°）
-- `enable_wind_compensation`：启用侧风补偿（默认true）
-
-**适用场景**：
-- 直线段导航
-- 有风环境
-- 需要精确轨迹跟踪
-
----
-
-### 4. NPFG (Nonlinear Path Following Guidance)（非线性路径跟踪制导）
-
-**原理**：基于非线性控制理论的先进制导算法
-
-**核心特性**：
-- 自适应周期调整
-- 考虑风速、空速、地速
-- 轨迹可行性评估
-- 适应性强
-
-**优点**：
-- ✅ 最先进的算法
-- ✅ 高速性能好
-- ✅ 自适应能力强
-- ✅ 适合复杂路径
-
-**缺点**：
-- ❌ 参数多，调优复杂
-- ❌ 计算量相对较大
-- ❌ 理解门槛高
-
-**参数**（PX4原生）：
-- `NPFG_PERIOD`：标称周期（默认10s）
-- `NPFG_DAMPING`：阻尼比（默认0.7）
-- `NPFG_LB_PERIOD`：启用周期下界
-- `NPFG_UB_PERIOD`：启用周期上界
-- `NPFG_ROLL_TIME_CONST`：滚转时间常数
-- `NPFG_SW_DST_MLT`：切换距离倍数
-- `NPFG_PERIOD_SF`：周期安全系数
-
-**适用场景**：
-- 高速飞行
-- 复杂曲线路径
-- 需要最优性能
-
----
-
-## 🧪 测试和对比
-
-### 测试步骤
-
-1. **编译代码**：
-   ```bash
-   cd ~/PX4/PX4-Autopilot
-   git pull origin pid
-   make clean
-   make px4_sitl gazebo-classic
-   ```
-
-2. **在QGroundControl中切换模式**：
-   - 打开参数设置
-   - 找到 `FW_GUIDANCE_MODE`
-   - 选择不同的值（0-3）
-   - 重启飞行器
-
-3. **测试场景**：
-   - **直线段**：比较轨迹跟踪精度
-   - **转弯**：比较转弯平滑度和响应速度
-   - **有风环境**：比较抗风能力
-   - **高速飞行**：比较稳定性
-
-### 对比维度
-
-| 维度 | L1 | Pure Pursuit | LOS | NPFG |
-|------|----|--------------|----|------|
-| 轨迹精度 | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
-| 响应速度 | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
-| 抗风能力 | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
-| 稳定性 | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
-| 易用性 | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ |
-| 计算量 | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ |
-
----
-
-## 🔧 故障排除
-
-### L1模式问题
-- **现象**：转弯过冲
-- **解决**：增大 `FW_L1_PERIOD` 或增大 `FW_L1_DAMPING`
-
-### Pure Pursuit问题
-- **现象**：轨迹振荡
-- **解决**：前视距离可能太小，需要在代码中调整 `_lookahead_gain`
-
-### LOS问题
-- **现象**：侧风下偏离轨迹
-- **解决**：检查风速估计是否准确
-
-### NPFG问题
-- **现象**：完全失控
-- **解决**：
-  1. 检查参数是否正确设置
-  2. 确保制导接口正确初始化
-  3. 查看PX4控制台的错误信息
-
----
-
-## 📖 参考文献
-
-### L1 Guidance
-- Park, S., Deyst, J., & How, J. P. (2004). "A new nonlinear guidance logic for trajectory tracking"
-
-### Pure Pursuit
-- Coulter, R. C. (1992). "Implementation of the pure pursuit path tracking algorithm"
-
-### LOS Guidance
-- Fossen, T. I. (2011). "Handbook of Marine Craft Hydrodynamics and Motion Control"
-- Børhaug, E., Pavlov, A., & Pettersen, K. Y. (2008). "Integral LOS control for path following of underactuated marine surface vessels"
-
-### NPFG
-- Stastny, T., & Siegwart, R. (2019). "On Flying Backwards: Preventing Run-away of Small, Low-speed, Fixed-wing UAVs in Strong Winds"
-- Stastny, T. (2020). "Low-Altitude Control and Local Re-Planning Strategies for Small Fixed-Wing UAVs" (Doctoral Thesis)
-
----
-
-## 💡 建议
-
-### 初学者
-推荐顺序：**Pure Pursuit → L1 → LOS → NPFG**
-
-### 实际应用
-- **通用场景**：使用 **L1**（默认）
-- **简单任务**：使用 **Pure Pursuit**
-- **有风环境**：使用 **LOS**
-- **高性能需求**：使用 **NPFG**（需要调优）
-
-### 研究对比
-建议在相同的测试场景下记录以下数据：
-- 轨迹误差（RMS）
-- 横向加速度（最大值和平均值）
-- 控制输入变化率
-- 能量消耗
-
----
-
-## 🚀 下一步
-
-1. **测试所有4种算法**
-2. **记录性能数据**
-3. **调优参数**
-4. **撰写对比报告**
-
-祝实验顺利！✈️
+如需脚本化测试，可在 SITL 中预设同一条任务，循环修改 `FW_GUIDANCE_MODE` 并回放 ULog。
 
