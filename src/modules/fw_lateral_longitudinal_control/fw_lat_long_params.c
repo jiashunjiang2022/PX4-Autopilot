@@ -50,6 +50,20 @@ PARAM_DEFINE_INT32(FW_GUIDANCE_MODE, 0);
 PARAM_DEFINE_FLOAT(FW_L1_PERIOD, 25.0f);
 
 /**
+ * L1 Damping
+ *
+ * Controls the damping ratio of the L1 controller.
+ * 0.7 is a good starting point for most fixed-wing configurations.
+ *
+ * @min 0.1
+ * @max 1.5
+ * @decimal 2
+ * @increment 0.01
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_L1_DAMPING, 0.75f);
+
+/**
  * PID Guidance: Proportional Gain
  * 
  * Controls the responsiveness to cross-track error.
