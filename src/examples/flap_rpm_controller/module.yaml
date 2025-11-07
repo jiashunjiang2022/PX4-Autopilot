@@ -22,7 +22,7 @@ parameters:
         min: 0.0
         max: 200.0
         decimal: 2
-        default: 5.0
+        default: 0.0
 
       FRP_MAX_HZ:
         description:
@@ -32,7 +32,71 @@ parameters:
         min: 0.0
         max: 400.0
         decimal: 2
-        default: 20.0
+        default: 5.0
+
+      FRP_THR_DB:
+        description:
+          short: Throttle deadband before mapping
+          long: |
+            Portion of RC throttle [0..1] ignored at the bottom end. Effective
+            throttle becomes (thr - DB)/(1-DB). This reduces sensitivity near low end.
+        type: float
+        min: 0.0
+        max: 0.5
+        decimal: 2
+        default: 0.00
+
+      FRP_THR_EXP:
+        description:
+          short: Throttle expo (gamma) for mapping
+          long: |
+            Nonlinear mapping exponent. Effective throttle is pow(thr_eff, gamma).
+            gamma > 1 compresses low end (less sensitive), gamma < 1 expands it.
+        type: float
+        min: 0.5
+        max: 5.0
+        decimal: 2
+        default: 2.00
+
+      FRP_THR_MIN:
+        description:
+          short: RC throttle lower bound for mapping
+          long: |
+            Clamped lower bound in [0..1] before mapping. Effective throttle is
+            (clamp(thr, MIN, MAX) - MIN)/(MAX - MIN). Use with FRP_THR_MAX to
+            map only a subrange of the stick travel.
+        type: float
+        min: 0.0
+        max: 1.0
+        decimal: 2
+        default: 0.00
+
+      FRP_THR_MAX:
+        description:
+          short: RC throttle upper bound for mapping
+          long: |
+            Clamped upper bound in [0..1] before mapping. Together with
+            FRP_THR_MIN, this defines the stick window that maps to the full
+            frequency range. Values below MIN map to FRP_MIN_HZ; values above
+            MAX map to FRP_MAX_HZ.
+        type: float
+        min: 0.0
+        max: 1.0
+        decimal: 2
+        default: 1.00
+
+      FRP_SP_SLEW:
+        description:
+          short: Setpoint slew rate limit
+          long: |
+            Maximum change rate of frequency setpoint in Hz/s to avoid sudden jumps.
+            0 disables slew limiting.
+        type: float
+        unit: Hz/s
+        min: 0.0
+        max: 50.0
+        decimal: 2
+        default: 1.00
 
       FRP_KP:
         description:
@@ -98,4 +162,3 @@ parameters:
         min: 50
         max: 5000
         default: 300
-
