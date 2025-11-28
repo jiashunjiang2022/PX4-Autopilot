@@ -1,0 +1,13 @@
+menuconfig MODULES_FW_MODE_MANAGER
+	bool "fw_mode_manager"
+	default n
+	---help---
+		Enable fixed-wing mode manager (NPFG/L1/PID guidance + longitudinal configuration).
+
+menuconfig USER_FW_MODE_MANAGER
+	bool "fw_mode_manager running as userspace module"
+	default n
+	depends on BOARD_PROTECTED && MODULES_FW_MODE_MANAGER
+	---help---
+		Run fw_mode_manager in userspace memory (protected build).
+
