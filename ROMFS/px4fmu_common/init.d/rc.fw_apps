@@ -18,6 +18,12 @@ fw_att_control start
 fw_pos_control start
 airspeed_selector start
 
+# Fixed-wing lateral/longitudinal mode manager (NPFG / L1 / PID)
+fw_mode_manager start
+
+# Bridge fixed-wing lateral guidance output to Arduino over UART
+rover_arduino_bridge start
+
 #
 # Start attitude control auto-tuner
 #
