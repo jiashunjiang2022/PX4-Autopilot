@@ -45,7 +45,9 @@
 #include <drivers/drv_hrt.h>
 #include <mathlib/mathlib.h>
 #include <uORB/Publication.hpp>
+#include <uORB/PublicationMulti.hpp>
 #include <uORB/topics/debug_vect.h>
+#include <uORB/topics/rpm.h>
 
 /* Configuration Constants */
 #define AS5600_I2C_ADDRESS_DEFAULT 0x36
@@ -71,7 +73,8 @@ private:
 
 	hrt_abstime _last_read{0};
 	float _last_angle_rad{0.f};
+	float _rpm_estimate{0.f};
 
 	uORB::Publication<debug_vect_s> _debug_pub{ORB_ID(debug_vect)};
+	uORB::PublicationMulti<rpm_s> _rpm_pub{ORB_ID(rpm)};
 };
-

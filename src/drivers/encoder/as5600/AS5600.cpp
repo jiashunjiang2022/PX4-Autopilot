@@ -109,23 +109,73 @@ void AS5600::RunImpl()
 		return;
 	}
 
+	const hrt_abstime now = hrt_absolute_time();
+
+	// Initialize on first valid sample
+	if (_last_read == 0) {
+		_last_angle_rad = angle_rad;
+		_last_read = now;
+		return;
+	}
+
+	const float dt = (now - _last_read) * 1e-6f;
+
+	// Reject unreasonable dt values
+	if (dt <= 0.f || dt > 0.5f) {
+		_last_angle_rad = angle_rad;
+		_last_read = now;
+		return;
+	}
+
+	float dtheta = angle_rad - _last_angle_rad;
+
+	// unwrap across 2*pi: constrain delta to (-pi, pi)
+	if (dtheta > M_PI_F) {
+		dtheta -= 2.f * M_PI_F;
+
+	} else if (dtheta < -M_PI_F) {
+		dtheta += 2.f * M_PI_F;
+	}
+
+	const float omega = dtheta / dt; // rad/s
+	const float rpm_raw = omega * (60.f / (2.f * M_PI_F));
+
+	// simple low-pass filter on rpm estimate
+	const float alpha = 0.2f;
+
+	if (!PX4_ISFINITE(_rpm_estimate)) {
+		_rpm_estimate = rpm_raw;
+
+	} else {
+		_rpm_estimate = _rpm_estimate + alpha * (rpm_raw - _rpm_estimate);
+	}
+
+	// publish RPM
+	rpm_s rpm_msg{};
+	rpm_msg.timestamp = now;
+	rpm_msg.rpm_raw = rpm_raw;
+	rpm_msg.rpm_estimate = _rpm_estimate;
+	_rpm_pub.publish(rpm_msg);
+
 	_last_angle_rad = angle_rad;
-	_last_read = hrt_absolute_time();
+	_last_read = now;
 
-	debug_vect_s msg{};
-	msg.timestamp = _last_read;
-	strncpy(msg.name, "AS5600ANG", sizeof(msg.name));
-	msg.name[sizeof(msg.name) - 1] = '\0';
-	msg.x = angle_rad;
-	msg.y = 0.f;
-	msg.z = 0.f;
+	// debug_vect: x = angle, y = rpm_estimate, z = rpm_raw
+	debug_vect_s dbg{};
+	dbg.timestamp = now;
+	strncpy(dbg.name, "AS5600ANG", sizeof(dbg.name));
+	dbg.name[sizeof(dbg.name) - 1] = '\0';
+	dbg.x = angle_rad;
+	dbg.y = _rpm_estimate;
+	dbg.z = rpm_raw;
 
-	_debug_pub.publish(msg);
+	_debug_pub.publish(dbg);
 }
 
 void AS5600::print_status()
 {
 	I2CSPIDriverBase::print_status();
 	PX4_INFO("last angle: %.3f rad", static_cast<double>(_last_angle_rad));
+	PX4_INFO("rpm: raw=%.1f est=%.1f", static_cast<double>(_rpm_estimate),
+		 static_cast<double>(_rpm_estimate));
 }
-
