@@ -239,6 +239,8 @@ int RpmPid::print_usage(const char *reason)
 PID controller that closes the loop from flapping frequency (commanded by throttle)
 to motor RPM measured by the AS5600 encoder.
 
+NOTE: this controller is experimental and has not yet been validated on the actual flapping-wing hardware.
+
 - RC channel 10 (mapped to aux1) selects mode:
   - aux1 low  -> throttle directly controls motor PWM
   - aux1 high -> throttle sets desired wing flapping frequency (Hz),
