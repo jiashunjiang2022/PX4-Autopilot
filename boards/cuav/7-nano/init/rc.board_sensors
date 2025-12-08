@@ -20,6 +20,9 @@ ist8310 -I -R 18 start
 bmp581 -s start
 icp201xx -I start
 
+# AS5600 magnetic encoder on external I2C (GPS1)
+as5600 start -X -b 1
+
 # CUAV pwm voltage 3.3V/5V switch
 pwm_voltage_apply
 
@@ -27,3 +30,9 @@ pwm_voltage_apply
 ist8310 -X -b 1 -R 10 start
 
 netman update
+
+# RPM PID controller (uses AS5600 rpm estimate)
+rpm_pid start
+
+# Hall sensor on PWM9 (GPIO EXTI) for index/reset pulse
+hall_gpio start -p 1
