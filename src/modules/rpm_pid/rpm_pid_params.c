@@ -119,3 +119,57 @@ PARAM_DEFINE_FLOAT(FLAP_KD, 0.0f);
  */
 PARAM_DEFINE_FLOAT(FLAP_I_MAX, 500.0f);
 
+/**
+ * Glide stop throttle threshold.
+ *
+ * Below this normalized throttle, glide stop logic may engage.
+ *
+ * @min 0.0
+ * @max 0.2
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_GLIDE_THR, 0.03f);
+
+/**
+ * Glide stop hold command.
+ *
+ * Minimum motor command to hold while waiting for phase alignment.
+ *
+ * @min 0.0
+ * @max 0.5
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_GLIDE_HOLD, 0.05f);
+
+/**
+ * Glide stop phase tolerance [deg].
+ *
+ * Stop when wing phase is within this tolerance of target (0 or 180 deg).
+ *
+ * @min 1.0
+ * @max 20.0
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_GLIDE_TOL, 5.0f);
+
+/**
+ * Glide stop timeout [s].
+ *
+ * If phase is not reached within this time, stop motor anyway.
+ *
+ * @min 0.1
+ * @max 5.0
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_GLIDE_TO, 1.0f);
+
+/**
+ * Glide stop RC channel selection.
+ *
+ * 0: disabled, 1..18: selects RC function 1..18 (aux/switches) in manual_control_setpoint.
+ *
+ * @min 0
+ * @max 6
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_INT32(FLAP_GLIDE_CH, 6);

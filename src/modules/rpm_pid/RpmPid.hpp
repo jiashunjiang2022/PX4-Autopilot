@@ -56,6 +56,7 @@
 #include <uORB/Subscription.hpp>
 #include <uORB/SubscriptionCallback.hpp>
 #include <uORB/topics/actuator_motors.h>
+#include <uORB/topics/wing_phase.h>
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/rpm.h>
@@ -84,6 +85,7 @@ private:
 	uORB::Subscription _manual_control_setpoint_sub{ORB_ID(manual_control_setpoint)};
 	uORB::Subscription _vehicle_status_sub{ORB_ID(vehicle_status)};
 	uORB::Subscription _actuator_motors_sub{ORB_ID(actuator_motors)};
+	uORB::Subscription _wing_phase_sub{ORB_ID(wing_phase)};
 	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
 
 	uORB::Publication<actuator_motors_s> _actuator_motors_pub{ORB_ID(actuator_motors)};
@@ -92,6 +94,18 @@ private:
 
 	float _integral{0.f};
 	float _prev_error{0.f};
+	float _last_phase_deg{NAN};
+	hrt_abstime _last_phase_ts{0};
+
+	enum class GlideState {
+		Idle,
+		Waiting
+	};
+
+	GlideState _glide_state{GlideState::Idle};
+	float _glide_target_deg{0.f};
+	float _glide_hold{0.f};
+	hrt_abstime _glide_start{0};
 
 	// Cached params
 	float _flap_f_min{0.f};
@@ -109,6 +123,11 @@ private:
 		(ParamFloat<px4::params::FLAP_KP>)     _param_flap_kp,
 		(ParamFloat<px4::params::FLAP_KI>)     _param_flap_ki,
 		(ParamFloat<px4::params::FLAP_KD>)     _param_flap_kd,
-		(ParamFloat<px4::params::FLAP_I_MAX>)  _param_flap_i_max
+		(ParamFloat<px4::params::FLAP_I_MAX>)  _param_flap_i_max,
+		(ParamFloat<px4::params::FLAP_GLIDE_THR>)  _param_glide_thr,
+		(ParamFloat<px4::params::FLAP_GLIDE_HOLD>) _param_glide_hold,
+		(ParamFloat<px4::params::FLAP_GLIDE_TOL>)  _param_glide_tol,
+		(ParamFloat<px4::params::FLAP_GLIDE_TO>)   _param_glide_to,
+		(ParamInt<px4::params::FLAP_GLIDE_CH>)     _param_glide_ch
 	)
 };
