@@ -48,8 +48,7 @@
 #include <drivers/drv_hrt.h>
 #include <inttypes.h>
 #include <uORB/Publication.hpp>
-#include <uORB/PublicationMulti.hpp>
-#include <uORB/topics/rpm.h>
+#include <uORB/topics/hall_event.h>
 
 #include <px4_platform_common/atomic.h>
 #include <px4_arch/io_timer.h>
@@ -77,7 +76,7 @@ private:
 	px4::atomic<uint32_t> _pulse_count{0};
 	bool _last_state{false};
 
-	uORB::PublicationMulti<rpm_s> _rpm_pub{ORB_ID(rpm)};
+	uORB::Publication<hall_event_s> _hall_pub{ORB_ID(hall_event)};
 };
 
 HallGPIO::HallGPIO() :
@@ -148,12 +147,11 @@ void HallGPIO::Run()
 		return;
 	}
 
-	// Publish a minimal rpm message carrying the timestamp (rpm values zeroed)
-	rpm_s msg{};
+	// Publish hall event
+	hall_event_s msg{};
 	msg.timestamp = now;
-	msg.rpm_raw = 0.f;
-	msg.rpm_estimate = 0.f;
-	_rpm_pub.publish(msg);
+	msg.pulse_count = _pulse_count.load();
+	_hall_pub.publish(msg);
 }
 
 int HallGPIO::task_spawn(int argc, char *argv[])

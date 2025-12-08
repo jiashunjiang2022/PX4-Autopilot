@@ -36,3 +36,6 @@ rpm_pid start
 
 # Hall sensor on PWM9 (GPIO EXTI) for index/reset pulse
 hall_gpio start -p 1
+
+# Compute wing phase from encoder counts + hall index
+wing_phase start

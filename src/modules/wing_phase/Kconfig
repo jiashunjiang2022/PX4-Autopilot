@@ -1,0 +1,9 @@
+menuconfig MODULES_WING_PHASE
+	bool "wing_phase"
+	default n
+	---help---
+		Compute gear B phase using encoder counts and hall index pulses.
+
+if MODULES_WING_PHASE
+
+endif

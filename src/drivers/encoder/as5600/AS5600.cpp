@@ -102,12 +102,14 @@ int AS5600::init()
 
 void AS5600::RunImpl()
 {
-	float angle_rad{};
+	uint16_t angle_raw{};
 
-	if (!read_angle(angle_rad)) {
+	if (!read_raw_angle(angle_raw)) {
 		PX4_DEBUG("AS5600 read failed");
 		return;
 	}
+
+	float angle_rad = static_cast<float>(angle_raw) * (2.f * M_PI_F / 4096.f);
 
 	const hrt_abstime now = hrt_absolute_time();
 
@@ -115,6 +117,8 @@ void AS5600::RunImpl()
 	if (_last_read == 0) {
 		_last_angle_rad = angle_rad;
 		_last_read = now;
+		_last_pos = angle_raw;
+		_pos_initialized = true;
 		return;
 	}
 
@@ -128,6 +132,20 @@ void AS5600::RunImpl()
 	}
 
 	float dtheta = angle_rad - _last_angle_rad;
+
+	// position delta (0..4095) -> total counts
+	int32_t dpos = static_cast<int32_t>(angle_raw) - static_cast<int32_t>(_last_pos);
+
+	if (_pos_initialized) {
+		if (dpos > 2048) {
+			dpos -= 4096;
+
+		} else if (dpos < -2048) {
+			dpos += 4096;
+		}
+
+		_total_count += dpos;
+	}
 
 	// unwrap across 2*pi: constrain delta to (-pi, pi)
 	if (dtheta > M_PI_F) {
@@ -159,6 +177,16 @@ void AS5600::RunImpl()
 
 	_last_angle_rad = angle_rad;
 	_last_read = now;
+	_last_pos = angle_raw;
+	_pos_initialized = true;
+
+	// publish encoder count
+	encoder_count_s enc{};
+	enc.timestamp = now;
+	enc.device_id = get_device_id();
+	enc.total_count = _total_count;
+	enc.position_raw = angle_raw;
+	_encoder_pub.publish(enc);
 
 	// debug_vect: x = angle, y = rpm_estimate, z = rpm_raw
 	debug_vect_s dbg{};
