@@ -43,6 +43,7 @@
 #include "functions/FunctionICEngineControl.hpp"
 #include "functions/FunctionLandingGear.hpp"
 #include "functions/FunctionLandingGearWheel.hpp"
+#include "functions/FunctionFlapMotor.hpp"
 #include "functions/FunctionManualRC.hpp"
 #include "functions/FunctionMotors.hpp"
 #include "functions/FunctionParachute.hpp"

@@ -39,10 +39,8 @@
  * - Uses AS5600 driver RPM estimate as feedback
  * - Throttle stick sets desired flapping frequency (Hz)
  * - Gear ratio parameter converts flapping frequency to motor RPM setpoint
- * - RC channel 10 (mapped to aux1) selects mode:
- *     aux1 low  -> direct throttle to PWM
- *     aux1 high -> frequency -> RPM PID -> PWM
- * - Output is written to actuator_controls_3.control[0]
+ * - Uses actuator_motors.control[0] (normal flight stack) as the reference command
+ * - Publishes flap_motor_setpoint.thrust (0..1, NaN=invalid). A mixer/output function selects whether to use it.
  */
 
 #pragma once
@@ -56,6 +54,7 @@
 #include <uORB/Subscription.hpp>
 #include <uORB/SubscriptionCallback.hpp>
 #include <uORB/topics/actuator_motors.h>
+#include <uORB/topics/flap_motor_setpoint.h>
 #include <uORB/topics/wing_phase.h>
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/parameter_update.h>
@@ -79,7 +78,6 @@ public:
 private:
 	void Run() override;
 	void updateParams() override;
-	bool should_run_control(const vehicle_status_s &status, const manual_control_setpoint_s &mc) const;
 
 	uORB::SubscriptionCallbackWorkItem _rpm_sub{this, ORB_ID(rpm)};
 	uORB::Subscription _manual_control_setpoint_sub{ORB_ID(manual_control_setpoint)};
@@ -88,7 +86,7 @@ private:
 	uORB::Subscription _wing_phase_sub{ORB_ID(wing_phase)};
 	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
 
-	uORB::Publication<actuator_motors_s> _actuator_motors_pub{ORB_ID(actuator_motors)};
+	uORB::Publication<flap_motor_setpoint_s> _flap_motor_setpoint_pub{ORB_ID(flap_motor_setpoint)};
 
 	hrt_abstime _last_run{0};
 

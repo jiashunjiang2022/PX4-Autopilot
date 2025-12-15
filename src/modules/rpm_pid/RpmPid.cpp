@@ -75,33 +75,6 @@ void RpmPid::updateParams()
 	_param_glide_thr.set(math::constrain(_param_glide_thr.get(), 0.f, 0.2f));
 }
 
-bool RpmPid::should_run_control(const vehicle_status_s &status, const manual_control_setpoint_s &mc) const
-{
-	// require valid manual control from RC
-	if (!mc.valid || mc.data_source != manual_control_setpoint_s::SOURCE_RC) {
-		return false;
-	}
-
-	// require armed
-	if (status.arming_state != vehicle_status_s::ARMING_STATE_ARMED) {
-		return false;
-	}
-
-	// only in manual / stabilized / acro style modes
-	switch (status.nav_state) {
-	case vehicle_status_s::NAVIGATION_STATE_MANUAL:
-	case vehicle_status_s::NAVIGATION_STATE_ACRO:
-	case vehicle_status_s::NAVIGATION_STATE_ALTCTL:
-	case vehicle_status_s::NAVIGATION_STATE_POSCTL:
-		return true;
-
-	default:
-		break;
-	}
-
-	return false;
-}
-
 void RpmPid::Run()
 {
 	if (should_exit()) {
@@ -148,54 +121,66 @@ void RpmPid::Run()
 		vehicle_status_s status{};
 		_vehicle_status_sub.copy(&status);
 
-		// default output (motor off)
-		float u_norm = 0.f;
+		// Default output: invalid (do not use), selection happens downstream
+		float u_out = NAN;
 
-		if (!should_run_control(status, mc)) {
+		if (status.arming_state != vehicle_status_s::ARMING_STATE_ARMED) {
 			// reset PID when not controlling
 			_integral = 0.f;
 			_prev_error = 0.f;
 			_glide_state = GlideState::Idle;
 
 		} else {
-			// throttle: 0..1
-			float thr = mc.throttle;
-			thr = math::constrain(thr, 0.f, 1.f);
+			// Reference throttle from the normal flight stack (actuator_motors instance 0).
+			// This allows using frequency control in both manual and auto modes without disabling the allocator.
+			actuator_motors_s motors_ref{};
+			_actuator_motors_sub.copy(&motors_ref);
 
-			// aux1 (mapped from RC channel 10) selects mode
-			// aux1 low  -> throttle direct
-			// aux1 high -> frequency PID
-			const bool freq_mode = (mc.aux1 > 0.5f);
+			const float u_ref_in = motors_ref.control[0];
+			float u_ref = u_ref_in;
 
-			if (!PX4_ISFINITE(rpm.rpm_estimate)) {
-				// no valid feedback, fall back to direct throttle
-				u_norm = thr;
+			if (PX4_ISFINITE(u_ref)) {
+				u_ref = math::constrain(u_ref, 0.f, 1.f);
+			} else {
+				u_ref = NAN;
+			}
+
+			if (!PX4_ISFINITE(u_ref)) {
+				// No valid reference command: don't override
+				u_out = NAN;
 				_integral = 0.f;
 				_prev_error = 0.f;
 
-			} else if (!freq_mode) {
-				// direct throttle -> PWM
-				u_norm = thr;
+			} else if (!PX4_ISFINITE(rpm.rpm_estimate)) {
+				// No valid feedback: don't override
+				u_out = NAN;
 				_integral = 0.f;
 				_prev_error = 0.f;
 
 			} else {
-				// frequency -> RPM PID
-				const float f_sp = _flap_f_min + thr * (_flap_f_max - _flap_f_min);
+				// Use u_ref as thrust demand proxy and map to desired flapping frequency.
+				const float f_sp = _flap_f_min + u_ref * (_flap_f_max - _flap_f_min);
 				const float rpm_sp = f_sp * _flap_ratio * 60.f;
 				const float rpm_meas = rpm.rpm_estimate;
 
 				const float error = rpm_sp - rpm_meas;
 
-				// integral term (limit in RPM units)
-				_integral += error * dt;
-				_integral = math::constrain(_integral, -_i_max, _i_max);
-
 				const float d = (error - _prev_error) / dt;
 				_prev_error = error;
 
-				const float u = _kp * error + _ki * _integral + _kd * d;
-				u_norm = math::constrain(u, 0.f, 1.f);
+				// integral term (limit in RPM error-integral units)
+				_integral += error * dt;
+				_integral = math::constrain(_integral, -_i_max, _i_max);
+
+				// Inner-loop correction around the normal flight stack output
+				const float delta_u = _kp * error + _ki * _integral + _kd * d;
+				u_out = math::constrain(u_ref + delta_u, 0.f, 1.f);
+			}
+
+			// If manual control is not valid, disable glide logic (and keep override behavior unchanged).
+			if (!mc.valid) {
+				_glide_state = GlideState::Idle;
+				goto publish;
 			}
 
 			// glide stop logic
@@ -213,18 +198,18 @@ void RpmPid::Run()
 
 			const bool phase_valid = (now - _last_phase_ts) < 200_ms && PX4_ISFINITE(_last_phase_deg);
 
-			if (glide_enable && thr <= _param_glide_thr.get() && phase_valid) {
+			if (glide_enable && PX4_ISFINITE(u_ref_in) && u_ref_in <= _param_glide_thr.get() && phase_valid) {
 				if (_glide_state == GlideState::Idle) {
 					// pick nearest 0 or 180
 					const float deg = _last_phase_deg;
 					const float dist0 = fabsf(matrix::wrap_pi(math::radians(deg))); // to 0
 					const float dist180 = fabsf(matrix::wrap_pi(math::radians(deg - 180.f))); // to 180
 					_glide_target_deg = (dist0 <= dist180) ? 0.f : 180.f;
-					_glide_hold = math::max(u_norm, _param_glide_hold.get());
+					_glide_hold = math::max(u_out, _param_glide_hold.get());
 					_glide_start = now;
 					_glide_state = GlideState::Waiting;
 				}
-			} else if (thr > _param_glide_thr.get()) {
+			} else if (PX4_ISFINITE(u_ref_in) && u_ref_in > _param_glide_thr.get()) {
 				_glide_state = GlideState::Idle;
 			}
 
@@ -247,24 +232,21 @@ void RpmPid::Run()
 				}
 
 				if (done) {
-					u_norm = 0.f;
+					u_out = 0.f;
 					_glide_state = GlideState::Idle;
 
 				} else {
-					u_norm = _glide_hold;
+					u_out = _glide_hold;
 				}
 			}
 		}
 
-		// publish actuator_motors.control[0]
-		actuator_motors_s motors{};
-
-		// keep other motor controls if any
-		_actuator_motors_sub.copy(&motors);
-
-		motors.timestamp = now;
-		motors.control[0] = u_norm;
-		_actuator_motors_pub.publish(motors);
+publish:
+		flap_motor_setpoint_s out{};
+		out.timestamp = now;
+		out.timestamp_sample = rpm.timestamp;
+		out.thrust = u_out;
+		_flap_motor_setpoint_pub.publish(out);
 	}
 }
 
@@ -309,13 +291,8 @@ to motor RPM measured by the AS5600 encoder.
 
 NOTE: this controller is experimental and has not yet been validated on the actual flapping-wing hardware.
 
-- RC channel 10 (mapped to aux1) selects mode:
-  - aux1 low  -> throttle directly controls motor PWM
-  - aux1 high -> throttle sets desired wing flapping frequency (Hz),
-                 which is converted to a motor RPM setpoint using FLAP_RATIO.
-
-- The controller writes actuator_controls_3.control[0].
-  Use a mixer to map this control group/channel to the IO MAIN3 output.
+- The controller publishes flap_motor_setpoint.thrust (0..1) and does not directly drive PWM outputs.
+  Use a mixer/output function to select between the normal Motor1 output and flap_motor_setpoint.
 
 )DESCR_STR");
 

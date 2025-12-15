@@ -55,6 +55,7 @@ static const FunctionProvider all_function_providers[] = {
 	// Providers higher up take precedence for subscription callback in case there are multiple
 	{OutputFunction::Constant_Min, &FunctionConstantMin::allocate},
 	{OutputFunction::Constant_Max, &FunctionConstantMax::allocate},
+	{OutputFunction::Flap_Motor1, &FunctionFlapMotor::allocate},
 	{OutputFunction::Motor1, OutputFunction::MotorMax, &FunctionMotors::allocate},
 	{OutputFunction::Servo1, OutputFunction::ServoMax, &FunctionServos::allocate},
 	{OutputFunction::Peripheral_via_Actuator_Set1, OutputFunction::Peripheral_via_Actuator_Set6, &FunctionActuatorSet::allocate},

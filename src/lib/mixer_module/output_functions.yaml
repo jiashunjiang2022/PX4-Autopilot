@@ -44,7 +44,7 @@ functions:
     IC_Engine_Starter: 453
 
     # Add your own here:
-    #MyCustomFunction: 10000
+    Flap_Motor1: 10000
 
   pwm_fmu: # These only exist on FMU PWM pins
     Camera_Trigger:
