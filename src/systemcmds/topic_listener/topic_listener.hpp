@@ -44,11 +44,17 @@
 #include <px4_platform_common/px4_config.h>
 #include <px4_platform_common/log.h>
 #include <uORB/uORB.h>
+#include <uORB/topics/actuator_motors.h>
+#include <uORB/topics/flap_motor_setpoint.h>
+#include <uORB/topics/manual_control_setpoint.h>
+#include <uORB/topics/rpm.h>
+#include <parameters/param.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#include <float.h>
 
 inline int listener_print_topic(const orb_id_t &orb_id, int subscription)
 {
@@ -64,6 +70,115 @@ inline int listener_print_topic(const orb_id_t &orb_id, int subscription)
 
 	if (ret == PX4_OK) {
 		orb_print_message_internal(orb_id, &container, true);
+
+		// Derived fields (not part of uORB message): show flapping/gear frequency from motor RPM
+		// using FLAP_RATIO (motor revs per flap).
+		if (strcmp(orb_id->o_name, "rpm") == 0) {
+			rpm_s rpm{};
+			memcpy(&rpm, container, sizeof(rpm));
+
+			static param_t flap_ratio_handle = PARAM_INVALID;
+			static param_t flap_f_min_handle = PARAM_INVALID;
+			static param_t flap_f_max_handle = PARAM_INVALID;
+			float flap_ratio = 0.f;
+			float flap_f_min = 0.f;
+			float flap_f_max = 0.f;
+
+			if (flap_ratio_handle == PARAM_INVALID) {
+				flap_ratio_handle = param_find("FLAP_RATIO");
+			}
+
+			if (flap_ratio_handle != PARAM_INVALID) {
+				(void)param_get(flap_ratio_handle, &flap_ratio);
+			}
+
+			if (flap_f_min_handle == PARAM_INVALID) {
+				flap_f_min_handle = param_find("FLAP_F_MIN");
+			}
+
+			if (flap_f_max_handle == PARAM_INVALID) {
+				flap_f_max_handle = param_find("FLAP_F_MAX");
+			}
+
+			if (flap_f_min_handle != PARAM_INVALID) {
+				(void)param_get(flap_f_min_handle, &flap_f_min);
+			}
+
+			if (flap_f_max_handle != PARAM_INVALID) {
+				(void)param_get(flap_f_max_handle, &flap_f_max);
+			}
+
+			if (PX4_ISFINITE(rpm.rpm_estimate) && PX4_ISFINITE(flap_ratio) && (flap_ratio > FLT_EPSILON)) {
+				const float frequency_hz = rpm.rpm_estimate / (flap_ratio * 60.f);
+				PX4_INFO_RAW("frequency_hz: %.3f (rpm_estimate=%.3f, FLAP_RATIO=%.3f)\n",
+					     (double)frequency_hz, (double)rpm.rpm_estimate, (double)flap_ratio);
+			}
+
+			// Show whether frequency PID override is effectively active and what the current target frequency is.
+			// "active" here matches the mixer logic: aux1 requests override and flap_motor_setpoint is fresh.
+			static int manual_control_sub = -1;
+			static int actuator_motors_sub = -1;
+			static int flap_motor_setpoint_sub = -1;
+
+			if (manual_control_sub < 0) {
+				manual_control_sub = orb_subscribe(ORB_ID(manual_control_setpoint));
+			}
+
+			if (actuator_motors_sub < 0) {
+				actuator_motors_sub = orb_subscribe(ORB_ID(actuator_motors));
+			}
+
+			if (flap_motor_setpoint_sub < 0) {
+				flap_motor_setpoint_sub = orb_subscribe(ORB_ID(flap_motor_setpoint));
+			}
+
+			manual_control_setpoint_s manual{};
+			const bool have_manual = (manual_control_sub >= 0)
+						 && (orb_copy(ORB_ID(manual_control_setpoint), manual_control_sub, &manual) == PX4_OK);
+
+			actuator_motors_s motors{};
+			const bool have_motors = (actuator_motors_sub >= 0)
+						 && (orb_copy(ORB_ID(actuator_motors), actuator_motors_sub, &motors) == PX4_OK);
+
+			flap_motor_setpoint_s flap_sp{};
+			const bool have_flap_sp = (flap_motor_setpoint_sub >= 0)
+						  && (orb_copy(ORB_ID(flap_motor_setpoint), flap_motor_setpoint_sub, &flap_sp) == PX4_OK);
+
+			float aux1 = 0.f;
+			bool aux1_request = false;
+
+			if (have_manual) {
+				aux1 = manual.aux1;
+				aux1_request = PX4_ISFINITE(aux1) && (aux1 > 0.5f);
+			}
+
+			double flap_sp_age_ms = -1.0;
+			bool flap_sp_fresh = false;
+
+			if (have_flap_sp && (flap_sp.timestamp > 0)) {
+				const hrt_abstime age_us = hrt_elapsed_time(&flap_sp.timestamp);
+				flap_sp_age_ms = (double)age_us / 1000.0;
+				flap_sp_fresh = (age_us < 200000); // 200 ms
+			}
+
+			const bool freq_pid_active = aux1_request && flap_sp_fresh;
+
+			PX4_INFO_RAW("freq_pid_active: %d (aux1=%.3f request=%d, flap_sp_age_ms=%.1f fresh=%d)\n",
+				     (int)freq_pid_active, (double)aux1, (int)aux1_request, flap_sp_age_ms, (int)flap_sp_fresh);
+
+			if (have_motors && PX4_ISFINITE(motors.control[0])
+			    && PX4_ISFINITE(flap_f_min) && PX4_ISFINITE(flap_f_max) && (flap_f_max >= flap_f_min)) {
+				float u_ref = motors.control[0];
+
+				if (u_ref < 0.f) { u_ref = 0.f; }
+
+				if (u_ref > 1.f) { u_ref = 1.f; }
+
+				const float target_hz = flap_f_min + u_ref * (flap_f_max - flap_f_min);
+				PX4_INFO_RAW("target_hz: %.3f (u_ref=%.3f, FLAP_F_MIN=%.3f, FLAP_F_MAX=%.3f)\n",
+					     (double)target_hz, (double)motors.control[0], (double)flap_f_min, (double)flap_f_max);
+			}
+		}
 	}
 
 	return ret;
