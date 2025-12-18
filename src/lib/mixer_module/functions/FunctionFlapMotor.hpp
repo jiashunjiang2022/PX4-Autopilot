@@ -197,21 +197,14 @@ private:
 		return PX4_ISFINITE(v) && (v > 0.5f);
 	}
 
-	bool rcThrottleLow(bool &exit_condition) const
+	bool rcThrottleLow() const
 	{
-		exit_condition = false;
-
 		if (!_manual_control_setpoint.valid || !PX4_ISFINITE(_manual_control_setpoint.throttle)) {
 			return false;
 		}
 
 		// manual_control_setpoint.throttle is [-1, 1]. Convert to [0, 1].
 		const float throttle_norm = math::constrain((_manual_control_setpoint.throttle + 1.f) * 0.5f, 0.f, 1.f);
-
-		// Small fixed hysteresis to avoid chattering around the threshold.
-		static constexpr float thr_hyst = 0.02f;
-		exit_condition = throttle_norm > (_glide_thr + thr_hyst);
-
 		return throttle_norm <= _glide_thr;
 	}
 
@@ -257,10 +250,11 @@ private:
 	void applyGlideStop(const hrt_abstime now, float &selected_thrust)
 	{
 		const bool glide_on = glideSwitchOn();
-		bool exit_on_throttle = false;
-		const bool throttle_low = rcThrottleLow(exit_on_throttle);
+		const bool throttle_low = rcThrottleLow();
 
-		if (!glide_on || exit_on_throttle) {
+		// Glide logic is only active while glide switch is ON and RC throttle is low.
+		// Any throttle > threshold immediately exits the glide state machine, allowing repeated glide cycles.
+		if (!glide_on || !throttle_low) {
 			_glide_state = GlideState::Idle;
 			_glide_target_set = false;
 			return;
@@ -270,27 +264,20 @@ private:
 
 		switch (_glide_state) {
 		case GlideState::Idle:
-			if (throttle_low) {
-				_glide_state = GlideState::Waiting;
-				_glide_start = now;
-				_glide_target_set = false;
+			_glide_state = GlideState::Waiting;
+			_glide_start = now;
+			_glide_target_set = false;
 
-				// Keep a minimum command while waiting. If upstream is NaN, use 0.
+			// Keep a minimum command while waiting. If upstream is NaN, use 0.
+			{
 				const float base = PX4_ISFINITE(selected_thrust) ? selected_thrust : 0.f;
 				_glide_hold_effective = math::max(base, _glide_hold);
-
-				selectGlideTargetIfNeeded(now);
 			}
+
+			selectGlideTargetIfNeeded(now);
 			break;
 
 		case GlideState::Waiting: {
-				if (!throttle_low) {
-					// Shouldn't happen (handled by exit_on_throttle), but keep it robust.
-					_glide_state = GlideState::Idle;
-					_glide_target_set = false;
-					break;
-				}
-
 				selectGlideTargetIfNeeded(now);
 
 				bool done = false;
@@ -323,9 +310,7 @@ private:
 
 		case GlideState::Stopped:
 			// Keep stopped as long as glide switch remains on and throttle remains low.
-			if (throttle_low) {
-				selected_thrust = NAN;
-			}
+			selected_thrust = NAN;
 			break;
 		}
 	}
