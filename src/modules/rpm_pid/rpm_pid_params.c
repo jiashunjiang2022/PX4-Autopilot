@@ -166,10 +166,10 @@ PARAM_DEFINE_FLOAT(FLAP_GLIDE_TO, 1.0f);
 /**
  * Glide stop RC channel selection.
  *
- * 0: disabled, 1..18: selects RC function 1..18 (aux/switches) in manual_control_setpoint.
+ * 0: disabled, 1..6: selects manual_control_setpoint.aux1..aux6 (recommended: 2 = AUX2).
  *
  * @min 0
  * @max 6
  * @group Flapping Wing Control
  */
-PARAM_DEFINE_INT32(FLAP_GLIDE_CH, 6);
+PARAM_DEFINE_INT32(FLAP_GLIDE_CH, 2);

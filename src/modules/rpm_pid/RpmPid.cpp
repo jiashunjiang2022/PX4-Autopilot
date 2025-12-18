@@ -69,10 +69,6 @@ void RpmPid::updateParams()
 	if (_flap_f_max < _flap_f_min) {
 		_flap_f_max = _flap_f_min;
 	}
-
-	// glide params bounds
-	_param_glide_tol.set(math::constrain(_param_glide_tol.get(), 1.f, 20.f));
-	_param_glide_thr.set(math::constrain(_param_glide_thr.get(), 0.f, 0.2f));
 }
 
 void RpmPid::Run()
@@ -91,12 +87,6 @@ void RpmPid::Run()
 	}
 
 	rpm_s rpm{};
-	wing_phase_s phase{};
-
-	if (_wing_phase_sub.update(&phase)) {
-		_last_phase_deg = phase.phase_deg;
-		_last_phase_ts = phase.timestamp;
-	}
 
 	while (_rpm_sub.update(&rpm)) {
 		const hrt_abstime now = hrt_absolute_time();
@@ -115,9 +105,6 @@ void RpmPid::Run()
 			continue;
 		}
 
-		manual_control_setpoint_s mc{};
-		_manual_control_setpoint_sub.copy(&mc);
-
 		vehicle_status_s status{};
 		_vehicle_status_sub.copy(&status);
 
@@ -128,7 +115,6 @@ void RpmPid::Run()
 			// reset PID when not controlling
 			_integral = 0.f;
 			_prev_error = 0.f;
-			_glide_state = GlideState::Idle;
 
 		} else {
 			// Reference throttle from the normal flight stack (actuator_motors instance 0).
@@ -176,72 +162,8 @@ void RpmPid::Run()
 				const float delta_u = _kp * error + _ki * _integral + _kd * d;
 				u_out = math::constrain(u_ref + delta_u, 0.f, 1.f);
 			}
-
-			// If manual control is not valid, disable glide logic (and keep override behavior unchanged).
-			if (!mc.valid) {
-				_glide_state = GlideState::Idle;
-				goto publish;
-			}
-
-			// glide stop logic
-			const int ch = _param_glide_ch.get();
-			auto aux_high = [](float v) { return fabsf(v) > 0.5f; };
-			bool glide_enable = (ch == 0);
-
-			if (ch == 1) glide_enable = aux_high(mc.aux1);
-			else if (ch == 2) glide_enable = aux_high(mc.aux2);
-			else if (ch == 3) glide_enable = aux_high(mc.aux3);
-			else if (ch == 4) glide_enable = aux_high(mc.aux4);
-			else if (ch == 5) glide_enable = aux_high(mc.aux5);
-			else if (ch == 6) glide_enable = aux_high(mc.aux6);
-			// ch 7-18: not mapped, remain disabled
-
-			const bool phase_valid = (now - _last_phase_ts) < 200_ms && PX4_ISFINITE(_last_phase_deg);
-
-			if (glide_enable && PX4_ISFINITE(u_ref_in) && u_ref_in <= _param_glide_thr.get() && phase_valid) {
-				if (_glide_state == GlideState::Idle) {
-					// pick nearest 0 or 180
-					const float deg = _last_phase_deg;
-					const float dist0 = fabsf(matrix::wrap_pi(math::radians(deg))); // to 0
-					const float dist180 = fabsf(matrix::wrap_pi(math::radians(deg - 180.f))); // to 180
-					_glide_target_deg = (dist0 <= dist180) ? 0.f : 180.f;
-					_glide_hold = math::max(u_out, _param_glide_hold.get());
-					_glide_start = now;
-					_glide_state = GlideState::Waiting;
-				}
-			} else if (PX4_ISFINITE(u_ref_in) && u_ref_in > _param_glide_thr.get()) {
-				_glide_state = GlideState::Idle;
-			}
-
-			if (_glide_state == GlideState::Waiting) {
-				const float tol = _param_glide_tol.get();
-				bool done = false;
-
-				if (phase_valid) {
-					float diff = fabsf(matrix::wrap_2pi(math::radians(_last_phase_deg - _glide_target_deg)));
-					diff = math::degrees(diff);
-					if (diff <= tol || diff >= 360.f - tol) {
-						done = true;
-					}
-				}
-
-				const float to_sec = _param_glide_to.get();
-
-				if ((to_sec > 0.f) && (now - _glide_start) > to_sec * 1e6f) {
-					done = true;
-				}
-
-				if (done) {
-					u_out = 0.f;
-					_glide_state = GlideState::Idle;
-
-				} else {
-					u_out = _glide_hold;
-				}
-			}
 		}
 
-publish:
 		flap_motor_setpoint_s out{};
 		out.timestamp = now;
 		out.timestamp_sample = rpm.timestamp;
