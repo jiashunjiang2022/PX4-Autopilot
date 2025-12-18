@@ -58,6 +58,7 @@
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/rpm.h>
 #include <uORB/topics/vehicle_status.h>
+#include <uORB/topics/wing_phase.h>
 
 using namespace time_literals;
 
@@ -80,6 +81,7 @@ private:
 	uORB::SubscriptionCallbackWorkItem _rpm_sub{this, ORB_ID(rpm)};
 	uORB::Subscription _vehicle_status_sub{ORB_ID(vehicle_status)};
 	uORB::Subscription _actuator_motors_sub{ORB_ID(actuator_motors)};
+	uORB::Subscription _wing_phase_sub{ORB_ID(wing_phase)};
 	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
 
 	uORB::Publication<flap_motor_setpoint_s> _flap_motor_setpoint_pub{ORB_ID(flap_motor_setpoint)};
@@ -97,6 +99,11 @@ private:
 	float _ki{0.f};
 	float _kd{0.f};
 	float _i_max{500.f};
+	bool _phase_ff_en{false};
+	float _phase_ff_amp{0.f};
+	float _phase_ff_shift_deg{0.f};
+
+	wing_phase_s _wing_phase{};
 
 		DEFINE_PARAMETERS(
 			(ParamFloat<px4::params::FLAP_F_MIN>) _param_flap_f_min,
@@ -105,6 +112,9 @@ private:
 			(ParamFloat<px4::params::FLAP_KP>)     _param_flap_kp,
 			(ParamFloat<px4::params::FLAP_KI>)     _param_flap_ki,
 			(ParamFloat<px4::params::FLAP_KD>)     _param_flap_kd,
-			(ParamFloat<px4::params::FLAP_I_MAX>)  _param_flap_i_max
+			(ParamFloat<px4::params::FLAP_I_MAX>)  _param_flap_i_max,
+			(ParamInt<px4::params::FLAP_PHASE_EN>) _param_flap_phase_en,
+			(ParamFloat<px4::params::FLAP_PHASE_AMP>) _param_flap_phase_amp,
+			(ParamFloat<px4::params::FLAP_PHASE_SHIFT>) _param_flap_phase_shift
 		)
 };

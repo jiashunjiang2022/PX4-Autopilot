@@ -173,3 +173,46 @@ PARAM_DEFINE_FLOAT(FLAP_GLIDE_TO, 3.0f);
  * @group Flapping Wing Control
  */
 PARAM_DEFINE_INT32(FLAP_GLIDE_CH, 2);
+
+/**
+ * Enable phase-based feedforward shaping.
+ *
+ * When enabled, add a smooth (cosine) feedforward term as a function of wing_phase.phase_deg to
+ * bias motor command: positive during downstroke (90..270 deg) and negative during upstroke.
+ *
+ * 0: disabled, 1: enabled.
+ *
+ * @min 0
+ * @max 1
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_INT32(FLAP_PHASE_EN, 0);
+
+/**
+ * Phase-based feedforward amplitude.
+ *
+ * Amplitude of the added command in normalized thrust units [0..1]. The applied term is:
+ *   u_phase = FLAP_PHASE_AMP * cos((phase_deg + FLAP_PHASE_SHIFT - 180) * pi/180)
+ *
+ * This yields u_phase = +AMP at phase=180 (downstroke midpoint), u_phase = -AMP at phase=0/360 (upstroke midpoint),
+ * and u_phase = 0 at phase=90 and 270 (stroke reversal), resulting in a smooth modulation.
+ *
+ * @min 0.0
+ * @max 0.2
+ * @decimal 3
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_PHASE_AMP, 0.0f);
+
+/**
+ * Phase-based feedforward phase shift [deg].
+ *
+ * Adds an offset to wing_phase.phase_deg before computing the feedforward. Use this to align the
+ * phase reference to the mechanical up/downstroke definitions.
+ *
+ * @unit deg
+ * @min -180.0
+ * @max 180.0
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_PHASE_SHIFT, 0.0f);

@@ -33,8 +33,19 @@
 
 #include "RpmPid.hpp"
 
+#include <cmath>
+
 #include <px4_platform_common/getopt.h>
 #include <px4_platform_common/log.h>
+
+static inline float wrap360(float deg)
+{
+	float out = fmodf(deg, 360.f);
+	if (out < 0.f) {
+		out += 360.f;
+	}
+	return out;
+}
 
 RpmPid::RpmPid() :
 	ModuleParams(nullptr),
@@ -64,11 +75,17 @@ void RpmPid::updateParams()
 	_ki = _param_flap_ki.get();
 	_kd = _param_flap_kd.get();
 	_i_max = _param_flap_i_max.get();
+	_phase_ff_en = (_param_flap_phase_en.get() != 0);
+	_phase_ff_amp = _param_flap_phase_amp.get();
+	_phase_ff_shift_deg = _param_flap_phase_shift.get();
 
 	// basic sanity
 	if (_flap_f_max < _flap_f_min) {
 		_flap_f_max = _flap_f_min;
 	}
+
+	_phase_ff_amp = math::constrain(_phase_ff_amp, 0.f, 0.2f);
+	_phase_ff_shift_deg = math::constrain(_phase_ff_shift_deg, -180.f, 180.f);
 }
 
 void RpmPid::Run()
@@ -90,6 +107,7 @@ void RpmPid::Run()
 
 	while (_rpm_sub.update(&rpm)) {
 		const hrt_abstime now = hrt_absolute_time();
+		_wing_phase_sub.update(&_wing_phase);
 
 		if (_last_run == 0) {
 			_last_run = now;
@@ -161,6 +179,20 @@ void RpmPid::Run()
 				// Inner-loop correction around the normal flight stack output
 				const float delta_u = _kp * error + _ki * _integral + _kd * d;
 				u_out = math::constrain(u_ref + delta_u, 0.f, 1.f);
+
+				// Phase-based shaping feedforward: smooth cosine modulation (downstroke 90..270 positive).
+				// This is applied on the motor command (not on the setpoint) to bias within-cycle torque
+				// while keeping the average reference from the flight stack.
+				if (_phase_ff_en && (_phase_ff_amp > 0.f)) {
+					const bool phase_valid = (now - _wing_phase.timestamp) < 200000 && PX4_ISFINITE(_wing_phase.phase_deg);
+
+					if (phase_valid) {
+						const float deg = wrap360(_wing_phase.phase_deg + _phase_ff_shift_deg);
+						const float rad = (deg - 180.f) * (M_PI_F / 180.f);
+						const float u_phase = _phase_ff_amp * cosf(rad);
+						u_out = math::constrain(u_out + u_phase, 0.f, 1.f);
+					}
+				}
 			}
 		}
 
