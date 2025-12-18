@@ -251,6 +251,8 @@ private:
 	{
 		const bool glide_on = glideSwitchOn();
 		const bool throttle_low = rcThrottleLow();
+		const bool throttle_low_edge = throttle_low && !_prev_throttle_low;
+		_prev_throttle_low = throttle_low;
 
 		// Glide logic is only active while glide switch is ON and RC throttle is low.
 		// Any throttle > threshold immediately exits the glide state machine, allowing repeated glide cycles.
@@ -264,17 +266,25 @@ private:
 
 		switch (_glide_state) {
 		case GlideState::Idle:
-			_glide_state = GlideState::Waiting;
-			_glide_start = now;
-			_glide_target_set = false;
+			// Only enter phase-alignment when the RC throttle transitions to low while glide is enabled.
+			// If the switch is toggled while already at low throttle, do not start spinning: stop immediately.
+			if (throttle_low_edge) {
+				_glide_state = GlideState::Waiting;
+				_glide_start = now;
+				_glide_target_set = false;
 
-			// Keep a minimum command while waiting. If upstream is NaN, use 0.
-			{
-				const float base = PX4_ISFINITE(selected_thrust) ? selected_thrust : 0.f;
-				_glide_hold_effective = math::max(base, _glide_hold);
+				// Keep a minimum command while waiting. If upstream is NaN, use 0.
+				{
+					const float base = PX4_ISFINITE(selected_thrust) ? selected_thrust : 0.f;
+					_glide_hold_effective = math::max(base, _glide_hold);
+				}
+
+				selectGlideTargetIfNeeded(now);
+
+			} else {
+				_glide_state = GlideState::Stopped;
+				selected_thrust = NAN;
 			}
-
-			selectGlideTargetIfNeeded(now);
 			break;
 
 		case GlideState::Waiting: {
@@ -337,6 +347,7 @@ private:
 	float _glide_target_deg{0.f};
 	bool _glide_target_set{false};
 	float _glide_hold_effective{0.f};
+	bool _prev_throttle_low{false};
 
 	// Glide parameters (cached)
 	float _glide_thr{0.03f};
