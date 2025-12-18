@@ -56,40 +56,37 @@
 #include <inttypes.h>
 #include <float.h>
 
-static inline bool listener_try_copy_topic(const orb_id_t &id, int &sub, void *dst, size_t dst_size,
-		uint32_t wait_timeout_us)
+static inline bool listener_copy_topic_with_timeout(const orb_id_t &id, void *dst, uint32_t wait_timeout_us)
 {
-	(void)dst_size;
+	int sub = orb_subscribe(id);
 
 	if (sub < 0) {
-		sub = orb_subscribe(id);
-		if (sub < 0) {
-			return false;
-		}
+		return false;
 	}
 
-	// First try immediately
-	if (orb_copy(id, sub, dst) == PX4_OK) {
-		return true;
-	}
+	bool ok = (orb_copy(id, sub, dst) == PX4_OK);
 
-	// If no sample available yet, wait briefly for the next update
-	const hrt_abstime start = hrt_absolute_time();
+	if (!ok && (wait_timeout_us > 0)) {
+		// If no sample available yet, wait briefly for the next update
+		const hrt_abstime start = hrt_absolute_time();
 
-	while ((hrt_absolute_time() - start) < wait_timeout_us) {
-		bool updated = false;
-		(void)orb_check(sub, &updated);
+		while ((hrt_absolute_time() - start) < wait_timeout_us) {
+			bool updated = false;
+			(void)orb_check(sub, &updated);
 
-		if (updated) {
-			if (orb_copy(id, sub, dst) == PX4_OK) {
-				return true;
+			if (updated) {
+				if (orb_copy(id, sub, dst) == PX4_OK) {
+					ok = true;
+					break;
+				}
 			}
-		}
 
-		px4_usleep(1000);
+			px4_usleep(1000);
+		}
 	}
 
-	return false;
+	orb_unsubscribe(sub);
+	return ok;
 }
 
 inline int listener_print_topic(const orb_id_t &orb_id, int subscription)
@@ -112,8 +109,6 @@ inline int listener_print_topic(const orb_id_t &orb_id, int subscription)
 		if (strcmp(orb_id->o_name, "rpm") == 0) {
 			rpm_s rpm{};
 			memcpy(&rpm, container, sizeof(rpm));
-
-			static bool printed_selector_once = false;
 
 			static param_t flap_ratio_handle = PARAM_INVALID;
 			static param_t flap_f_min_handle = PARAM_INVALID;
@@ -153,36 +148,22 @@ inline int listener_print_topic(const orb_id_t &orb_id, int subscription)
 			}
 
 			// Show whether frequency PID override is effectively active and what the current target frequency is.
-			// Only print this once per `listener rpm` run (avoid duplicating for multi-instance rpm).
 			// "active" here matches the mixer logic: aux1 requests override and flap_motor_setpoint is fresh.
-			if (printed_selector_once) {
-				return ret;
-			}
-
-			printed_selector_once = true;
-
-			static int manual_control_sub = -1;
-			static int actuator_motors_sub = -1;
-			static int flap_motor_setpoint_sub = -1;
-
 			manual_control_setpoint_s manual{};
-			const bool have_manual = listener_try_copy_topic(ORB_ID(manual_control_setpoint), manual_control_sub,
-						      &manual, sizeof(manual), 50000);
+			const bool have_manual = listener_copy_topic_with_timeout(ORB_ID(manual_control_setpoint), &manual, 50000);
 
 			actuator_motors_s motors{};
-			const bool have_motors = listener_try_copy_topic(ORB_ID(actuator_motors), actuator_motors_sub,
-						      &motors, sizeof(motors), 50000);
+			const bool have_motors = listener_copy_topic_with_timeout(ORB_ID(actuator_motors), &motors, 50000);
 
 			flap_motor_setpoint_s flap_sp{};
-			const bool have_flap_sp = listener_try_copy_topic(ORB_ID(flap_motor_setpoint), flap_motor_setpoint_sub,
-						       &flap_sp, sizeof(flap_sp), 50000);
+			const bool have_flap_sp = listener_copy_topic_with_timeout(ORB_ID(flap_motor_setpoint), &flap_sp, 50000);
 
 			float aux1 = 0.f;
 			bool aux1_request = false;
 
 			if (have_manual) {
 				aux1 = manual.aux1;
-				aux1_request = PX4_ISFINITE(aux1) && (aux1 > 0.5f);
+				aux1_request = manual.valid && PX4_ISFINITE(aux1) && (aux1 > 0.5f);
 			}
 
 			double flap_sp_age_ms = -1.0;
