@@ -186,7 +186,7 @@ PARAM_DEFINE_INT32(FLAP_GLIDE_CH, 2);
  * @max 1
  * @group Flapping Wing Control
  */
-PARAM_DEFINE_INT32(FLAP_PHASE_EN, 0);
+PARAM_DEFINE_INT32(FLAP_PHASE_EN, 1);
 
 /**
  * Phase-based feedforward amplitude.
@@ -202,7 +202,7 @@ PARAM_DEFINE_INT32(FLAP_PHASE_EN, 0);
  * @decimal 3
  * @group Flapping Wing Control
  */
-PARAM_DEFINE_FLOAT(FLAP_PHASE_AMP, 0.0f);
+PARAM_DEFINE_FLOAT(FLAP_PHASE_AMP, 0.1f);
 
 /**
  * Phase-based feedforward phase shift [deg].
