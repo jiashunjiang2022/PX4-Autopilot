@@ -47,7 +47,7 @@
  * @max 10.0
  * @group Flapping Wing Control
  */
-PARAM_DEFINE_FLOAT(FLAP_F_MIN, 0.0f);
+PARAM_DEFINE_FLOAT(FLAP_F_MIN, 1.0f);
 
 /**
  * Maximum flapping frequency.
