@@ -249,10 +249,22 @@ private:
 
 	void applyGlideStop(const hrt_abstime now, float &selected_thrust)
 	{
+		// Track if the motor was commanded to run recently. Used to allow phase-alignment when the glide
+		// switch is enabled at already-low throttle right after flapping, while avoiding spin-ups on the
+		// bench when the motor has been stopped for a while.
+		constexpr float k_run_thrust_threshold = 0.02f;
+		constexpr hrt_abstime k_recent_run_time_us = 1000000; // 1 s
+
+		if (PX4_ISFINITE(selected_thrust) && (selected_thrust > k_run_thrust_threshold)) {
+			_last_run_time = now;
+		}
+
 		const bool glide_on = glideSwitchOn();
 		const bool throttle_low = rcThrottleLow();
 		const bool throttle_low_edge = throttle_low && !_prev_throttle_low;
+		const bool glide_on_edge = glide_on && !_prev_glide_on;
 		_prev_throttle_low = throttle_low;
+		_prev_glide_on = glide_on;
 
 		// Glide logic is only active while glide switch is ON and RC throttle is low.
 		// Any throttle > threshold immediately exits the glide state machine, allowing repeated glide cycles.
@@ -263,12 +275,16 @@ private:
 		}
 
 		const bool phase_valid = (now - _wing_phase.timestamp) < 200000 && PX4_ISFINITE(_wing_phase.phase_deg);
+		const bool allow_wait_on_glide_on = glide_on_edge && ((now - _last_run_time) < k_recent_run_time_us);
+		const bool request_wait = throttle_low_edge || allow_wait_on_glide_on;
 
 		switch (_glide_state) {
 		case GlideState::Idle:
-			// Only enter phase-alignment when the RC throttle transitions to low while glide is enabled.
-			// If the switch is toggled while already at low throttle, do not start spinning: stop immediately.
-			if (throttle_low_edge) {
+			// Enter phase alignment on:
+			// - throttle low transition (recommended operation: enable glide, then pull throttle low)
+			// - glide switch enable at already-low throttle, but only if the motor was commanded to run recently
+			//   (prevents spin-ups when toggling glide on the bench at throttle low).
+			if (request_wait) {
 				_glide_state = GlideState::Waiting;
 				_glide_start = now;
 				_glide_target_set = false;
@@ -348,6 +364,8 @@ private:
 	bool _glide_target_set{false};
 	float _glide_hold_effective{0.f};
 	bool _prev_throttle_low{false};
+	bool _prev_glide_on{false};
+	hrt_abstime _last_run_time{0};
 
 	// Glide parameters (cached)
 	float _glide_thr{0.03f};
