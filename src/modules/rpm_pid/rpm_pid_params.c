@@ -139,7 +139,7 @@ PARAM_DEFINE_FLOAT(FLAP_GLIDE_THR, 0.03f);
  * @max 0.5
  * @group Flapping Wing Control
  */
-PARAM_DEFINE_FLOAT(FLAP_GLIDE_HOLD, 0.05f);
+PARAM_DEFINE_FLOAT(FLAP_GLIDE_HOLD, 0.08f);
 
 /**
  * Glide stop phase tolerance [deg].
@@ -161,7 +161,7 @@ PARAM_DEFINE_FLOAT(FLAP_GLIDE_TOL, 5.0f);
  * @max 5.0
  * @group Flapping Wing Control
  */
-PARAM_DEFINE_FLOAT(FLAP_GLIDE_TO, 1.0f);
+PARAM_DEFINE_FLOAT(FLAP_GLIDE_TO, 3.0f);
 
 /**
  * Glide stop RC channel selection.
