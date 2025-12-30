@@ -96,6 +96,18 @@ int AS5600::init()
 		return PX4_ERROR;
 	}
 
+	_param_flap_ratio_handle = param_find("FLAP_RATIO");
+
+	if (_param_flap_ratio_handle != PARAM_INVALID) {
+		float ratio = _flap_ratio;
+
+		if (param_get(_param_flap_ratio_handle, &ratio) == PX4_OK) {
+			if (ratio > FLT_EPSILON) {
+				_flap_ratio = ratio;
+			}
+		}
+	}
+
 	ScheduleOnInterval(10_ms); // 100 Hz
 	return PX4_OK;
 }
@@ -112,6 +124,18 @@ void AS5600::RunImpl()
 	float angle_rad = static_cast<float>(angle_raw) * (2.f * M_PI_F / 4096.f);
 
 	const hrt_abstime now = hrt_absolute_time();
+
+	if (_param_flap_ratio_handle != PARAM_INVALID && (now - _last_param_update) > 1_s) {
+		float ratio = _flap_ratio;
+
+		if (param_get(_param_flap_ratio_handle, &ratio) == PX4_OK) {
+			if (ratio > FLT_EPSILON) {
+				_flap_ratio = ratio;
+			}
+		}
+
+		_last_param_update = now;
+	}
 
 	// Initialize on first valid sample
 	if (_last_read == 0) {
@@ -174,6 +198,18 @@ void AS5600::RunImpl()
 	rpm_msg.rpm_raw = rpm_raw;
 	rpm_msg.rpm_estimate = _rpm_estimate;
 	_rpm_pub.publish(rpm_msg);
+
+	flap_frequency_s flap_frequency{};
+	flap_frequency.timestamp = now;
+
+	if (PX4_ISFINITE(_rpm_estimate) && (_flap_ratio > FLT_EPSILON)) {
+		flap_frequency.frequency_hz = _rpm_estimate / (60.f * _flap_ratio);
+
+	} else {
+		flap_frequency.frequency_hz = NAN;
+	}
+
+	_flap_frequency_pub.publish(flap_frequency);
 
 	_last_angle_rad = angle_rad;
 	_last_read = now;

@@ -210,6 +210,9 @@
 #define PWMIN_TIMER_CHANNEL    /* T4C3 */ 3
 #define GPIO_PWM_IN            /* PD14 */ GPIO_TIM4_CH3IN_2
 
+/* Hall sensor input on PWM AUX6 (FMU CH6 / TIM4_CH4 / PD15) */
+#define GPIO_HALL_IN           /* PD15 */ (GPIO_INPUT|GPIO_PULLUP|GPIO_EXTI|GPIO_PORTD|GPIO_PIN15)
+
 #define SDIO_SLOTNO                    0  /* Only one slot */
 #define SDIO_MINOR                     0
 

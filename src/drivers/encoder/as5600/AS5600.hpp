@@ -44,10 +44,12 @@
 #include <drivers/device/i2c.h>
 #include <drivers/drv_hrt.h>
 #include <mathlib/mathlib.h>
+#include <parameters/param.h>
 #include <uORB/Publication.hpp>
 #include <uORB/PublicationMulti.hpp>
 #include <uORB/topics/encoder_count.h>
 #include <uORB/topics/debug_vect.h>
+#include <uORB/topics/flap_frequency.h>
 #include <uORB/topics/rpm.h>
 
 /* Configuration Constants */
@@ -75,11 +77,15 @@ private:
 	hrt_abstime _last_read{0};
 	float _last_angle_rad{0.f};
 	float _rpm_estimate{0.f};
+	float _flap_ratio{7.5f};
+	hrt_abstime _last_param_update{0};
+	param_t _param_flap_ratio_handle{PARAM_INVALID};
 	uint16_t _last_pos{0};
 	int64_t _total_count{0};
 	bool _pos_initialized{false};
 
 	uORB::Publication<debug_vect_s> _debug_pub{ORB_ID(debug_vect)};
 	uORB::Publication<encoder_count_s> _encoder_pub{ORB_ID(encoder_count)};
+	uORB::Publication<flap_frequency_s> _flap_frequency_pub{ORB_ID(flap_frequency)};
 	uORB::PublicationMulti<rpm_s> _rpm_pub{ORB_ID(rpm)};
 };
