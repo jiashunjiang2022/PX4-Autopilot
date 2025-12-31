@@ -74,6 +74,7 @@ public:
 		_param_glide_thr_h = param_find("FLAP_GLIDE_THR");
 		_param_glide_hold_h = param_find("FLAP_GLIDE_HOLD");
 		_param_glide_tol_h = param_find("FLAP_GLIDE_TOL");
+		_param_glide_tc_h = param_find("FLAP_GLIDE_TC");
 		_param_glide_to_h = param_find("FLAP_GLIDE_TO");
 		_param_glide_ch_h = param_find("FLAP_GLIDE_CH");
 
@@ -178,18 +179,21 @@ private:
 		float glide_thr = 0.03f;
 		float glide_hold = 0.05f;
 		float glide_tol = 5.f;
+		float glide_tc = 0.06f;
 		float glide_to = 1.f;
 		int32_t glide_ch = 0;
 
 		if (_param_glide_thr_h != PARAM_INVALID) { (void)param_get(_param_glide_thr_h, &glide_thr); }
 		if (_param_glide_hold_h != PARAM_INVALID) { (void)param_get(_param_glide_hold_h, &glide_hold); }
 		if (_param_glide_tol_h != PARAM_INVALID) { (void)param_get(_param_glide_tol_h, &glide_tol); }
+		if (_param_glide_tc_h != PARAM_INVALID) { (void)param_get(_param_glide_tc_h, &glide_tc); }
 		if (_param_glide_to_h != PARAM_INVALID) { (void)param_get(_param_glide_to_h, &glide_to); }
 		if (_param_glide_ch_h != PARAM_INVALID) { (void)param_get(_param_glide_ch_h, &glide_ch); }
 
 		_glide_thr = math::constrain(glide_thr, 0.f, 0.2f);
 		_glide_hold = math::constrain(glide_hold, 0.f, 0.5f);
 		_glide_tol_deg = math::constrain(glide_tol, 1.f, 20.f);
+		_glide_coast_tc_s = math::constrain(glide_tc, 0.f, 1.f);
 		_glide_timeout_s = math::constrain(glide_to, 0.1f, 5.f);
 		_glide_ch = math::constrain(glide_ch, (int32_t)0, (int32_t)6);
 	}
@@ -305,6 +309,42 @@ private:
 		const bool hall_valid = phase_valid; // hall count is carried in wing_phase
 		const uint32_t hall_count = hall_valid ? _wing_phase.hall_pulse_count : 0;
 
+		// Estimate phase rate (deg/s) from wing_phase updates (forward rotation assumed).
+		if (phase_valid) {
+			if (_wing_phase.timestamp != _phase_rate_last_sample_ts) {
+				if (_phase_rate_last_sample_ts != 0) {
+					const float dt = (_wing_phase.timestamp - _phase_rate_last_sample_ts) * 1e-6f;
+
+					if (dt > 0.f && dt < 0.2f && PX4_ISFINITE(_phase_rate_last_sample_deg)) {
+						const float ddeg = forwardDistanceDeg(_phase_rate_last_sample_deg, phase_deg);
+						const float rate = ddeg / dt;
+						const float alpha = 0.2f;
+
+						if (!PX4_ISFINITE(_phase_rate_deg_s)) {
+							_phase_rate_deg_s = rate;
+
+						} else {
+							_phase_rate_deg_s = _phase_rate_deg_s + alpha * (rate - _phase_rate_deg_s);
+						}
+					}
+				}
+
+				_phase_rate_last_sample_ts = _wing_phase.timestamp;
+				_phase_rate_last_sample_deg = phase_deg;
+			}
+		}
+
+		// Predict current phase to compensate for wing_phase update latency.
+		float phase_pred = phase_deg;
+
+		if (phase_valid && PX4_ISFINITE(_phase_rate_deg_s)) {
+			const float dt_to_now = (now - _wing_phase.timestamp) * 1e-6f;
+
+			if (dt_to_now > 0.f && dt_to_now < 0.05f) {
+				phase_pred = wrapDeg360(phase_deg + _phase_rate_deg_s * dt_to_now);
+			}
+		}
+
 		// Glide logic is only active while glide switch is ON and RC throttle is low.
 		// Any throttle > threshold immediately exits the glide state machine, allowing repeated glide cycles.
 		if (!glide_on || !throttle_low) {
@@ -331,7 +371,7 @@ private:
 				_glide_start = now;
 				_glide_target_set = false;
 				_glide_start_phase_valid = phase_valid;
-				_glide_start_phase_deg = phase_deg;
+				_glide_start_phase_deg = phase_pred;
 				_glide_start_hall_pulse_count = hall_count;
 
 				// Keep a minimum command while waiting. If upstream is NaN, use 0.
@@ -356,14 +396,17 @@ private:
 				float forward_dist = NAN;
 
 				if (phase_valid && _glide_target_set) {
-					forward_dist = forwardDistanceDeg(phase_deg, _glide_target_deg);
+					forward_dist = forwardDistanceDeg(phase_pred, _glide_target_deg);
 
 					// Detect "crossing" relative to the Waiting-entry phase (forward rotation only).
 					// This avoids immediate false stops due to phase wrap/noise coinciding with the state transition.
 					if (_glide_start_phase_valid) {
 						const float dist_start_to_target = forwardDistanceDeg(_glide_start_phase_deg, _glide_target_deg);
-						const float dist_start_to_now = forwardDistanceDeg(_glide_start_phase_deg, phase_deg);
-						crossed = dist_start_to_now >= dist_start_to_target;
+						const float dist_start_to_now = forwardDistanceDeg(_glide_start_phase_deg, phase_pred);
+						const float lead_deg = (PX4_ISFINITE(_phase_rate_deg_s) && (_glide_coast_tc_s > 0.f)) ?
+								       math::constrain(_phase_rate_deg_s * _glide_coast_tc_s, 0.f, 180.f) : 0.f;
+						const float stop_dist = math::max(dist_start_to_target - lead_deg, 0.f);
+						crossed = dist_start_to_now >= stop_dist;
 					}
 				}
 
@@ -389,8 +432,7 @@ private:
 
 					if (PX4_ISFINITE(forward_dist) && (_glide_tol_deg > 0.f)) {
 						const float scale = math::constrain(forward_dist / _glide_tol_deg, 0.f, 1.f);
-						// Avoid dropping to exactly zero before crossing (forward-only, no braking).
-						hold *= (0.3f + 0.7f * scale);
+						hold *= scale;
 					}
 
 					selected_thrust = math::max(base, hold);
@@ -406,7 +448,7 @@ private:
 
 		if (_glide_state != prev_state) {
 			// Transition log for field debugging (no high-rate spam).
-			logGlideTransition("transition", now, selected_thrust, phase_deg, phase_valid);
+			logGlideTransition("transition", now, selected_thrust, phase_pred, phase_valid);
 		}
 	}
 
@@ -443,6 +485,7 @@ private:
 	float _glide_thr{0.03f};
 	float _glide_hold{0.05f};
 	float _glide_tol_deg{5.f};
+	float _glide_coast_tc_s{0.06f};
 	float _glide_timeout_s{1.f};
 	int _glide_ch{0};
 
@@ -450,8 +493,14 @@ private:
 	param_t _param_glide_thr_h{PARAM_INVALID};
 	param_t _param_glide_hold_h{PARAM_INVALID};
 	param_t _param_glide_tol_h{PARAM_INVALID};
+	param_t _param_glide_tc_h{PARAM_INVALID};
 	param_t _param_glide_to_h{PARAM_INVALID};
 	param_t _param_glide_ch_h{PARAM_INVALID};
+
+	// Phase rate estimate (for glide lead compensation)
+	hrt_abstime _phase_rate_last_sample_ts{0};
+	float _phase_rate_last_sample_deg{NAN};
+	float _phase_rate_deg_s{NAN};
 
 	float _fused_value{NAN};
 	hrt_abstime _latest_sample_timestamp{0};

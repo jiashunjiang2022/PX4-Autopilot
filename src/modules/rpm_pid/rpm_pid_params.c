@@ -144,13 +144,31 @@ PARAM_DEFINE_FLOAT(FLAP_GLIDE_HOLD, 0.08f);
 /**
  * Glide stop phase tolerance [deg].
  *
- * Stop when wing phase is within this tolerance of target (0 or 180 deg).
+ * Phase window used to ramp down hold thrust as the target is approached.
+ *
+ * Larger values start slowing down earlier (more time to bleed off momentum).
  *
  * @min 1.0
  * @max 20.0
  * @group Flapping Wing Control
  */
 PARAM_DEFINE_FLOAT(FLAP_GLIDE_TOL, 5.0f);
+
+/**
+ * Glide stop coast time estimate [s].
+ *
+ * Estimated time the mechanism continues rotating after motor torque is cut (ESC/brake off).
+ * Used to command the stop *before* the target phase based on current phase rate:
+ *   lead_deg = phase_rate_deg_s * FLAP_GLIDE_TC
+ *
+ * Increase this if it consistently stops past 0/180; decrease if it stops short.
+ *
+ * @min 0.0
+ * @max 1.0
+ * @decimal 3
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_GLIDE_TC, 0.06f);
 
 /**
  * Glide stop timeout [s].
