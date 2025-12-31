@@ -75,6 +75,7 @@ private:
 	px4::atomic<hrt_abstime> _last_ts{0};
 	px4::atomic<uint32_t> _pulse_count{0};
 	bool _last_state{false};
+	bool _use_interrupts{false};
 
 	uORB::Publication<hall_event_s> _hall_pub{ORB_ID(hall_event)};
 };
@@ -96,8 +97,8 @@ bool HallGPIO::init(uint32_t pulses_per_rev)
 	const bool level = px4_arch_gpioread(GPIO_HALL_IN);
 	PX4_INFO("GPIO_HALL_IN configured, initial level=%d, pulses_per_rev=%" PRIu32, level ? 1 : 0, _pulses_per_rev);
 
-	// trigger on both edges to be robust to idle level
-	const int ret = px4_arch_gpiosetevent(GPIO_HALL_IN, true, true, true, &HallGPIO::gpio_interrupt, this);
+	// trigger on rising edge only (one pulse per trigger point)
+	const int ret = px4_arch_gpiosetevent(GPIO_HALL_IN, true, false, true, &HallGPIO::gpio_interrupt, this);
 
 	if (ret != OK) {
 		PX4_ERR("gpio event register failed (%d)", ret);
@@ -105,6 +106,7 @@ bool HallGPIO::init(uint32_t pulses_per_rev)
 	}
 
 	PX4_INFO("EXTI registered on GPIO_HALL_IN");
+	_use_interrupts = true;
 
 	_last_state = px4_arch_gpioread(GPIO_HALL_IN);
 	ScheduleOnInterval(5000); // 5 ms polling fallback
@@ -130,13 +132,15 @@ void HallGPIO::Run()
 		return;
 	}
 
-	// Polling edge detection (also covers the case where EXTI missed)
+	// Polling edge detection (fallback when EXTI is not active)
 	const bool state = px4_arch_gpioread(GPIO_HALL_IN);
 
-	if (!_last_state && state) {
-		const hrt_abstime now = hrt_absolute_time();
-		_last_ts.store(now);
-		_pulse_count.fetch_add(1);
+	if (!_use_interrupts) {
+		if (!_last_state && state) {
+			const hrt_abstime now = hrt_absolute_time();
+			_last_ts.store(now);
+			_pulse_count.fetch_add(1);
+		}
 	}
 
 	_last_state = state;

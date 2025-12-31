@@ -39,6 +39,7 @@
 #include <drivers/drv_hrt.h>
 #include <lib/mathlib/mathlib.h>
 #include <parameters/param.h>
+#include <px4_platform_common/log.h>
 #include <uORB/topics/flap_motor_setpoint.h>
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/parameter_update.h>
@@ -148,6 +149,29 @@ private:
 		Stopped
 	};
 
+	void logGlideTransition(const char *reason, const hrt_abstime now, const float selected_thrust,
+				const float phase_deg, const bool phase_valid) const
+	{
+		// Log only on state transitions (called sparsely).
+		const double thrust = PX4_ISFINITE(selected_thrust) ? (double)selected_thrust : -1.0;
+		PX4_INFO("flap_glide: %s state=%d target=%.1f thr_low=%d sw=%d thrust=%.3f phase=%s",
+			 reason,
+			 (int)_glide_state,
+			 (double)_glide_target_deg,
+			 (int)rcThrottleLow(),
+			 (int)glideSwitchOn(),
+			 thrust,
+			 phase_valid ? "" : "inv");
+
+		if (phase_valid) {
+			const double start_phase = PX4_ISFINITE(_glide_start_phase_deg) ? (double)_glide_start_phase_deg : -1.0;
+			PX4_INFO("flap_glide: phase=%.1f start=%.1f t=%.2fs",
+				 (double)phase_deg,
+				 start_phase,
+				 (double)((now - _glide_start) / 1e6f));
+		}
+	}
+
 	void updateParams()
 	{
 		// Use sane defaults even if the param doesn't exist for some reason.
@@ -228,6 +252,17 @@ private:
 		return d;
 	}
 
+	static inline float forwardDistanceDeg(float from_deg, float to_deg)
+	{
+		const float from = wrapDeg360(from_deg);
+		const float to = wrapDeg360(to_deg);
+		float d = to - from;
+		if (d < 0.f) {
+			d += 360.f;
+		}
+		return d;
+	}
+
 	void selectGlideTargetIfNeeded(const hrt_abstime now)
 	{
 		if (_glide_target_set) {
@@ -241,9 +276,8 @@ private:
 		}
 
 		const float deg = wrapDeg360(_wing_phase.phase_deg);
-		const float dist0 = angularDistanceDeg(deg, 0.f);
-		const float dist180 = angularDistanceDeg(deg, 180.f);
-		_glide_target_deg = (dist0 <= dist180) ? 0.f : 180.f;
+		// Forward-rotation assumption: choose the next phase target ahead of current angle.
+		_glide_target_deg = (deg < 180.f) ? 180.f : 0.f;
 		_glide_target_set = true;
 	}
 
@@ -266,17 +300,25 @@ private:
 		_prev_throttle_low = throttle_low;
 		_prev_glide_on = glide_on;
 
+		const bool phase_valid = (now - _wing_phase.timestamp) < 200000 && PX4_ISFINITE(_wing_phase.phase_deg);
+		const float phase_deg = phase_valid ? wrapDeg360(_wing_phase.phase_deg) : NAN;
+		const bool hall_valid = phase_valid; // hall count is carried in wing_phase
+		const uint32_t hall_count = hall_valid ? _wing_phase.hall_pulse_count : 0;
+
 		// Glide logic is only active while glide switch is ON and RC throttle is low.
 		// Any throttle > threshold immediately exits the glide state machine, allowing repeated glide cycles.
 		if (!glide_on || !throttle_low) {
 			_glide_state = GlideState::Idle;
 			_glide_target_set = false;
+			_glide_start_phase_valid = false;
 			return;
 		}
 
-		const bool phase_valid = (now - _wing_phase.timestamp) < 200000 && PX4_ISFINITE(_wing_phase.phase_deg);
-		const bool allow_wait_on_glide_on = glide_on_edge && ((now - _last_run_time) < k_recent_run_time_us);
+		const bool motor_recent = ((now - _last_run_time) < k_recent_run_time_us);
+		const bool allow_wait_on_glide_on = glide_on_edge && motor_recent;
 		const bool request_wait = throttle_low_edge || allow_wait_on_glide_on;
+
+		const GlideState prev_state = _glide_state;
 
 		switch (_glide_state) {
 		case GlideState::Idle:
@@ -284,10 +326,13 @@ private:
 			// - throttle low transition (recommended operation: enable glide, then pull throttle low)
 			// - glide switch enable at already-low throttle, but only if the motor was commanded to run recently
 			//   (prevents spin-ups when toggling glide on the bench at throttle low).
-			if (request_wait) {
+			if (request_wait || motor_recent) {
 				_glide_state = GlideState::Waiting;
 				_glide_start = now;
 				_glide_target_set = false;
+				_glide_start_phase_valid = phase_valid;
+				_glide_start_phase_deg = phase_deg;
+				_glide_start_hall_pulse_count = hall_count;
 
 				// Keep a minimum command while waiting. If upstream is NaN, use 0.
 				{
@@ -307,11 +352,18 @@ private:
 				selectGlideTargetIfNeeded(now);
 
 				bool done = false;
+				bool crossed = false;
+				float forward_dist = NAN;
 
 				if (phase_valid && _glide_target_set) {
-					const float diff = angularDistanceDeg(_wing_phase.phase_deg, _glide_target_deg);
-					if (diff <= _glide_tol_deg) {
-						done = true;
+					forward_dist = forwardDistanceDeg(phase_deg, _glide_target_deg);
+
+					// Detect "crossing" relative to the Waiting-entry phase (forward rotation only).
+					// This avoids immediate false stops due to phase wrap/noise coinciding with the state transition.
+					if (_glide_start_phase_valid) {
+						const float dist_start_to_target = forwardDistanceDeg(_glide_start_phase_deg, _glide_target_deg);
+						const float dist_start_to_now = forwardDistanceDeg(_glide_start_phase_deg, phase_deg);
+						crossed = dist_start_to_now >= dist_start_to_target;
 					}
 				}
 
@@ -319,6 +371,10 @@ private:
 					if ((now - _glide_start) > (hrt_abstime)(_glide_timeout_s * 1e6f)) {
 						done = true;
 					}
+				}
+
+				if (crossed) {
+					done = true;
 				}
 
 				if (done) {
@@ -329,7 +385,15 @@ private:
 				} else {
 					// Keep spinning until target is reached.
 					const float base = PX4_ISFINITE(selected_thrust) ? selected_thrust : 0.f;
-					selected_thrust = math::max(base, _glide_hold_effective);
+					float hold = _glide_hold_effective;
+
+					if (PX4_ISFINITE(forward_dist) && (_glide_tol_deg > 0.f)) {
+						const float scale = math::constrain(forward_dist / _glide_tol_deg, 0.f, 1.f);
+						// Avoid dropping to exactly zero before crossing (forward-only, no braking).
+						hold *= (0.3f + 0.7f * scale);
+					}
+
+					selected_thrust = math::max(base, hold);
 				}
 			}
 			break;
@@ -338,6 +402,11 @@ private:
 			// Keep stopped as long as glide switch remains on and throttle remains low.
 			selected_thrust = NAN;
 			break;
+		}
+
+		if (_glide_state != prev_state) {
+			// Transition log for field debugging (no high-rate spam).
+			logGlideTransition("transition", now, selected_thrust, phase_deg, phase_valid);
 		}
 	}
 
@@ -366,6 +435,9 @@ private:
 	bool _prev_throttle_low{false};
 	bool _prev_glide_on{false};
 	hrt_abstime _last_run_time{0};
+	float _glide_start_phase_deg{NAN};
+	uint32_t _glide_start_hall_pulse_count{0};
+	bool _glide_start_phase_valid{false};
 
 	// Glide parameters (cached)
 	float _glide_thr{0.03f};
