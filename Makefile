@@ -521,6 +521,18 @@ validate_module_configs:
 	-not -path "$(SRC_DIR)/src/lib/crypto/libtommath/*" -print0 | \
 	xargs -0 "$(SRC_DIR)"/Tools/validate_yaml.py --schema-file "$(SRC_DIR)"/validation/module_schema.yaml
 
+# Convenience target: build with Conda paths removed from PATH to avoid
+# conflicting protobuf/protoc versions (see Tools/scripts/build-no-conda.sh)
+.PHONY: no-conda
+no-conda:
+	@echo 'Building with Conda entries removed from PATH'
+	@CMD="$(filter-out no-conda,$(MAKECMDGOALS))"; \
+	if [ -z "$$CMD" ]; then CMD=px4_sitl_default; fi; \
+	SCRIPT="$(SRC_DIR)/Tools/scripts/build-no-conda.sh"; \
+	if [ ! -x "$$SCRIPT" ]; then echo "ERROR: $$SCRIPT not found or not executable"; exit 1; fi; \
+	echo "Invoking $$SCRIPT $$CMD"; \
+	"$$SCRIPT" $$CMD
+
 # Cleanup
 # --------------------------------------------------------------------
 .PHONY: clean submodulesclean submodulesupdate distclean
