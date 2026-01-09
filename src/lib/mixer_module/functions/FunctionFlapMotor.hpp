@@ -402,9 +402,14 @@ private:
 				bool crossed = false;
 
 				if (phase_valid && _glide_target_set) {
-					// Detect "crossing" relative to the Waiting-entry phase (forward rotation only).
-					// This avoids immediate false stops due to phase wrap/noise coinciding with the state transition.
-					if (_glide_start_phase_valid) {
+					// Two modes:
+					// - Coast mode (FLAP_GLIDE_TC > 0): stop *before* the target based on phase rate.
+					// - Brake mode (FLAP_GLIDE_TC == 0): stop when within tolerance of the target.
+					if (_glide_coast_tc_s <= 0.001f) {
+						const float dist = angularDistanceDeg(phase_pred, _glide_target_deg);
+						crossed = (dist <= _glide_tol_deg);
+
+					} else if (_glide_start_phase_valid) {
 						const float dist_start_to_target = forwardDistanceDeg(_glide_start_phase_deg, _glide_target_deg);
 						const float dist_start_to_now = forwardDistanceDeg(_glide_start_phase_deg, phase_pred);
 						const float lead_deg = (PX4_ISFINITE(_phase_rate_deg_s) && (_glide_coast_tc_s > 0.f)) ?
