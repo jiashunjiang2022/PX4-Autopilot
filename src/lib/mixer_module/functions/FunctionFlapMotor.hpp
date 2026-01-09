@@ -382,6 +382,13 @@ private:
 
 				selectGlideTargetIfNeeded(now);
 
+				// IMPORTANT: apply hold immediately on entry.
+				// Otherwise selected_thrust can remain NaN for one cycle, which maps to PWM=1000 and can trigger ESC "Brake on Stop".
+				{
+					const float base = PX4_ISFINITE(selected_thrust) ? selected_thrust : 0.f;
+					selected_thrust = math::max(base, _glide_hold_effective);
+				}
+
 			} else {
 				_glide_state = GlideState::Stopped;
 				selected_thrust = NAN;
@@ -393,11 +400,8 @@ private:
 
 				bool done = false;
 				bool crossed = false;
-				float forward_dist = NAN;
 
 				if (phase_valid && _glide_target_set) {
-					forward_dist = forwardDistanceDeg(phase_pred, _glide_target_deg);
-
 					// Detect "crossing" relative to the Waiting-entry phase (forward rotation only).
 					// This avoids immediate false stops due to phase wrap/noise coinciding with the state transition.
 					if (_glide_start_phase_valid) {
@@ -428,14 +432,9 @@ private:
 				} else {
 					// Keep spinning until target is reached.
 					const float base = PX4_ISFINITE(selected_thrust) ? selected_thrust : 0.f;
-					float hold = _glide_hold_effective;
-
-					if (PX4_ISFINITE(forward_dist) && (_glide_tol_deg > 0.f)) {
-						const float scale = math::constrain(forward_dist / _glide_tol_deg, 0.f, 1.f);
-						hold *= scale;
-					}
-
-					selected_thrust = math::max(base, hold);
+					// With ESC braking enabled, ramping down too far can drop into the "stop" region and immediately brake.
+					// Keep a constant minimum hold until we decide to stop.
+					selected_thrust = math::max(base, _glide_hold_effective);
 				}
 			}
 			break;
