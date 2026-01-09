@@ -412,6 +412,11 @@ private:
 						const float stop_dist = math::max(dist_start_to_target - lead_deg, 0.f);
 						crossed = dist_start_to_now >= stop_dist;
 					}
+
+					// For target=0 deg, prefer hall index pulse (exact phase reference) when available.
+					if (hall_valid && (_glide_target_deg < 1.f)) {
+						crossed = crossed || (hall_count != _glide_start_hall_pulse_count);
+					}
 				}
 
 				if (!done && _glide_timeout_s > 0.f) {
