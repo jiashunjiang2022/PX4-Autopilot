@@ -101,6 +101,7 @@ private:
 	float _i_max{500.f};
 	bool _phase_ff_en{false};
 	float _phase_ff_amp{0.f};
+	float _phase_ff_duty{0.5f};
 	float _phase_ff_shift_deg{0.f};
 
 	wing_phase_s _wing_phase{};
@@ -115,6 +116,7 @@ private:
 			(ParamFloat<px4::params::FLAP_I_MAX>)  _param_flap_i_max,
 			(ParamInt<px4::params::FLAP_PHASE_EN>) _param_flap_phase_en,
 			(ParamFloat<px4::params::FLAP_PHASE_AMP>) _param_flap_phase_amp,
+			(ParamFloat<px4::params::FLAP_PHASE_DUTY>) _param_flap_phase_duty,
 			(ParamFloat<px4::params::FLAP_PHASE_SHIFT>) _param_flap_phase_shift
 		)
 };

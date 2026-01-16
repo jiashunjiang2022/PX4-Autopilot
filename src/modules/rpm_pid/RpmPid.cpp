@@ -77,6 +77,7 @@ void RpmPid::updateParams()
 	_i_max = _param_flap_i_max.get();
 	_phase_ff_en = (_param_flap_phase_en.get() != 0);
 	_phase_ff_amp = _param_flap_phase_amp.get();
+	_phase_ff_duty = _param_flap_phase_duty.get();
 	_phase_ff_shift_deg = _param_flap_phase_shift.get();
 
 	// basic sanity
@@ -85,6 +86,7 @@ void RpmPid::updateParams()
 	}
 
 	_phase_ff_amp = math::constrain(_phase_ff_amp, 0.f, 0.2f);
+	_phase_ff_duty = math::constrain(_phase_ff_duty, 0.1f, 0.9f);
 	_phase_ff_shift_deg = math::constrain(_phase_ff_shift_deg, -180.f, 180.f);
 }
 
@@ -189,7 +191,23 @@ void RpmPid::Run()
 					if (phase_valid) {
 						const float deg = wrap360(_wing_phase.phase_deg + _phase_ff_shift_deg);
 						const float rad = (deg - 180.f) * (M_PI_F / 180.f);
-						const float u_phase = _phase_ff_amp * cosf(rad);
+						float u_phase = _phase_ff_amp * cosf(rad);
+
+						// Asymmetric up/downstroke shaping via duty ratio.
+						const float down_scale = math::constrain(_phase_ff_duty / 0.5f, 0.f, 2.f);
+						const float up_scale = math::constrain((1.f - _phase_ff_duty) / 0.5f, 0.f, 2.f);
+
+						if (u_phase >= 0.f) {
+							u_phase *= down_scale;
+
+						} else {
+							u_phase *= up_scale;
+						}
+
+						// Remove DC bias introduced by asymmetric scaling to keep mean ~0.
+						const float bias = _phase_ff_amp * (down_scale - up_scale) / M_PI_F;
+						u_phase -= bias;
+
 						u_out = math::constrain(u_out + u_phase, 0.f, 1.f);
 					}
 				}

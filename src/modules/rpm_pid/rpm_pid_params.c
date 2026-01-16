@@ -198,7 +198,7 @@ PARAM_DEFINE_INT32(FLAP_GLIDE_CH, 2);
  * When enabled, add a smooth (cosine) feedforward term as a function of wing_phase.phase_deg to
  * bias motor command: positive during downstroke (90..270 deg) and negative during upstroke.
  *
- * 0: disabled, 1: enabled.
+ * 0: disabled (frequency PID only), 1: enabled (phase-modulated flapping).
  *
  * @min 0
  * @max 1
@@ -221,6 +221,20 @@ PARAM_DEFINE_INT32(FLAP_PHASE_EN, 1);
  * @group Flapping Wing Control
  */
 PARAM_DEFINE_FLOAT(FLAP_PHASE_AMP, 0.1f);
+
+/**
+ * Phase feedforward duty ratio (downstroke vs upstroke).
+ *
+ * 0.5 = symmetric (default). >0.5 increases downstroke contribution, <0.5 increases upstroke contribution.
+ * This parameter scales the positive (downstroke) and negative (upstroke) halves of the phase feedforward
+ * while keeping the mean near zero.
+ *
+ * @min 0.1
+ * @max 0.9
+ * @decimal 2
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_PHASE_DUTY, 0.5f);
 
 /**
  * Phase-based feedforward phase shift [deg].
