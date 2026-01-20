@@ -125,6 +125,16 @@ FixedwingPositionControl::parameters_update()
 	_npfg.setRollLimit(radians(_param_fw_r_lim.get()));
 	_npfg.setPeriodSafetyFactor(_param_npfg_period_safety_factor.get());
 
+	_pid_kd = _param_pid_xte_kd.get();
+	_pid_xte.setGains(
+		_param_pid_xte_kp.get(),
+		_param_pid_xte_ki.get(),
+		0.0f
+	);
+	_pid_xte.setOutputLimit(_param_pid_xte_maxa.get());
+	_pid_xte.setIntegralLimit(_param_pid_xte_ilim.get());
+	_pid_xte.setSetpoint(0.0f);
+
 	// TECS parameters
 	_tecs.set_max_climb_rate(_performance_model.getMaximumClimbRate(_air_density));
 	_tecs.set_max_sink_rate(_param_fw_t_sink_max.get());
@@ -459,27 +469,53 @@ FixedwingPositionControl::status_publish()
 
 	npfg_status.wind_est_valid = _wind_valid;
 
-	const float bearing = _npfg.getBearing(); // dont repeat atan2 calc
+	const int guidance_mode = _param_fw_guidance_mode.get();
 
-	pos_ctrl_status.nav_bearing = bearing;
-	pos_ctrl_status.target_bearing = _target_bearing;
-	pos_ctrl_status.xtrack_error = _npfg.getTrackError();
-	pos_ctrl_status.acceptance_radius = _npfg.switchDistance(500.0f);
+	if (guidance_mode == 0) {
+		const float bearing = _npfg.getBearing(); // dont repeat atan2 calc
 
-	npfg_status.lat_accel = _npfg.getLateralAccel();
-	npfg_status.lat_accel_ff = _npfg.getLateralAccelFF();
-	npfg_status.heading_ref = _npfg.getHeadingRef();
-	npfg_status.bearing = bearing;
-	npfg_status.bearing_feas = _npfg.getBearingFeas();
-	npfg_status.bearing_feas_on_track = _npfg.getOnTrackBearingFeas();
-	npfg_status.signed_track_error = _npfg.getTrackError();
-	npfg_status.track_error_bound = _npfg.getTrackErrorBound();
-	npfg_status.airspeed_ref = _npfg.getAirspeedRef();
-	npfg_status.min_ground_speed_ref = _npfg.getMinGroundSpeedRef();
-	npfg_status.adapted_period = _npfg.getAdaptedPeriod();
-	npfg_status.p_gain = _npfg.getPGain();
-	npfg_status.time_const = _npfg.getTimeConst();
-	npfg_status.can_run_factor = _npfg.canRun(_local_pos, _wind_valid);
+		pos_ctrl_status.nav_bearing = bearing;
+		pos_ctrl_status.target_bearing = _target_bearing;
+		pos_ctrl_status.xtrack_error = _npfg.getTrackError();
+		pos_ctrl_status.acceptance_radius = _npfg.switchDistance(500.0f);
+
+		npfg_status.lat_accel = _npfg.getLateralAccel();
+		npfg_status.lat_accel_ff = _npfg.getLateralAccelFF();
+		npfg_status.heading_ref = _npfg.getHeadingRef();
+		npfg_status.bearing = bearing;
+		npfg_status.bearing_feas = _npfg.getBearingFeas();
+		npfg_status.bearing_feas_on_track = _npfg.getOnTrackBearingFeas();
+		npfg_status.signed_track_error = _npfg.getTrackError();
+		npfg_status.track_error_bound = _npfg.getTrackErrorBound();
+		npfg_status.airspeed_ref = _npfg.getAirspeedRef();
+		npfg_status.min_ground_speed_ref = _npfg.getMinGroundSpeedRef();
+		npfg_status.adapted_period = _npfg.getAdaptedPeriod();
+		npfg_status.p_gain = _npfg.getPGain();
+		npfg_status.time_const = _npfg.getTimeConst();
+		npfg_status.can_run_factor = _npfg.canRun(_local_pos, _wind_valid);
+
+	} else {
+		pos_ctrl_status.nav_bearing = _guidance_output.course_setpoint;
+		pos_ctrl_status.target_bearing = _target_bearing;
+		pos_ctrl_status.xtrack_error = _guidance_output.track_error;
+		pos_ctrl_status.acceptance_radius = NAN;
+
+		npfg_status.lat_accel = NAN;
+		npfg_status.lat_accel_ff = NAN;
+		npfg_status.heading_ref = NAN;
+		npfg_status.bearing = NAN;
+		npfg_status.bearing_feas = NAN;
+		npfg_status.bearing_feas_on_track = NAN;
+		npfg_status.signed_track_error = NAN;
+		npfg_status.track_error_bound = NAN;
+		npfg_status.airspeed_ref = NAN;
+		npfg_status.min_ground_speed_ref = NAN;
+		npfg_status.adapted_period = NAN;
+		npfg_status.p_gain = NAN;
+		npfg_status.time_const = NAN;
+		npfg_status.can_run_factor = 0.0f;
+	}
+
 	npfg_status.timestamp = hrt_absolute_time();
 
 	_npfg_status_pub.publish(npfg_status);
@@ -546,6 +582,25 @@ float FixedwingPositionControl::getCorrectedNpfgRollSetpoint()
 	_time_since_last_npfg_call = now;
 
 	return can_run_factor * (new_roll_setpoint);
+}
+
+float FixedwingPositionControl::getGuidanceRollSetpoint()
+{
+	if (_param_fw_guidance_mode.get() == 0) {
+		return getCorrectedNpfgRollSetpoint();
+	}
+
+	const float roll_body = atanf(_guidance_output.lateral_acceleration / CONSTANTS_ONE_G);
+	return math::constrain(roll_body, -radians(_param_fw_r_lim.get()), radians(_param_fw_r_lim.get()));
+}
+
+float FixedwingPositionControl::getGuidanceAirspeedRef(float target_airspeed) const
+{
+	if (_param_fw_guidance_mode.get() == 0) {
+		return _npfg.getAirspeedRef() / _eas2tas;
+	}
+
+	return target_airspeed;
 }
 
 void
@@ -1137,8 +1192,8 @@ FixedwingPositionControl::control_auto_position(const float control_interval, co
 		navigateWaypoint(curr_wp_local, curr_pos_local, ground_speed, _wind_vel);
 	}
 
-	float roll_body = getCorrectedNpfgRollSetpoint();
-	target_airspeed = _npfg.getAirspeedRef() / _eas2tas;
+	float roll_body = getGuidanceRollSetpoint();
+	target_airspeed = getGuidanceAirspeedRef(target_airspeed);
 
 	float yaw_body = _yaw; // yaw is not controlled, so set setpoint to current yaw
 
@@ -1193,8 +1248,8 @@ FixedwingPositionControl::control_auto_velocity(const float control_interval, co
 	_npfg.setAirspeedNom(target_airspeed * _eas2tas);
 	_npfg.setAirspeedMax(_performance_model.getMaximumCalibratedAirspeed() * _eas2tas);
 	navigateBearing(curr_pos_local, _target_bearing, ground_speed, _wind_vel);
-	float roll_body = getCorrectedNpfgRollSetpoint();
-	target_airspeed = _npfg.getAirspeedRef() / _eas2tas;
+	float roll_body = getGuidanceRollSetpoint();
+	target_airspeed = getGuidanceAirspeedRef(target_airspeed);
 
 	float yaw_body = _yaw;
 	const bool disable_underspeed_handling = false;
@@ -1302,8 +1357,8 @@ FixedwingPositionControl::control_auto_loiter(const float control_interval, cons
 	navigateLoiter(curr_wp_local, curr_pos_local, loiter_radius, pos_sp_curr.loiter_direction_counter_clockwise,
 		       ground_speed,
 		       _wind_vel);
-	float roll_body = getCorrectedNpfgRollSetpoint();
-	target_airspeed = _npfg.getAirspeedRef() / _eas2tas;
+	float roll_body = getGuidanceRollSetpoint();
+	target_airspeed = getGuidanceAirspeedRef(target_airspeed);
 
 	float yaw_body = _yaw; // yaw is not controlled, so set setpoint to current yaw
 
@@ -1461,8 +1516,8 @@ FixedwingPositionControl::control_auto_path(const float control_interval, const 
 				0.0f;
 	navigatePathTangent(curr_pos_local, curr_wp_local, velocity_2d.normalized(), ground_speed, _wind_vel, curvature);
 
-	float roll_body = getCorrectedNpfgRollSetpoint();
-	target_airspeed = _npfg.getAirspeedRef() / _eas2tas;
+	float roll_body = getGuidanceRollSetpoint();
+	target_airspeed = getGuidanceAirspeedRef(target_airspeed);
 
 	float yaw_body = _yaw; // yaw is not controlled, so set setpoint to current yaw
 
@@ -1543,7 +1598,7 @@ FixedwingPositionControl::control_auto_takeoff(const hrt_abstime &now, const flo
 		}
 
 		// tune up the lateral position control guidance when on the ground
-		if (_runway_takeoff.controlYaw()) {
+		if (_runway_takeoff.controlYaw() && _param_fw_guidance_mode.get() == 0) {
 			_npfg.setPeriod(_param_rwto_npfg_period.get());
 
 		}
@@ -1571,12 +1626,11 @@ FixedwingPositionControl::control_auto_takeoff(const hrt_abstime &now, const flo
 		_npfg.setAirspeedMax(_performance_model.getMaximumCalibratedAirspeed() * _eas2tas);
 		navigateLine(start_pos_local, takeoff_bearing, local_2D_position, ground_speed, _wind_vel);
 
-		float roll_body = _runway_takeoff.getRoll(getCorrectedNpfgRollSetpoint());
+		float roll_body = _runway_takeoff.getRoll(getGuidanceRollSetpoint());
 
-		target_airspeed = _npfg.getAirspeedRef() / _eas2tas;
+		target_airspeed = getGuidanceAirspeedRef(target_airspeed);
 
-		// use npfg's bearing to commanded course, controlled via yaw angle while on runway
-		const float bearing = _npfg.getBearing();
+		const float bearing = getGuidanceCourseSetpoint();
 
 		// heading hold mode will override this bearing setpoint
 		float yaw_body = _runway_takeoff.getYaw(bearing);
@@ -1676,8 +1730,8 @@ FixedwingPositionControl::control_auto_takeoff(const hrt_abstime &now, const flo
 			_npfg.setAirspeedNom(target_airspeed * _eas2tas);
 			_npfg.setAirspeedMax(_performance_model.getMaximumCalibratedAirspeed() * _eas2tas);
 			navigateLine(launch_local_position, takeoff_bearing, local_2D_position, ground_speed, _wind_vel);
-			float roll_body = getCorrectedNpfgRollSetpoint();
-			target_airspeed = _npfg.getAirspeedRef() / _eas2tas;
+			float roll_body = getGuidanceRollSetpoint();
+			target_airspeed = getGuidanceAirspeedRef(target_airspeed);
 
 
 			const float max_takeoff_throttle = (_launchDetector.getLaunchDetected() < launch_detection_status_s::STATE_FLYING) ?
@@ -1829,21 +1883,21 @@ FixedwingPositionControl::control_auto_landing_straight(const hrt_abstime &now, 
 
 		/* lateral guidance first, because npfg will adjust the airspeed setpoint if necessary */
 
-		// tune up the lateral position control guidance when on the ground
-		const float ground_roll_npfg_period = flare_ramp_interpolator * _param_rwto_npfg_period.get() +
-						      (1.0f - flare_ramp_interpolator) * _param_npfg_period.get();
-		_npfg.setPeriod(ground_roll_npfg_period);
+		if (_param_fw_guidance_mode.get() == 0) {
+			const float ground_roll_npfg_period = flare_ramp_interpolator * _param_rwto_npfg_period.get() +
+							      (1.0f - flare_ramp_interpolator) * _param_npfg_period.get();
+			_npfg.setPeriod(ground_roll_npfg_period);
+		}
 
 		const Vector2f local_approach_entrance = local_land_point - landing_approach_vector;
 
 		_npfg.setAirspeedNom(target_airspeed * _eas2tas);
 		_npfg.setAirspeedMax(_performance_model.getMaximumCalibratedAirspeed() * _eas2tas);
 		navigateLine(local_approach_entrance, local_land_point, local_position, ground_speed, _wind_vel);
-		target_airspeed = _npfg.getAirspeedRef() / _eas2tas;
-		float roll_body = getCorrectedNpfgRollSetpoint();
+		target_airspeed = getGuidanceAirspeedRef(target_airspeed);
+		float roll_body = getGuidanceRollSetpoint();
 
-		// use npfg's bearing to commanded course, controlled via yaw angle while on runway
-		float yaw_body = _npfg.getBearing();
+		float yaw_body = getGuidanceCourseSetpoint();
 
 		/* longitudinal guidance */
 
@@ -1928,8 +1982,8 @@ FixedwingPositionControl::control_auto_landing_straight(const hrt_abstime &now, 
 		_npfg.setAirspeedNom(target_airspeed * _eas2tas);
 		_npfg.setAirspeedMax(_performance_model.getMaximumCalibratedAirspeed() * _eas2tas);
 		navigateLine(local_approach_entrance, local_land_point, local_position, ground_speed, _wind_vel);
-		target_airspeed = _npfg.getAirspeedRef() / _eas2tas;
-		float roll_body = getCorrectedNpfgRollSetpoint();
+		target_airspeed = getGuidanceAirspeedRef(target_airspeed);
+		float roll_body = getGuidanceRollSetpoint();
 
 		/* longitudinal guidance */
 
@@ -2063,8 +2117,8 @@ FixedwingPositionControl::control_auto_landing_circular(const hrt_abstime &now, 
 		navigateLoiter(local_landing_orbit_center, local_position, loiter_radius,
 			       pos_sp_curr.loiter_direction_counter_clockwise,
 			       ground_speed, _wind_vel);
-		target_airspeed = _npfg.getAirspeedRef() / _eas2tas;
-		roll_body = getCorrectedNpfgRollSetpoint();
+		target_airspeed = getGuidanceAirspeedRef(target_airspeed);
+		roll_body = getGuidanceRollSetpoint();
 
 		yaw_body = _yaw; // yaw is not controlled, so set setpoint to current yaw
 
@@ -2144,8 +2198,8 @@ FixedwingPositionControl::control_auto_landing_circular(const hrt_abstime &now, 
 		navigateLoiter(local_landing_orbit_center, local_position, loiter_radius,
 			       pos_sp_curr.loiter_direction_counter_clockwise,
 			       ground_speed, _wind_vel);
-		target_airspeed = _npfg.getAirspeedRef() / _eas2tas;
-		roll_body = getCorrectedNpfgRollSetpoint();
+		target_airspeed = getGuidanceAirspeedRef(target_airspeed);
+		roll_body = getGuidanceRollSetpoint();
 
 		/* longitudinal guidance */
 
@@ -2323,8 +2377,8 @@ FixedwingPositionControl::control_manual_position(const float control_interval, 
 			_npfg.setAirspeedNom(calibrated_airspeed_sp * _eas2tas);
 			_npfg.setAirspeedMax(_performance_model.getMaximumCalibratedAirspeed() * _eas2tas);
 			navigateLine(_hdg_hold_position, _hdg_hold_yaw, curr_pos_local, ground_speed, _wind_vel);
-			roll_body = getCorrectedNpfgRollSetpoint();
-			calibrated_airspeed_sp = _npfg.getAirspeedRef() / _eas2tas;
+			roll_body = getGuidanceRollSetpoint();
+			calibrated_airspeed_sp = getGuidanceAirspeedRef(calibrated_airspeed_sp);
 
 			yaw_body = _yaw; // yaw is not controlled, so set setpoint to current yaw
 		}
@@ -2389,7 +2443,7 @@ void FixedwingPositionControl::control_backtransition_heading_hold()
 
 	navigateLine(Vector2f(0.f, 0.f), virtual_target_point, Vector2f(0.f, 0.f), ground_speed, Vector2f(0.f, 0.f));
 
-	const float roll_body = getCorrectedNpfgRollSetpoint();
+	const float roll_body = getGuidanceRollSetpoint();
 
 	const float yaw_body = _backtrans_heading;
 
@@ -2418,7 +2472,7 @@ void FixedwingPositionControl::control_backtransition_line_follow(const Vector2f
 	}
 
 	navigateLine(_lpos_where_backtrans_started, curr_wp_local, curr_pos_local, ground_speed, _wind_vel);
-	const float roll_body = getCorrectedNpfgRollSetpoint();
+	const float roll_body = getGuidanceRollSetpoint();
 
 	const float yaw_body = _yaw; // yaw is not controlled, so set setpoint to current yaw
 
@@ -3160,6 +3214,216 @@ void FixedwingPositionControl::publishOrbitStatus(const position_setpoint_s pos_
 	_orbit_status_pub.publish(orbit_status);
 }
 
+void FixedwingPositionControl::guideToPath(const Vector2f &vehicle_pos, const Vector2f &ground_vel, const Vector2f &wind_vel,
+		const Vector2f &unit_path_tangent, const Vector2f &closest_point_on_path, const float &path_curvature)
+{
+	const int guidance_mode = _param_fw_guidance_mode.get();
+
+	if (guidance_mode != _guidance_mode_last) {
+		_pid_xte.resetIntegral();
+		_pid_last_error = NAN;
+		_pid_last_course = 0.0f;
+		_pid_last_update_time = 0U;
+		_l1_last_time = 0U;
+		_l1_last_course = 0.0f;
+	}
+
+	_guidance_mode_last = guidance_mode;
+
+	if (guidance_mode == 1) {
+		_guidance_output = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, closest_point_on_path, path_curvature);
+
+	} else if (guidance_mode == 2) {
+		_guidance_output = navigatePID(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, closest_point_on_path, path_curvature);
+
+	} else {
+		_npfg.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, closest_point_on_path, path_curvature);
+		_guidance_output.course_setpoint = _npfg.getBearing();
+		_guidance_output.lateral_acceleration = _npfg.getLateralAccel();
+		_guidance_output.track_error = _npfg.getTrackError();
+	}
+}
+
+FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigateL1(const Vector2f &vehicle_pos,
+		const Vector2f &ground_vel, const Vector2f &wind_vel, const Vector2f &unit_path_tangent,
+		const Vector2f &closest_point_on_path, const float &path_curvature)
+{
+	GuidanceOutput sp{};
+	(void)wind_vel;
+	(void)path_curvature;
+
+	float ground_speed = math::max(ground_vel.length(), 0.1f);
+
+	if (ground_speed < 3.0f) {
+		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
+		sp.lateral_acceleration = 0.0f;
+		sp.track_error = 0.0f;
+		return sp;
+	}
+
+	const float l1_period = math::max(_param_fw_l1_period.get(), 0.1f);
+	const float l1_damping = math::max(_param_fw_l1_damping.get(), 0.1f);
+	const float l1_ratio = (1.0f / M_PI_F) * l1_damping * l1_period;
+	const float k_l1 = 4.0f * l1_damping * l1_damping;
+
+	float l1_distance = l1_ratio * ground_speed;
+	l1_distance = math::max(l1_distance, 1.0f);
+
+	matrix::Vector2f vector_ab = unit_path_tangent;
+	matrix::Vector2f path_to_vehicle = vehicle_pos - closest_point_on_path;
+	float xtrack_error = path_to_vehicle % vector_ab;
+
+	float sine_eta1 = xtrack_error / math::max(l1_distance, 0.1f);
+	sine_eta1 = math::constrain(sine_eta1, -1.0f, 1.0f);
+	float eta1 = asinf(sine_eta1);
+
+	float xtrack_vel = ground_vel % vector_ab;
+	float ltrack_vel = ground_vel * vector_ab;
+
+	if (fabsf(ltrack_vel) < 0.1f) {
+		ltrack_vel = (ltrack_vel >= 0) ? 0.1f : -0.1f;
+	}
+
+	float eta2 = atan2f(xtrack_vel, ltrack_vel);
+	float eta = eta1 + eta2;
+	eta = math::constrain(eta, -M_PI_F / 2.0f, M_PI_F / 2.0f);
+
+	float desired_course = atan2f(vector_ab(1), vector_ab(0)) + eta1;
+
+	const uint64_t current_time = hrt_absolute_time();
+	float dt = 0.0f;
+
+	if (_l1_last_time > 0U) {
+		dt = (current_time - _l1_last_time) / 1e6f;
+		dt = math::constrain(dt, 0.001f, 0.1f);
+	}
+
+	if (dt > 0.0f) {
+		float course_diff = matrix::wrap_pi(desired_course - _l1_last_course);
+		const float max_course_change_rate = M_PI_F / 3.0f;
+		const float max_course_change = max_course_change_rate * dt;
+		course_diff = math::constrain(course_diff, -max_course_change, max_course_change);
+		desired_course = _l1_last_course + course_diff;
+	}
+
+	_l1_last_course = desired_course;
+	_l1_last_time = current_time;
+
+	const float lateral_acceleration = k_l1 * ground_speed * ground_speed / l1_distance * sinf(eta);
+
+	sp.course_setpoint = desired_course;
+	sp.lateral_acceleration = lateral_acceleration;
+	sp.track_error = xtrack_error;
+	return sp;
+}
+
+FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigatePID(const Vector2f &vehicle_pos,
+		const Vector2f &ground_vel, const Vector2f &wind_vel, const Vector2f &unit_path_tangent,
+		const Vector2f &closest_point_on_path, const float &path_curvature)
+{
+	GuidanceOutput sp{};
+	(void)wind_vel;
+	(void)path_curvature;
+
+	float ground_speed = math::max(ground_vel.length(), 0.1f);
+
+	if (ground_speed < 3.0f) {
+		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
+		sp.lateral_acceleration = 0.0f;
+		sp.track_error = 0.0f;
+		_pid_xte.resetIntegral();
+		_pid_last_update_time = 0U;
+		return sp;
+	}
+
+	matrix::Vector2f path_to_vehicle = vehicle_pos - closest_point_on_path;
+	float cross_track_error = path_to_vehicle % unit_path_tangent;
+
+	float last_error = _pid_last_error;
+	bool reset_integral = false;
+
+	if (PX4_ISFINITE(last_error)) {
+		if ((cross_track_error * last_error) < 0.0f || fabsf(cross_track_error) < 0.5f) {
+			_pid_xte.resetIntegral();
+			reset_integral = true;
+		}
+	}
+
+	const hrt_abstime current_time = hrt_absolute_time();
+	float dt_raw = (_pid_last_update_time > 0U) ? ((current_time - _pid_last_update_time) / 1e6f) : 0.02f;
+	const float dt = math::constrain(dt_raw, 0.001f, 0.05f);
+	_pid_last_update_time = current_time;
+
+	float lateral_accel_cmd = _pid_xte.update(-cross_track_error, dt);
+
+	float pid_d = 0.0f;
+
+	if (!reset_integral && PX4_ISFINITE(last_error)) {
+		const float error_rate = (cross_track_error - last_error) / math::max(dt, 0.005f);
+		pid_d = _pid_kd * error_rate;
+		lateral_accel_cmd += pid_d;
+	}
+
+	_pid_last_error = cross_track_error;
+
+	lateral_accel_cmd = math::constrain(
+		lateral_accel_cmd,
+		-_param_pid_xte_maxa.get(),
+		_param_pid_xte_maxa.get()
+	);
+
+	const float path_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
+	float course_correction = 0.0f;
+	const float error_magnitude = fabsf(cross_track_error);
+	float tau = 1.0f;
+
+	if (fabsf(ground_speed) > FLT_EPSILON) {
+		if (error_magnitude > 50.0f) {
+			tau = 0.3f;
+
+		} else if (error_magnitude > 20.0f) {
+			tau = 0.5f;
+
+		} else if (error_magnitude > 5.0f) {
+			tau = 1.0f;
+
+		} else {
+			tau = 2.0f;
+		}
+
+		const float min_lookahead = 15.0f;
+		const float max_lookahead = 80.0f;
+		const float lookahead_distance = math::constrain(ground_speed * tau, min_lookahead, max_lookahead);
+
+		float geometric_correction = atan2f(cross_track_error, lookahead_distance);
+		const float max_geometric_angle = M_PI_F / 2.5f;
+		course_correction = math::constrain(geometric_correction, -max_geometric_angle, max_geometric_angle);
+	}
+
+	float desired_course = path_bearing + course_correction;
+	desired_course = matrix::wrap_pi(desired_course);
+
+	float course_diff_abs = fabsf(matrix::wrap_pi(desired_course - _pid_last_course));
+	bool course_initialized = (course_diff_abs < M_PI_F / 2.0f)
+				  && (fabsf(_pid_last_course) > FLT_EPSILON || course_diff_abs < 0.1f);
+
+	if (error_magnitude < 10.0f && course_initialized) {
+		float course_diff = matrix::wrap_pi(desired_course - _pid_last_course);
+		const float max_course_change_rate = M_PI_F / 6.0f;
+		const float max_course_change = max_course_change_rate * dt;
+		course_diff = math::constrain(course_diff, -max_course_change, max_course_change);
+		desired_course = _pid_last_course + course_diff;
+		desired_course = matrix::wrap_pi(desired_course);
+	}
+
+	_pid_last_course = desired_course;
+
+	sp.course_setpoint = desired_course;
+	sp.lateral_acceleration = lateral_accel_cmd;
+	sp.track_error = cross_track_error;
+	return sp;
+}
+
 void FixedwingPositionControl::navigateWaypoints(const Vector2f &start_waypoint, const Vector2f &end_waypoint,
 		const Vector2f &vehicle_pos, const Vector2f &ground_vel, const Vector2f &wind_vel)
 {
@@ -3209,7 +3473,7 @@ void FixedwingPositionControl::navigateWaypoint(const Vector2f &waypoint_pos, co
 	_closest_point_on_path = waypoint_pos;
 
 	const float path_curvature = 0.f;
-	_npfg.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
+	guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
 
 	// for logging - note we are abusing path tangent vs bearing definitions here. npfg interfaces need to be refined.
 	_target_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
@@ -3231,7 +3495,7 @@ void FixedwingPositionControl::navigateLine(const Vector2f &point_on_line_1, con
 	_closest_point_on_path = point_on_line_1 + point_1_to_vehicle.dot(unit_path_tangent) * unit_path_tangent;
 
 	const float path_curvature = 0.f;
-	_npfg.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
+	guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
 
 	// for logging - note we are abusing path tangent vs bearing definitions here. npfg interfaces need to be refined.
 	_target_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
@@ -3246,7 +3510,7 @@ void FixedwingPositionControl::navigateLine(const Vector2f &point_on_line, const
 	_closest_point_on_path = point_on_line + point_on_line_to_vehicle.dot(unit_path_tangent) * unit_path_tangent;
 
 	const float path_curvature = 0.f;
-	_npfg.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
+	guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, _closest_point_on_path, path_curvature);
 
 	// for logging - note we are abusing path tangent vs bearing definitions here. npfg interfaces need to be refined.
 	_target_bearing = line_bearing;
@@ -3287,8 +3551,8 @@ void FixedwingPositionControl::navigateLoiter(const Vector2f &loiter_center, con
 	float path_curvature = loiter_direction_multiplier / radius;
 	_target_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
 	_closest_point_on_path = unit_vec_center_to_closest_pt * radius + loiter_center;
-	_npfg.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
-			  loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
+	guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent,
+		    loiter_center + unit_vec_center_to_closest_pt * radius, path_curvature);
 }
 
 void FixedwingPositionControl::navigatePathTangent(const matrix::Vector2f &vehicle_pos,
@@ -3304,7 +3568,7 @@ void FixedwingPositionControl::navigatePathTangent(const matrix::Vector2f &vehic
 	const Vector2f unit_path_tangent{tangent_setpoint.normalized()};
 	_target_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
 	_closest_point_on_path = position_setpoint;
-	_npfg.guideToPath(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(), position_setpoint, curvature);
+	guideToPath(vehicle_pos, ground_vel, wind_vel, tangent_setpoint.normalized(), position_setpoint, curvature);
 }
 
 void FixedwingPositionControl::navigateBearing(const matrix::Vector2f &vehicle_pos, float bearing,
@@ -3314,7 +3578,7 @@ void FixedwingPositionControl::navigateBearing(const matrix::Vector2f &vehicle_p
 	const Vector2f unit_path_tangent = Vector2f{cosf(bearing), sinf(bearing)};
 	_target_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
 	_closest_point_on_path = vehicle_pos;
-	_npfg.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
+	guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, vehicle_pos, 0.0f);
 }
 
 int FixedwingPositionControl::task_spawn(int argc, char *argv[])
