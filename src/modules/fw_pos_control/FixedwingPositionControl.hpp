@@ -438,6 +438,13 @@ private:
 	hrt_abstime _l1_last_time{0U};
 	float _l1_last_course{0.0f};
 	int _guidance_mode_last{-1};
+
+	struct GuidanceOutput {
+		float course_setpoint{NAN};
+		float lateral_acceleration{0.0f};
+		float track_error{NAN};
+	};
+
 	GuidanceOutput _guidance_output{};
 
 	PerformanceModel _performance_model;
@@ -865,12 +872,6 @@ private:
 	 */
 	void updateTECSAltitudeTimeConstant(const bool is_low_height, const float dt);
 
-	struct GuidanceOutput {
-		float course_setpoint{NAN};
-		float lateral_acceleration{0.0f};
-		float track_error{NAN};
-	};
-
 	/*
 	 * Waypoint handling logic following closely to the ECL_L1_Pos_Controller
 	 * method of the same name. Takes two waypoints, steering the vehicle to track
@@ -989,7 +990,6 @@ private:
 
 		(ParamFloat<px4::params::FW_PN_R_SLEW_MAX>) _param_fw_pn_r_slew_max,
 		(ParamFloat<px4::params::FW_R_LIM>) _param_fw_r_lim,
-		(ParamInt<px4::params::FW_GUIDANCE_MODE>) _param_fw_guidance_mode,
 		(ParamFloat<px4::params::FW_L1_PERIOD>) _param_fw_l1_period,
 		(ParamFloat<px4::params::FW_L1_DAMPING>) _param_fw_l1_damping,
 		(ParamFloat<px4::params::FW_PID_XTE_KP>) _param_pid_xte_kp,
