@@ -74,6 +74,7 @@
 #include <uORB/SubscriptionCallback.hpp>
 #include <uORB/topics/airspeed_validated.h>
 #include <uORB/topics/flight_phase_estimation.h>
+#include <uORB/topics/fw_guidance_status.h>
 #include <uORB/topics/landing_gear.h>
 #include <uORB/topics/launch_detection_status.h>
 #include <uORB/topics/manual_control_setpoint.h>
@@ -220,6 +221,7 @@ private:
 
 	uORB::Publication<vehicle_attitude_setpoint_s> _attitude_sp_pub;
 	uORB::Publication<vehicle_local_position_setpoint_s> _local_pos_sp_pub{ORB_ID(vehicle_local_position_setpoint)};
+	uORB::Publication<fw_guidance_status_s> _fw_guidance_status_pub{ORB_ID(fw_guidance_status)};
 	uORB::Publication<npfg_status_s> _npfg_status_pub{ORB_ID(npfg_status)};
 	uORB::Publication<position_controller_status_s>	_pos_ctrl_status_pub{ORB_ID(position_controller_status)};
 	uORB::Publication<position_controller_landing_status_s>	_pos_ctrl_landing_status_pub{ORB_ID(position_controller_landing_status)};
@@ -986,18 +988,19 @@ private:
 	float getGuidanceCourseSetpoint() const { return _guidance_output.course_setpoint; }
 
 	DEFINE_PARAMETERS(
+		(ParamInt<px4::params::FW_GUIDANCE_MODE>) _param_fw_guidance_mode,
 		(ParamFloat<px4::params::FW_GND_SPD_MIN>) _param_fw_gnd_spd_min,
 
 		(ParamFloat<px4::params::FW_PN_R_SLEW_MAX>) _param_fw_pn_r_slew_max,
+		(ParamFloat<px4::params::FW_PN_SW_DST>) _param_fw_pn_sw_dst,
 		(ParamFloat<px4::params::FW_R_LIM>) _param_fw_r_lim,
-		// Note: FW_L1_PERIOD, FW_L1_DAMPING, FW_PID_XTE_* parameters are defined in fw_mode_manager
-		// (ParamFloat<px4::params::FW_L1_PERIOD>) _param_fw_l1_period,
-		// (ParamFloat<px4::params::FW_L1_DAMPING>) _param_fw_l1_damping,
-		// (ParamFloat<px4::params::FW_PID_XTE_KP>) _param_pid_xte_kp,
-		// (ParamFloat<px4::params::FW_PID_XTE_KI>) _param_pid_xte_ki,
-		// (ParamFloat<px4::params::FW_PID_XTE_KD>) _param_pid_xte_kd,
-		// (ParamFloat<px4::params::FW_PID_XTE_MAXA>) _param_pid_xte_maxa,
-		// (ParamFloat<px4::params::FW_PID_XTE_ILIM>) _param_pid_xte_ilim,
+		(ParamFloat<px4::params::FW_L1_PERIOD>) _param_fw_l1_period,
+		(ParamFloat<px4::params::FW_L1_DAMPING>) _param_fw_l1_damping,
+		(ParamFloat<px4::params::FW_PID_XTE_KP>) _param_pid_xte_kp,
+		(ParamFloat<px4::params::FW_PID_XTE_KI>) _param_pid_xte_ki,
+		(ParamFloat<px4::params::FW_PID_XTE_KD>) _param_pid_xte_kd,
+		(ParamFloat<px4::params::FW_PID_XTE_MAXA>) _param_pid_xte_maxa,
+		(ParamFloat<px4::params::FW_PID_XTE_ILIM>) _param_pid_xte_ilim,
 
 		(ParamFloat<px4::params::NPFG_PERIOD>) _param_npfg_period,
 		(ParamFloat<px4::params::NPFG_DAMPING>) _param_npfg_damping,

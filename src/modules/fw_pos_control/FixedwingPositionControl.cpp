@@ -66,6 +66,7 @@ FixedwingPositionControl::FixedwingPositionControl(bool vtol) :
 	_pos_ctrl_status_pub.advertise();
 	_pos_ctrl_landing_status_pub.advertise();
 	_tecs_status_pub.advertise();
+	_fw_guidance_status_pub.advertise();
 	_launch_detection_status_pub.advertise();
 	_landing_gear_pub.advertise();
 
@@ -125,15 +126,14 @@ FixedwingPositionControl::parameters_update()
 	_npfg.setRollLimit(radians(_param_fw_r_lim.get()));
 	_npfg.setPeriodSafetyFactor(_param_npfg_period_safety_factor.get());
 
-	// PID parameters are now managed by fw_mode_manager
-	// _pid_kd = _param_pid_xte_kd.get();
-	// _pid_xte.setGains(
-	//	_param_pid_xte_kp.get(),
-	//	_param_pid_xte_ki.get(),
-	//	0.0f
-	// );
-	// _pid_xte.setOutputLimit(6.0f);
-	// _pid_xte.setIntegralLimit(_param_pid_xte_ilim.get());
+	_pid_kd = _param_pid_xte_kd.get();
+	_pid_xte.setGains(
+		_param_pid_xte_kp.get(),
+		_param_pid_xte_ki.get(),
+		0.0f
+	);
+	_pid_xte.setOutputLimit(_param_pid_xte_maxa.get());
+	_pid_xte.setIntegralLimit(_param_pid_xte_ilim.get());
 	_pid_xte.setSetpoint(0.0f);
 
 	// TECS parameters
@@ -470,9 +470,8 @@ FixedwingPositionControl::status_publish()
 
 	npfg_status.wind_est_valid = _wind_valid;
 
-	// FW_GUIDANCE_MODE parameter is now managed by fw_mode_manager
-	const int guidance_mode = 0; // Default to NPFG mode
-	// const int guidance_mode = 0;
+	const int guidance_mode = _param_fw_guidance_mode.get();
+	const float switch_distance = math::max(_param_fw_pn_sw_dst.get(), 1.0f);
 
 	if (guidance_mode == 0) {
 		const float bearing = _npfg.getBearing(); // dont repeat atan2 calc
@@ -480,7 +479,7 @@ FixedwingPositionControl::status_publish()
 		pos_ctrl_status.nav_bearing = bearing;
 		pos_ctrl_status.target_bearing = _target_bearing;
 		pos_ctrl_status.xtrack_error = _npfg.getTrackError();
-		pos_ctrl_status.acceptance_radius = _npfg.switchDistance(500.0f);
+		pos_ctrl_status.acceptance_radius = switch_distance;
 
 		npfg_status.lat_accel = _npfg.getLateralAccel();
 		npfg_status.lat_accel_ff = _npfg.getLateralAccelFF();
@@ -501,7 +500,7 @@ FixedwingPositionControl::status_publish()
 		pos_ctrl_status.nav_bearing = _guidance_output.course_setpoint;
 		pos_ctrl_status.target_bearing = _target_bearing;
 		pos_ctrl_status.xtrack_error = _guidance_output.track_error;
-		pos_ctrl_status.acceptance_radius = NAN;
+		pos_ctrl_status.acceptance_radius = switch_distance;
 
 		npfg_status.lat_accel = NAN;
 		npfg_status.lat_accel_ff = NAN;
@@ -531,6 +530,27 @@ FixedwingPositionControl::status_publish()
 	pos_ctrl_status.type = _position_sp_type;
 
 	_pos_ctrl_status_pub.publish(pos_ctrl_status);
+
+	fw_guidance_status_s fw_guidance_status{};
+	fw_guidance_status.timestamp = hrt_absolute_time();
+	fw_guidance_status.guidance_mode = guidance_mode;
+	fw_guidance_status.track_error = pos_ctrl_status.xtrack_error;
+	fw_guidance_status.course_setpoint = pos_ctrl_status.nav_bearing;
+	fw_guidance_status.lateral_acceleration = _guidance_output.lateral_acceleration;
+
+	const float roll_body = atanf(_guidance_output.lateral_acceleration / CONSTANTS_ONE_G);
+	fw_guidance_status.roll_setpoint = math::constrain(roll_body, -radians(_param_fw_r_lim.get()),
+							radians(_param_fw_r_lim.get()));
+
+	fw_guidance_status.switch_distance = switch_distance;
+	fw_guidance_status.nav_bearing = pos_ctrl_status.nav_bearing;
+	fw_guidance_status.target_bearing = pos_ctrl_status.target_bearing;
+
+	const Vector2f ground_vel{_local_pos.vx, _local_pos.vy};
+	fw_guidance_status.ground_speed = ground_vel.length();
+	fw_guidance_status.airspeed_ref = (guidance_mode == 0) ? (_npfg.getAirspeedRef() / _eas2tas) : NAN;
+
+	_fw_guidance_status_pub.publish(fw_guidance_status);
 }
 
 void
@@ -589,7 +609,9 @@ float FixedwingPositionControl::getCorrectedNpfgRollSetpoint()
 
 float FixedwingPositionControl::getGuidanceRollSetpoint()
 {
-	if (0 == 0) {
+	const int guidance_mode = _param_fw_guidance_mode.get();
+
+	if (guidance_mode == 0) {
 		return getCorrectedNpfgRollSetpoint();
 	}
 
@@ -599,7 +621,9 @@ float FixedwingPositionControl::getGuidanceRollSetpoint()
 
 float FixedwingPositionControl::getGuidanceAirspeedRef(float target_airspeed) const
 {
-	if (0 == 0) {
+	const int guidance_mode = _param_fw_guidance_mode.get();
+
+	if (guidance_mode == 0) {
 		return _npfg.getAirspeedRef() / _eas2tas;
 	}
 
@@ -3220,7 +3244,7 @@ void FixedwingPositionControl::publishOrbitStatus(const position_setpoint_s pos_
 void FixedwingPositionControl::guideToPath(const Vector2f &vehicle_pos, const Vector2f &ground_vel, const Vector2f &wind_vel,
 		const Vector2f &unit_path_tangent, const Vector2f &closest_point_on_path, const float &path_curvature)
 {
-	const int guidance_mode = 0;
+	const int guidance_mode = _param_fw_guidance_mode.get();
 
 	if (guidance_mode != _guidance_mode_last) {
 		_pid_xte.resetIntegral();
@@ -3264,9 +3288,8 @@ FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigateL1(co
 		return sp;
 	}
 
-	// L1 parameters are now managed by fw_mode_manager
-	const float l1_period = 25.0f; // Default value from fw_mode_manager
-	const float l1_damping = 0.75f; // Default value from fw_mode_manager
+	const float l1_period = _param_fw_l1_period.get();
+	const float l1_damping = _param_fw_l1_damping.get();
 	const float l1_ratio = (1.0f / M_PI_F) * l1_damping * l1_period;
 	const float k_l1 = 4.0f * l1_damping * l1_damping;
 
@@ -3370,10 +3393,11 @@ FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigatePID(c
 
 	_pid_last_error = cross_track_error;
 
+	const float max_lateral_accel = _param_pid_xte_maxa.get();
 	lateral_accel_cmd = math::constrain(
 		lateral_accel_cmd,
-		-6.0f,
-		6.0f
+		-max_lateral_accel,
+		max_lateral_accel
 	);
 
 	const float path_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
@@ -3431,6 +3455,7 @@ FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigatePID(c
 void FixedwingPositionControl::navigateWaypoints(const Vector2f &start_waypoint, const Vector2f &end_waypoint,
 		const Vector2f &vehicle_pos, const Vector2f &ground_vel, const Vector2f &wind_vel)
 {
+	const float switch_distance = math::max(_param_fw_pn_sw_dst.get(), 1.0f);
 	const Vector2f start_waypoint_to_end_waypoint = end_waypoint - start_waypoint;
 	const Vector2f start_waypoint_to_vehicle = vehicle_pos - start_waypoint;
 	const Vector2f end_waypoint_to_vehicle = vehicle_pos - end_waypoint;
@@ -3443,7 +3468,7 @@ void FixedwingPositionControl::navigateWaypoints(const Vector2f &start_waypoint,
 	}
 
 	if ((start_waypoint_to_end_waypoint.dot(start_waypoint_to_vehicle) < -FLT_EPSILON)
-	    && (start_waypoint_to_vehicle.norm() > _npfg.switchDistance(500.0f))) {
+	    && (start_waypoint_to_vehicle.norm() > switch_distance)) {
 		// we are in front of the start waypoint, fly directly to it until we are within switch distance
 		navigateWaypoint(start_waypoint, vehicle_pos, ground_vel, wind_vel);
 		return;

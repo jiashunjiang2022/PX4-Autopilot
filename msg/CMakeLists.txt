@@ -91,6 +91,7 @@ set(msg_files
 	FollowTarget.msg
 	FollowTargetEstimator.msg
 	FollowTargetStatus.msg
+	FwGuidanceStatus.msg
 	FuelTankStatus.msg
 	GeneratorStatus.msg
 	GeofenceResult.msg
