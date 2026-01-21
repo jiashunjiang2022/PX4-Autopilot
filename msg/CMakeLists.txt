@@ -87,6 +87,8 @@ set(msg_files
 	FigureEightStatus.msg
 	FailsafeFlags.msg
 	FailureDetectorStatus.msg
+	FlapMotorSetpoint.msg
+	FlapFrequency.msg
 	FlightPhaseEstimation.msg
 	FollowTarget.msg
 	FollowTargetEstimator.msg
@@ -117,6 +119,9 @@ set(msg_files
 	InputRc.msg
 	InternalCombustionEngineControl.msg
 	InternalCombustionEngineStatus.msg
+	EncoderCount.msg
+	HallEvent.msg
+	WingPhase.msg
 	IridiumsbdStatus.msg
 	IrlockReport.msg
 	LandingGear.msg

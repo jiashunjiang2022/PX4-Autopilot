@@ -31,70 +31,61 @@
  *
  ****************************************************************************/
 
+/**
+ * @file AS5600.hpp
+ *
+ * Driver for AS5600 I2C magnetic rotary encoder.
+ */
+
 #pragma once
 
+#include <px4_platform_common/defines.h>
+#include <px4_platform_common/i2c_spi_buses.h>
+#include <drivers/device/i2c.h>
 #include <drivers/drv_hrt.h>
-#include <lib/mathlib/math/filter/AlphaFilter.hpp>
-#include <lib/mathlib/math/filter/MedianFilter.hpp>
-#include <px4_arch/micro_hal.h>
-#include <px4_platform_common/module.h>
-#include <px4_platform_common/module_params.h>
-#include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
+#include <mathlib/mathlib.h>
+#include <parameters/param.h>
 #include <uORB/Publication.hpp>
 #include <uORB/PublicationMulti.hpp>
-#include <uORB/topics/pwm_input.h>
-#include <uORB/topics/hall_event.h>
+#include <uORB/topics/encoder_count.h>
+#include <uORB/topics/debug_vect.h>
+#include <uORB/topics/flap_frequency.h>
 #include <uORB/topics/rpm.h>
 
-using namespace time_literals;
+/* Configuration Constants */
+#define AS5600_I2C_ADDRESS_DEFAULT 0x36
 
-class RPMCapture : public ModuleBase<RPMCapture>, public px4::ScheduledWorkItem, public ModuleParams
+class AS5600 : public device::I2C, public I2CSPIDriver<AS5600>
 {
 public:
-	RPMCapture();
-	virtual ~RPMCapture();
+	AS5600(const I2CSPIDriverConfig &config);
+	~AS5600() override = default;
 
-	/** @see ModuleBase */
-	static int task_spawn(int argc, char *argv[]);
+	static void print_usage();
 
-	/** @see ModuleBase */
-	static int custom_command(int argc, char *argv[]);
+	void RunImpl();
 
-	/** @see ModuleBase */
-	static int print_usage(const char *reason = nullptr);
-
-	bool init();
-
-	static int gpio_interrupt_callback(int irq, void *context, void *arg);
-
-	/** RPMCapture is an interrupt-driven task and needs to be manually stopped */
-	static void stop();
+	int init() override;
+	void print_status() override;
 
 private:
-	static constexpr hrt_abstime RPM_PULSE_TIMEOUT = 1_s;
-	static constexpr float RPM_MAX_VALUE = 50e3f;
-	static constexpr float RPM_FILTER_TIME_CONSTANT = .5f;
+	int probe() override;
 
-	void Run() override;
+	bool read_raw_angle(uint16_t &angle_raw);
+	bool read_angle(float &angle_rad);
 
-	int _channel{-1};
-	uint32_t _rpm_capture_gpio{0};
-	uORB::Publication<pwm_input_s> _pwm_input_pub{ORB_ID(pwm_input)};
+	hrt_abstime _last_read{0};
+	float _last_angle_rad{0.f};
+	float _rpm_estimate{0.f};
+	float _flap_ratio{7.5f};
+	hrt_abstime _last_param_update{0};
+	param_t _param_flap_ratio_handle{PARAM_INVALID};
+	uint16_t _last_pos{0};
+	int64_t _total_count{0};
+	bool _pos_initialized{false};
+
+	uORB::Publication<debug_vect_s> _debug_pub{ORB_ID(debug_vect)};
+	uORB::Publication<encoder_count_s> _encoder_pub{ORB_ID(encoder_count)};
+	uORB::Publication<flap_frequency_s> _flap_frequency_pub{ORB_ID(flap_frequency)};
 	uORB::PublicationMulti<rpm_s> _rpm_pub{ORB_ID(rpm)};
-	uORB::Publication<hall_event_s> _hall_pub{ORB_ID(hall_event)};
-
-	hrt_abstime _hrt_timestamp{0};
-	hrt_abstime _hrt_timestamp_prev{0};
-	uint32_t _period{UINT32_MAX};
-	uint32_t _error_count{0};
-	px4::atomic<bool> _interrupt_happened{false};
-	px4::atomic<uint32_t> _pulse_count{0};
-
-	hrt_abstime _timestamp_last_update{0}; ///< to caluclate dt
-	AlphaFilter<float> _rpm_filter;
-	MedianFilter<float, 5> _rpm_median_filter;
-
-	DEFINE_PARAMETERS(
-		(ParamInt<px4::params::RPM_PULS_PER_REV>) _param_rpm_puls_per_rev
-	)
 };

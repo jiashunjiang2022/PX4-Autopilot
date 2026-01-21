@@ -1,0 +1,15 @@
+menuconfig DRIVERS_HALL_GPIO
+	bool "hall_gpio"
+	default n
+	---help---
+		Enable GPIO-based Hall sensor pulse capture driver.
+
+if DRIVERS_HALL_GPIO
+
+config HALL_GPIO_PULSES_PER_REV_DEFAULT
+	int "Default pulses per revolution"
+	default 1
+	help
+		Default pulses per mechanical revolution when not provided on CLI.
+
+endif

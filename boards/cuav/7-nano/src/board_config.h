@@ -256,6 +256,9 @@
 #define INPUT_CAP6_CHANNEL	2 /* T12C2 */
 #define GPIO_INPUT_CAP6		GPIO_TIM12_CH2IN_2 /* PH9 */
 
+/* Hall sensor on PWM CH14 (PH9, single signal) repurposed as GPIO EXTI input */
+#define GPIO_HALL_IN		/* PH9 */ (GPIO_INPUT|GPIO_PULLUP|GPIO_EXTI|GPIO_PORTH|GPIO_PIN9)
+
 /* PWM input driver. Use FMU AUX5 pins attached to timer4 channel 2 */
 #define PWMIN_TIMER                       4
 #define PWMIN_TIMER_CHANNEL    /* T4C2 */ 2

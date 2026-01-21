@@ -26,3 +26,15 @@ ist8310 -X -b 4 -a 0xc  start
 
 # External compass on GPS/I2C1 (the 3rd external bus): standard Holybro Pixhawk 4 or CUAV V5 GPS/compass puck (with lights, safety button, and buzzer)
 ist8310 -X -b 1 -R 10 start
+
+# AS5600 magnetic encoder on external I2C2
+as5600 start -X -b 2
+
+# RPM PID controller (uses AS5600 rpm estimate)
+rpm_pid start
+
+# Hall sensor on PWM AUX6 (GPIO EXTI) for index/reset pulse
+hall_gpio start -p 1
+
+# Compute wing phase from encoder counts + hall index
+wing_phase start

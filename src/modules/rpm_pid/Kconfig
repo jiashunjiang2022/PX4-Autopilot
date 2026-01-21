@@ -1,0 +1,6 @@
+menuconfig MODULES_RPM_PID
+	bool "rpm_pid"
+	default n
+	---help---
+		Flapping wing frequency / motor RPM PID controller
+

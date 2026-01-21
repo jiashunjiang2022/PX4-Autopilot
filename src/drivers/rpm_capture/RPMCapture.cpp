@@ -109,6 +109,7 @@ void RPMCapture::Run()
 		_period = _hrt_timestamp - _hrt_timestamp_prev;
 		_hrt_timestamp_prev = _hrt_timestamp;
 		_interrupt_happened.store(false);
+		_pulse_count.fetch_add(1);
 
 		pwm_input_s pwm_input{};
 		pwm_input.timestamp = now;
@@ -147,6 +148,12 @@ void RPMCapture::Run()
 	rpm.rpm_raw = rpm_raw;
 	rpm.rpm_estimate = _rpm_filter.getState();
 	_rpm_pub.publish(rpm);
+
+	// publish hall_event alongside rpm (one per run, pulse_count is latched)
+	hall_event_s hall{};
+	hall.timestamp = now;
+	hall.pulse_count = _pulse_count.load();
+	_hall_pub.publish(hall);
 }
 
 int RPMCapture::gpio_interrupt_callback(int irq, void *context, void *arg)
