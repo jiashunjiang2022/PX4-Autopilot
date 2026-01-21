@@ -125,14 +125,15 @@ FixedwingPositionControl::parameters_update()
 	_npfg.setRollLimit(radians(_param_fw_r_lim.get()));
 	_npfg.setPeriodSafetyFactor(_param_npfg_period_safety_factor.get());
 
-	_pid_kd = _param_pid_xte_kd.get();
-	_pid_xte.setGains(
-		_param_pid_xte_kp.get(),
-		_param_pid_xte_ki.get(),
-		0.0f
-	);
-	_pid_xte.setOutputLimit(_param_pid_xte_maxa.get());
-	_pid_xte.setIntegralLimit(_param_pid_xte_ilim.get());
+	// PID parameters are now managed by fw_mode_manager
+	// _pid_kd = _param_pid_xte_kd.get();
+	// _pid_xte.setGains(
+	//	_param_pid_xte_kp.get(),
+	//	_param_pid_xte_ki.get(),
+	//	0.0f
+	// );
+	// _pid_xte.setOutputLimit(6.0f);
+	// _pid_xte.setIntegralLimit(_param_pid_xte_ilim.get());
 	_pid_xte.setSetpoint(0.0f);
 
 	// TECS parameters
@@ -469,7 +470,9 @@ FixedwingPositionControl::status_publish()
 
 	npfg_status.wind_est_valid = _wind_valid;
 
-	const int guidance_mode = _param_fw_guidance_mode.get();
+	// FW_GUIDANCE_MODE parameter is now managed by fw_mode_manager
+	const int guidance_mode = 0; // Default to NPFG mode
+	// const int guidance_mode = 0;
 
 	if (guidance_mode == 0) {
 		const float bearing = _npfg.getBearing(); // dont repeat atan2 calc
@@ -586,7 +589,7 @@ float FixedwingPositionControl::getCorrectedNpfgRollSetpoint()
 
 float FixedwingPositionControl::getGuidanceRollSetpoint()
 {
-	if (_param_fw_guidance_mode.get() == 0) {
+	if (0 == 0) {
 		return getCorrectedNpfgRollSetpoint();
 	}
 
@@ -596,7 +599,7 @@ float FixedwingPositionControl::getGuidanceRollSetpoint()
 
 float FixedwingPositionControl::getGuidanceAirspeedRef(float target_airspeed) const
 {
-	if (_param_fw_guidance_mode.get() == 0) {
+	if (0 == 0) {
 		return _npfg.getAirspeedRef() / _eas2tas;
 	}
 
@@ -1598,7 +1601,7 @@ FixedwingPositionControl::control_auto_takeoff(const hrt_abstime &now, const flo
 		}
 
 		// tune up the lateral position control guidance when on the ground
-		if (_runway_takeoff.controlYaw() && _param_fw_guidance_mode.get() == 0) {
+		if (_runway_takeoff.controlYaw() && 0 == 0) {
 			_npfg.setPeriod(_param_rwto_npfg_period.get());
 
 		}
@@ -1883,7 +1886,7 @@ FixedwingPositionControl::control_auto_landing_straight(const hrt_abstime &now, 
 
 		/* lateral guidance first, because npfg will adjust the airspeed setpoint if necessary */
 
-		if (_param_fw_guidance_mode.get() == 0) {
+		if (0 == 0) {
 			const float ground_roll_npfg_period = flare_ramp_interpolator * _param_rwto_npfg_period.get() +
 							      (1.0f - flare_ramp_interpolator) * _param_npfg_period.get();
 			_npfg.setPeriod(ground_roll_npfg_period);
@@ -3217,7 +3220,7 @@ void FixedwingPositionControl::publishOrbitStatus(const position_setpoint_s pos_
 void FixedwingPositionControl::guideToPath(const Vector2f &vehicle_pos, const Vector2f &ground_vel, const Vector2f &wind_vel,
 		const Vector2f &unit_path_tangent, const Vector2f &closest_point_on_path, const float &path_curvature)
 {
-	const int guidance_mode = _param_fw_guidance_mode.get();
+	const int guidance_mode = 0;
 
 	if (guidance_mode != _guidance_mode_last) {
 		_pid_xte.resetIntegral();
@@ -3261,8 +3264,9 @@ FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigateL1(co
 		return sp;
 	}
 
-	const float l1_period = math::max(_param_fw_l1_period.get(), 0.1f);
-	const float l1_damping = math::max(_param_fw_l1_damping.get(), 0.1f);
+	// L1 parameters are now managed by fw_mode_manager
+	const float l1_period = 25.0f; // Default value from fw_mode_manager
+	const float l1_damping = 0.75f; // Default value from fw_mode_manager
 	const float l1_ratio = (1.0f / M_PI_F) * l1_damping * l1_period;
 	const float k_l1 = 4.0f * l1_damping * l1_damping;
 
@@ -3368,8 +3372,8 @@ FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigatePID(c
 
 	lateral_accel_cmd = math::constrain(
 		lateral_accel_cmd,
-		-_param_pid_xte_maxa.get(),
-		_param_pid_xte_maxa.get()
+		-6.0f,
+		6.0f
 	);
 
 	const float path_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));

@@ -990,13 +990,14 @@ private:
 
 		(ParamFloat<px4::params::FW_PN_R_SLEW_MAX>) _param_fw_pn_r_slew_max,
 		(ParamFloat<px4::params::FW_R_LIM>) _param_fw_r_lim,
-		(ParamFloat<px4::params::FW_L1_PERIOD>) _param_fw_l1_period,
-		(ParamFloat<px4::params::FW_L1_DAMPING>) _param_fw_l1_damping,
-		(ParamFloat<px4::params::FW_PID_XTE_KP>) _param_pid_xte_kp,
-		(ParamFloat<px4::params::FW_PID_XTE_KI>) _param_pid_xte_ki,
-		(ParamFloat<px4::params::FW_PID_XTE_KD>) _param_pid_xte_kd,
-		(ParamFloat<px4::params::FW_PID_XTE_MAXA>) _param_pid_xte_maxa,
-		(ParamFloat<px4::params::FW_PID_XTE_ILIM>) _param_pid_xte_ilim,
+		// Note: FW_L1_PERIOD, FW_L1_DAMPING, FW_PID_XTE_* parameters are defined in fw_mode_manager
+		// (ParamFloat<px4::params::FW_L1_PERIOD>) _param_fw_l1_period,
+		// (ParamFloat<px4::params::FW_L1_DAMPING>) _param_fw_l1_damping,
+		// (ParamFloat<px4::params::FW_PID_XTE_KP>) _param_pid_xte_kp,
+		// (ParamFloat<px4::params::FW_PID_XTE_KI>) _param_pid_xte_ki,
+		// (ParamFloat<px4::params::FW_PID_XTE_KD>) _param_pid_xte_kd,
+		// (ParamFloat<px4::params::FW_PID_XTE_MAXA>) _param_pid_xte_maxa,
+		// (ParamFloat<px4::params::FW_PID_XTE_ILIM>) _param_pid_xte_ilim,
 
 		(ParamFloat<px4::params::NPFG_PERIOD>) _param_npfg_period,
 		(ParamFloat<px4::params::NPFG_DAMPING>) _param_npfg_damping,
