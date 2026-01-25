@@ -103,6 +103,8 @@ private:
 	float _phase_ff_amp{0.f};
 	float _phase_ff_duty{0.5f};
 	float _phase_ff_shift_deg{0.f};
+	int32_t _fm_mode{1};
+	float _fm_delta_hz{0.f};
 
 	wing_phase_s _wing_phase{};
 
@@ -117,6 +119,8 @@ private:
 			(ParamInt<px4::params::FLAP_PHASE_EN>) _param_flap_phase_en,
 			(ParamFloat<px4::params::FLAP_PHASE_AMP>) _param_flap_phase_amp,
 			(ParamFloat<px4::params::FLAP_PHASE_DUTY>) _param_flap_phase_duty,
-			(ParamFloat<px4::params::FLAP_PHASE_SHIFT>) _param_flap_phase_shift
+			(ParamFloat<px4::params::FLAP_PHASE_SHIFT>) _param_flap_phase_shift,
+			(ParamInt<px4::params::FLAP_FM_MODE>) _param_flap_fm_mode,
+			(ParamFloat<px4::params::FLAP_FM_DELTA>) _param_flap_fm_delta
 		)
 };

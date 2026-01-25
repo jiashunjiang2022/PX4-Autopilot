@@ -79,6 +79,8 @@ void RpmPid::updateParams()
 	_phase_ff_amp = _param_flap_phase_amp.get();
 	_phase_ff_duty = _param_flap_phase_duty.get();
 	_phase_ff_shift_deg = _param_flap_phase_shift.get();
+	_fm_mode = _param_flap_fm_mode.get();
+	_fm_delta_hz = _param_flap_fm_delta.get();
 
 	// basic sanity
 	if (_flap_f_max < _flap_f_min) {
@@ -88,6 +90,8 @@ void RpmPid::updateParams()
 	_phase_ff_amp = math::constrain(_phase_ff_amp, 0.f, 0.2f);
 	_phase_ff_duty = math::constrain(_phase_ff_duty, 0.1f, 0.9f);
 	_phase_ff_shift_deg = math::constrain(_phase_ff_shift_deg, -180.f, 180.f);
+	_fm_mode = math::constrain(_fm_mode, 0, 2);
+	_fm_delta_hz = math::constrain(_fm_delta_hz, 0.f, 10.f);
 }
 
 void RpmPid::Run()
@@ -165,7 +169,32 @@ void RpmPid::Run()
 
 			} else {
 				// Use u_ref as thrust demand proxy and map to desired flapping frequency.
-				const float f_sp = _flap_f_min + u_ref * (_flap_f_max - _flap_f_min);
+				float f_sp = _flap_f_min + u_ref * (_flap_f_max - _flap_f_min);
+
+				// Piecewise frequency modulation: upper/lower half-cycle use different frequencies,
+				// while keeping the overall period constant.
+				if (_fm_mode == 2) {
+					const bool phase_valid = (now - _wing_phase.timestamp) < 200000 && PX4_ISFINITE(_wing_phase.phase_deg);
+
+					if (phase_valid && PX4_ISFINITE(f_sp)) {
+						float delta = _fm_delta_hz;
+
+						// Ensure delta is feasible (f_sp - 2*delta > 0).
+						if (f_sp <= 2.f * delta) {
+							delta = 0.49f * f_sp;
+						}
+
+						const float denom = f_sp - 2.f * delta;
+
+						if (denom > 0.001f) {
+							const float sigma = f_sp * delta / denom;
+							const float phase_deg = wrap360(_wing_phase.phase_deg + _phase_ff_shift_deg);
+							const bool upper_half = (phase_deg < 180.f);
+							f_sp = upper_half ? (f_sp - delta) : (f_sp + sigma);
+						}
+					}
+				}
+
 				const float rpm_sp = f_sp * _flap_ratio * 60.f;
 				const float rpm_meas = rpm.rpm_estimate;
 
@@ -185,7 +214,7 @@ void RpmPid::Run()
 				// Phase-based shaping feedforward: smooth cosine modulation (downstroke 90..270 positive).
 				// This is applied on the motor command (not on the setpoint) to bias within-cycle torque
 				// while keeping the average reference from the flight stack.
-				if (_phase_ff_en && (_phase_ff_amp > 0.f)) {
+				if (_fm_mode == 1 && _phase_ff_en && (_phase_ff_amp > 0.f)) {
 					const bool phase_valid = (now - _wing_phase.timestamp) < 200000 && PX4_ISFINITE(_wing_phase.phase_deg);
 
 					if (phase_valid) {

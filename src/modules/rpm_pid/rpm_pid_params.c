@@ -248,3 +248,31 @@ PARAM_DEFINE_FLOAT(FLAP_PHASE_DUTY, 0.5f);
  * @group Flapping Wing Control
  */
 PARAM_DEFINE_FLOAT(FLAP_PHASE_SHIFT, 0.0f);
+
+/**
+ * Flapping modulation mode.
+ *
+ * 0: frequency PID only (no modulation)
+ * 1: phase feedforward (cosine) modulation
+ * 2: piecewise frequency modulation (upper/lower half-cycle at different frequencies)
+ *
+ * @min 0
+ * @max 2
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_INT32(FLAP_FM_MODE, 1);
+
+/**
+ * Piecewise frequency delta [Hz].
+ *
+ * Used only when FLAP_FM_MODE=2.
+ * Upper half-cycle uses f - delta, lower half-cycle uses f + sigma,
+ * with sigma chosen to keep the overall period constant:
+ *   sigma = f*delta / (f - 2*delta)
+ *
+ * @min 0.0
+ * @max 10.0
+ * @decimal 2
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_FM_DELTA, 0.0f);
