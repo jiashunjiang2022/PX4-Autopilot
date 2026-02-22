@@ -91,6 +91,8 @@
 #if defined(CONFIG_EKF2_AIRSPEED)
 # include <uORB/topics/airspeed.h>
 # include <uORB/topics/airspeed_validated.h>
+# include <uORB/topics/ekf2_airspeed_quality.h>
+# include <uORB/topics/flap_frequency.h>
 #endif // CONFIG_EKF2_AIRSPEED
 
 #if defined(CONFIG_EKF2_AUXVEL)
@@ -161,6 +163,41 @@ private:
 
 	static constexpr uint8_t MAX_NUM_IMUS = 4;
 	static constexpr uint8_t MAX_NUM_MAGS = 4;
+
+#if defined(CONFIG_EKF2_AIRSPEED)
+	struct AirspeedQualityState {
+		float airspeed_q{1.f};
+		float R_as_used{0.f};
+		bool fuse_enabled{true};
+		float flap_frequency_hz{NAN};
+		float spectral_ratio{0.f};
+		float dv{0.f};
+		uint64_t timestamp_us{0};
+	};
+
+	class AirspeedQualityEstimator
+	{
+	public:
+		void reset();
+		bool update(uint64_t time_us, float true_airspeed, float flap_freq_hz, float eas2tas,
+			    float tw_s, float df_hz, float a, float b, float dv0, float rmax_factor,
+			    float base_noise_std, float q_on, float q_off, AirspeedQualityState &out);
+
+	private:
+		static constexpr int kMaxSamples = 256;
+
+		int _head{0};
+		int _count{0};
+		uint64_t _last_eval_time{0};
+		float _last_airspeed{NAN};
+		uint64_t _last_time{0};
+		float _dv_filtered{0.f};
+		float _spectral_ratio{0.f};
+		bool _fuse_enabled{true};
+		float _samples[kMaxSamples]{};
+		uint64_t _times[kMaxSamples]{};
+	};
+#endif // CONFIG_EKF2_AIRSPEED
 
 	void Run() override;
 
@@ -367,14 +404,23 @@ private:
 #endif // CONFIG_EKF2_DRAG_FUSION
 
 #if defined(CONFIG_EKF2_AIRSPEED)
+	uORB::Subscription _flap_frequency_sub{ORB_ID(flap_frequency)};
 	uORB::Subscription _airspeed_sub {ORB_ID(airspeed)};
 	uORB::Subscription _airspeed_validated_sub{ORB_ID(airspeed_validated)};
 
 	float _airspeed_scale_factor{1.0f}; ///< scale factor correction applied to airspeed measurements
 	hrt_abstime _airspeed_validated_timestamp_last{0};
+	hrt_abstime _flap_frequency_timestamp{0};
+	float _flap_frequency_hz{NAN};
 
 	uORB::PublicationMulti<estimator_aid_source1d_s> _estimator_aid_src_airspeed_pub {ORB_ID(estimator_aid_src_airspeed)};
 	hrt_abstime _status_airspeed_pub_last{0};
+
+	uORB::PublicationMulti<ekf2_airspeed_quality_s> _ekf2_airspeed_quality_pub{ORB_ID(ekf2_airspeed_quality)};
+	hrt_abstime _airspeed_quality_pub_last{0};
+
+	AirspeedQualityEstimator _airspeed_quality_estimator{};
+	AirspeedQualityState _airspeed_quality_state{};
 #endif // CONFIG_EKF2_AIRSPEED
 
 #if defined(CONFIG_EKF2_SIDESLIP)
@@ -572,6 +618,24 @@ private:
 		// control of airspeed fusion
 		(ParamExtFloat<px4::params::EKF2_ARSP_THR>)
 		_param_ekf2_arsp_thr, ///< A value of zero will disabled airspeed fusion. Any positive value sets the minimum airspeed which will be used (m/sec)
+		(ParamExtInt<px4::params::EKF2_ASP_QLTY>)
+		_param_ekf2_asp_qlty, ///< enable airspeed quality estimation
+		(ParamExtFloat<px4::params::EKF2_ASP_TW>)
+		_param_ekf2_asp_tw, ///< airspeed quality spectral window length (s)
+		(ParamExtFloat<px4::params::EKF2_ASP_DF>)
+		_param_ekf2_asp_df, ///< airspeed quality spectral band half-width (Hz)
+		(ParamExtFloat<px4::params::EKF2_ASP_QA>)
+		_param_ekf2_asp_qa, ///< airspeed quality spectral weight
+		(ParamExtFloat<px4::params::EKF2_ASP_QB>)
+		_param_ekf2_asp_qb, ///< airspeed quality rate weight
+		(ParamExtFloat<px4::params::EKF2_ASP_DV0>)
+		_param_ekf2_asp_dv0, ///< airspeed rate normalization (m/s/s)
+		(ParamExtFloat<px4::params::EKF2_ASP_RMAX>)
+		_param_ekf2_asp_rmax, ///< max airspeed noise multiplier
+		(ParamExtFloat<px4::params::EKF2_ASP_QON>)
+		_param_ekf2_asp_qon, ///< airspeed quality gate on threshold
+		(ParamExtFloat<px4::params::EKF2_ASP_QOFF>)
+		_param_ekf2_asp_qoff, ///< airspeed quality gate off threshold
 #endif // CONFIG_EKF2_AIRSPEED
 
 #if defined(CONFIG_EKF2_SIDESLIP)

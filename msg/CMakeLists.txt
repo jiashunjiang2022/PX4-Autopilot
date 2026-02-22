@@ -68,6 +68,7 @@ set(msg_files
 	DistanceSensor.msg
 	DistanceSensorModeChangeRequest.msg
 	DronecanNodeStatus.msg
+	Ekf2AirspeedQuality.msg
 	Ekf2Timestamps.msg
 	EscReport.msg
 	EscStatus.msg

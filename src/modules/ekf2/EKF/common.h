@@ -221,6 +221,9 @@ struct airspeedSample {
 	uint64_t    time_us{};          ///< timestamp of the measurement (uSec)
 	float       true_airspeed{};    ///< true airspeed measurement (m/sec)
 	float       eas2tas{};          ///< equivalent to true airspeed factor
+	float       noise_var{NAN};     ///< measurement noise variance (m/sec)^2
+	float       quality{NAN};       ///< quality metric [0,1]
+	bool        fuse_enabled{true}; ///< allow fusion if true
 };
 
 struct flowSample {
@@ -393,6 +396,15 @@ struct parameters {
 	float ekf2_tas_gate{5.0f};              ///< True Airspeed innovation consistency gate size (STD)
 	float ekf2_eas_noise{1.4f};             ///< EAS measurement noise standard deviation used for airspeed fusion (m/s)
 	float ekf2_arsp_thr{2.0f};              ///< Airspeed fusion threshold. A value of zero will deactivate airspeed fusion
+	int32_t ekf2_asp_qlty{0};               ///< enable airspeed quality estimation
+	float ekf2_asp_tw{2.0f};                ///< airspeed quality spectral window length (s)
+	float ekf2_asp_df{0.5f};                ///< airspeed quality spectral band half-width (Hz)
+	float ekf2_asp_qa{0.7f};                ///< airspeed quality spectral weight
+	float ekf2_asp_qb{0.3f};                ///< airspeed quality rate weight
+	float ekf2_asp_dv0{5.0f};               ///< airspeed rate normalization (m/s/s)
+	float ekf2_asp_rmax{5.0f};              ///< max airspeed noise multiplier
+	float ekf2_asp_qon{0.6f};               ///< airspeed quality gate on threshold
+	float ekf2_asp_qoff{0.4f};              ///< airspeed quality gate off threshold
 #endif // CONFIG_EKF2_AIRSPEED
 
 #if defined(CONFIG_EKF2_SIDESLIP)

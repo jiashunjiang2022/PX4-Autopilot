@@ -331,6 +331,15 @@ EKF2::EKF2(bool multi_mode, const px4::wq_config_t &config, bool replay_mode):
 	_param_ekf2_tas_gate(_params->ekf2_tas_gate),
 	_param_ekf2_eas_noise(_params->ekf2_eas_noise),
 	_param_ekf2_arsp_thr(_params->ekf2_arsp_thr),
+	_param_ekf2_asp_qlty(_params->ekf2_asp_qlty),
+	_param_ekf2_asp_tw(_params->ekf2_asp_tw),
+	_param_ekf2_asp_df(_params->ekf2_asp_df),
+	_param_ekf2_asp_qa(_params->ekf2_asp_qa),
+	_param_ekf2_asp_qb(_params->ekf2_asp_qb),
+	_param_ekf2_asp_dv0(_params->ekf2_asp_dv0),
+	_param_ekf2_asp_rmax(_params->ekf2_asp_rmax),
+	_param_ekf2_asp_qon(_params->ekf2_asp_qon),
+	_param_ekf2_asp_qoff(_params->ekf2_asp_qoff),
 #endif // CONFIG_EKF2_AIRSPEED
 #if defined(CONFIG_EKF2_SIDESLIP)
 	_param_ekf2_beta_gate(_params->ekf2_beta_gate),
@@ -2349,7 +2358,7 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					ekf2_airspeed_quality_s qmsg{};
 					qmsg.timestamp = _replay_mode ? ekf2_timestamps.timestamp : hrt_absolute_time();
 					qmsg.airspeed_q = _airspeed_quality_state.airspeed_q;
-					qmsg.R_as_used = _airspeed_quality_state.R_as_used;
+					qmsg.r_as_used = _airspeed_quality_state.R_as_used;
 					qmsg.fuse_enabled = _airspeed_quality_state.fuse_enabled;
 					qmsg.flap_frequency_hz = _airspeed_quality_state.flap_frequency_hz;
 					qmsg.spectral_ratio = _airspeed_quality_state.spectral_ratio;
@@ -2422,7 +2431,7 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					ekf2_airspeed_quality_s qmsg{};
 					qmsg.timestamp = _replay_mode ? ekf2_timestamps.timestamp : hrt_absolute_time();
 					qmsg.airspeed_q = _airspeed_quality_state.airspeed_q;
-					qmsg.R_as_used = _airspeed_quality_state.R_as_used;
+					qmsg.r_as_used = _airspeed_quality_state.R_as_used;
 					qmsg.fuse_enabled = _airspeed_quality_state.fuse_enabled;
 					qmsg.flap_frequency_hz = _airspeed_quality_state.flap_frequency_hz;
 					qmsg.spectral_ratio = _airspeed_quality_state.spectral_ratio;

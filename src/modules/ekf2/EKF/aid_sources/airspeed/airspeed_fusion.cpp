@@ -93,6 +93,7 @@ void Ekf::controlAirDataFusion(const imuSample &imu_delayed)
 
 		updateAirspeed(airspeed_sample, _aid_src_airspeed);
 
+		const bool quality_allows_fusion = airspeed_sample.fuse_enabled;
 		const bool continuing_conditions_passing = _control_status.flags.in_air && (_control_status.flags.fixed_wing
 				|| _control_status.flags.in_transition_to_fw)
 				&& !_control_status.flags.fake_pos;
@@ -101,10 +102,11 @@ void Ekf::controlAirDataFusion(const imuSample &imu_delayed)
 		const bool is_airspeed_consistent = (_aid_src_airspeed.test_ratio > 0.f && _aid_src_airspeed.test_ratio < 1.f);
 		const bool starting_conditions_passing = continuing_conditions_passing
 				&& is_airspeed_significant
+				&& quality_allows_fusion
 				&& (is_airspeed_consistent || !_control_status.flags.wind || _control_status.flags.inertial_dead_reckoning);
 
 		if (_control_status.flags.fuse_aspd) {
-			if (continuing_conditions_passing) {
+			if (continuing_conditions_passing && quality_allows_fusion) {
 				if (is_airspeed_significant) {
 					fuseAirspeed(airspeed_sample, _aid_src_airspeed);
 				}
@@ -167,8 +169,11 @@ void Ekf::controlAirDataFusion(const imuSample &imu_delayed)
 void Ekf::updateAirspeed(const airspeedSample &airspeed_sample, estimator_aid_source1d_s &aid_src) const
 {
 	// Variance for true airspeed measurement - (m/sec)^2
-	const float R = sq(math::constrain(_params.ekf2_eas_noise, 0.5f, 5.0f) *
-			   math::constrain(airspeed_sample.eas2tas, 0.9f, 10.0f));
+	const float R_default = sq(math::constrain(_params.ekf2_eas_noise, 0.5f, 5.0f) *
+				   math::constrain(airspeed_sample.eas2tas, 0.9f, 10.0f));
+	const float R = (PX4_ISFINITE(airspeed_sample.noise_var) && (airspeed_sample.noise_var > 0.f))
+			? math::max(airspeed_sample.noise_var, 1e-6f)
+			: R_default;
 
 	float innov = 0.f;
 	float innov_var = 0.f;
