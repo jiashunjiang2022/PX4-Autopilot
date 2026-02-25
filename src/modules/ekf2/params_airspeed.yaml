@@ -120,3 +120,39 @@ parameters:
       min: 0.0
       max: 1.0
       decimal: 2
+    EKF2_ASP_QTAU:
+      description:
+        short: Airspeed quality smoothing time constant
+      type: float
+      default: 0.25
+      min: 0.0
+      max: 2.0
+      unit: s
+      decimal: 2
+    EKF2_ASP_TOFF:
+      description:
+        short: Airspeed quality gate-off persistence time
+      type: float
+      default: 0.20
+      min: 0.0
+      max: 2.0
+      unit: s
+      decimal: 2
+    EKF2_ASP_TON:
+      description:
+        short: Airspeed quality gate-on persistence time
+      type: float
+      default: 0.30
+      min: 0.0
+      max: 2.0
+      unit: s
+      decimal: 2
+    EKF2_ASP_THLD:
+      description:
+        short: Airspeed quality gate minimum hold time
+      type: float
+      default: 0.25
+      min: 0.0
+      max: 2.0
+      unit: s
+      decimal: 2

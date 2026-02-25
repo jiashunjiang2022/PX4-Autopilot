@@ -405,6 +405,10 @@ struct parameters {
 	float ekf2_asp_rmax{5.0f};              ///< max airspeed noise multiplier
 	float ekf2_asp_qon{0.6f};               ///< airspeed quality gate on threshold
 	float ekf2_asp_qoff{0.4f};              ///< airspeed quality gate off threshold
+	float ekf2_asp_qtau{0.25f};             ///< airspeed quality smoothing time constant (s)
+	float ekf2_asp_toff{0.2f};              ///< gate-off persistence duration (s)
+	float ekf2_asp_ton{0.3f};               ///< gate-on persistence duration (s)
+	float ekf2_asp_thld{0.25f};             ///< minimum gate hold duration (s)
 #endif // CONFIG_EKF2_AIRSPEED
 
 #if defined(CONFIG_EKF2_SIDESLIP)

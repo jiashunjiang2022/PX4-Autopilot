@@ -181,7 +181,8 @@ private:
 		void reset();
 		bool update(uint64_t time_us, float true_airspeed, float flap_freq_hz, float eas2tas,
 			    float tw_s, float df_hz, float a, float b, float dv0, float rmax_factor,
-			    float base_noise_std, float q_on, float q_off, AirspeedQualityState &out);
+			    float base_noise_std, float q_on, float q_off, float q_tau_s,
+			    float t_off_s, float t_on_s, float t_hold_s, AirspeedQualityState &out);
 
 	private:
 		static constexpr int kMaxSamples = 256;
@@ -193,7 +194,11 @@ private:
 		uint64_t _last_time{0};
 		float _dv_filtered{0.f};
 		float _spectral_ratio{0.f};
+		float _q_smoothed{1.f};
 		bool _fuse_enabled{true};
+		uint64_t _below_off_since{0};
+		uint64_t _above_on_since{0};
+		uint64_t _hold_until{0};
 		float _samples[kMaxSamples]{};
 		uint64_t _times[kMaxSamples]{};
 	};
@@ -636,6 +641,14 @@ private:
 		_param_ekf2_asp_qon, ///< airspeed quality gate on threshold
 		(ParamExtFloat<px4::params::EKF2_ASP_QOFF>)
 		_param_ekf2_asp_qoff, ///< airspeed quality gate off threshold
+		(ParamExtFloat<px4::params::EKF2_ASP_QTAU>)
+		_param_ekf2_asp_qtau, ///< airspeed quality smoothing time constant (s)
+		(ParamExtFloat<px4::params::EKF2_ASP_TOFF>)
+		_param_ekf2_asp_toff, ///< quality below off threshold duration to disable fusion (s)
+		(ParamExtFloat<px4::params::EKF2_ASP_TON>)
+		_param_ekf2_asp_ton, ///< quality above on threshold duration to re-enable fusion (s)
+		(ParamExtFloat<px4::params::EKF2_ASP_THLD>)
+		_param_ekf2_asp_thld, ///< minimum gate hold duration after each switch (s)
 #endif // CONFIG_EKF2_AIRSPEED
 
 #if defined(CONFIG_EKF2_SIDESLIP)

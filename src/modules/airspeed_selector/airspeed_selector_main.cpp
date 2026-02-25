@@ -69,6 +69,7 @@
 #include <uORB/topics/vehicle_rates_setpoint.h>
 #include <uORB/topics/airspeed_wind.h>
 #include <uORB/topics/flight_phase_estimation.h>
+#include <uORB/topics/ekf2_airspeed_quality.h>
 
 using namespace time_literals;
 
@@ -130,6 +131,7 @@ private:
 	uORB::Subscription _vehicle_rates_setpoint_sub{ORB_ID(vehicle_rates_setpoint)};
 	uORB::Subscription _position_setpoint_sub{ORB_ID(position_setpoint)};
 	uORB::Subscription _launch_detection_status_sub{ORB_ID(launch_detection_status)};
+	uORB::Subscription _ekf2_airspeed_quality_sub{ORB_ID(ekf2_airspeed_quality)};
 	uORB::SubscriptionMultiArray<airspeed_s, MAX_NUM_AIRSPEED_SENSORS> _airspeed_subs{ORB_ID::airspeed};
 	uORB::SubscriptionData<flight_phase_estimation_s> _flight_phase_estimation_sub{ORB_ID(flight_phase_estimation)};
 
@@ -142,6 +144,7 @@ private:
 	vehicle_local_position_s _vehicle_local_position {};
 	vehicle_status_s _vehicle_status {};
 	position_setpoint_s _position_setpoint {};
+	ekf2_airspeed_quality_s _ekf2_airspeed_quality {};
 
 	WindEstimator	_wind_estimator_sideslip; /**< wind estimator instance only fusing sideslip */
 	airspeed_wind_s _wind_estimate_sideslip {}; /**< wind estimate message for wind estimator instance only fusing sideslip */
@@ -160,6 +163,7 @@ private:
 	float _ground_minus_wind_TAS{NAN}; /**< true airspeed from groundspeed minus windspeed */
 	float _ground_minus_wind_CAS{NAN}; /**< calibrated airspeed from groundspeed minus windspeed */
 	bool _armed_prev{false};
+	bool _ekf2_airspeed_quality_valid{false};
 
 	hrt_abstime _time_last_airspeed_update[MAX_NUM_AIRSPEED_SENSORS] {};
 
@@ -572,6 +576,7 @@ void AirspeedModule::poll_topics()
 	_position_setpoint_sub.update(&_position_setpoint);
 
 	_tecs_status_sub.update(&_tecs_status);
+	_ekf2_airspeed_quality_valid = _ekf2_airspeed_quality_sub.update(&_ekf2_airspeed_quality) || _ekf2_airspeed_quality_valid;
 
 	if (_vehicle_attitude_sub.updated()) {
 		vehicle_attitude_s vehicle_attitude;
@@ -694,6 +699,7 @@ void AirspeedModule::select_airspeed_and_publish()
 	}
 
 	const int valid_airspeed_index = static_cast<int>(_valid_airspeed_src);
+	const bool valid_sensor_index = (valid_airspeed_index > 0) && (valid_airspeed_index <= MAX_NUM_AIRSPEED_SENSORS);
 
 	// print warning or info, depending of whether airspeed got declared invalid or healthy
 	if (_valid_airspeed_src != _prev_airspeed_src &&
@@ -745,11 +751,13 @@ void AirspeedModule::select_airspeed_and_publish()
 	airspeed_validated.indicated_airspeed_m_s = NAN;
 	airspeed_validated.calibrated_airspeed_m_s = NAN;
 	airspeed_validated.true_airspeed_m_s = NAN;
-
-	airspeed_validated.airspeed_derivative_filtered = _airspeed_validator[valid_airspeed_index -
-					     1].get_airspeed_derivative();
+	airspeed_validated.airspeed_derivative_filtered = valid_sensor_index
+			? _airspeed_validator[valid_airspeed_index - 1].get_airspeed_derivative()
+			: NAN;
 	airspeed_validated.throttle_filtered = _throttle_filtered.getState();
-	airspeed_validated.pitch_filtered = _airspeed_validator[valid_airspeed_index - 1].get_pitch_filtered();
+	airspeed_validated.pitch_filtered = valid_sensor_index
+			? _airspeed_validator[valid_airspeed_index - 1].get_pitch_filtered()
+			: NAN;
 
 	airspeed_validated.airspeed_source = valid_airspeed_index;
 	_prev_airspeed_src = _valid_airspeed_src;
@@ -786,6 +794,25 @@ void AirspeedModule::select_airspeed_and_publish()
 		airspeed_validated.calibrated_ground_minus_wind_m_s = _ground_minus_wind_CAS;
 		airspeed_validated.calibraded_airspeed_synth_m_s = get_synthetic_airspeed(airspeed_validated.throttle_filtered);
 		break;
+	}
+
+	// If EKF2 declares airspeed quality as poor, do not publish contaminated airspeed to downstream controllers.
+	const bool quality_fresh = _ekf2_airspeed_quality_valid
+				   && (_ekf2_airspeed_quality.timestamp > 0)
+				   && ((_time_now_usec - _ekf2_airspeed_quality.timestamp) < 1_s);
+	const bool using_physical_airspeed_sensor = (airspeed_validated.airspeed_source >= airspeed_validated_s::SOURCE_SENSOR_1)
+			&& (airspeed_validated.airspeed_source <= airspeed_validated_s::SOURCE_SENSOR_3);
+
+	if (quality_fresh && using_physical_airspeed_sensor) {
+		const bool q_invalid = !PX4_ISFINITE(_ekf2_airspeed_quality.airspeed_q);
+		const bool gate_closed = !_ekf2_airspeed_quality.fuse_enabled;
+
+		if (q_invalid || gate_closed) {
+			airspeed_validated.indicated_airspeed_m_s = NAN;
+			airspeed_validated.calibrated_airspeed_m_s = NAN;
+			airspeed_validated.true_airspeed_m_s = NAN;
+			airspeed_validated.airspeed_source = airspeed_validated_s::SOURCE_DISABLED;
+		}
 	}
 
 	_airspeed_validated_pub.publish(airspeed_validated);

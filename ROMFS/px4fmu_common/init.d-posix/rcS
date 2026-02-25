@@ -246,6 +246,11 @@ then
 	. px4-rc.simulator
 fi
 
+if param compare ASPD_INJ_EN 1
+then
+	airspeed_injector start
+fi
+
 load_mon start
 
 if param compare SIM_BAT_ENABLE 1

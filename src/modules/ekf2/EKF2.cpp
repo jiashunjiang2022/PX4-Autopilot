@@ -74,19 +74,28 @@ void EKF2::AirspeedQualityEstimator::reset()
 	_last_time = 0;
 	_dv_filtered = 0.f;
 	_spectral_ratio = 0.f;
+	_q_smoothed = 1.f;
 	_fuse_enabled = true;
+	_below_off_since = 0;
+	_above_on_since = 0;
+	_hold_until = 0;
 }
 
 bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspeed, float flap_freq_hz, float eas2tas,
 		float tw_s, float df_hz, float a, float b, float dv0, float rmax_factor,
-		float base_noise_std, float q_on, float q_off, AirspeedQualityState &out)
+		float base_noise_std, float q_on, float q_off, float q_tau_s,
+		float t_off_s, float t_on_s, float t_hold_s, AirspeedQualityState &out)
 {
 	if (!PX4_ISFINITE(true_airspeed)) {
 		return false;
 	}
 
+	const uint64_t last_time_us = _last_time;
+	float sample_dt = NAN;
+
 	if (_last_time != 0 && PX4_ISFINITE(_last_airspeed)) {
 		const float dt = (time_us - _last_time) * 1e-6f;
+		sample_dt = dt;
 
 		if (dt > 0.f && dt < 1.f) {
 			const float dv = fabsf(true_airspeed - _last_airspeed) / dt;
@@ -195,6 +204,26 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 		q = 0.f;
 	}
 
+	const float q_raw = q;
+	float q_tau = math::constrain(q_tau_s, 0.f, 5.f);
+
+	if (!PX4_ISFINITE(q_tau)) {
+		q_tau = 0.f;
+	}
+
+	if (last_time_us == 0 || !PX4_ISFINITE(sample_dt) || sample_dt <= FLT_EPSILON || q_tau <= FLT_EPSILON) {
+		_q_smoothed = q_raw;
+
+	} else if (PX4_ISFINITE(_q_smoothed)) {
+		const float alpha_q = math::constrain(sample_dt / (q_tau + sample_dt), 0.f, 1.f);
+		_q_smoothed = _q_smoothed + alpha_q * (q_raw - _q_smoothed);
+
+	} else {
+		_q_smoothed = q_raw;
+	}
+
+	q = PX4_ISFINITE(_q_smoothed) ? math::constrain(_q_smoothed, 0.f, 1.f) : 0.f;
+
 	float q_on_use = math::constrain(q_on, 0.f, 1.f);
 	float q_off_use = math::constrain(q_off, 0.f, 1.f);
 
@@ -217,11 +246,59 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 		}
 	}
 
-	if (!_fuse_enabled && (q > q_on_use)) {
-		_fuse_enabled = true;
+	float t_off = math::constrain(t_off_s, 0.f, 5.f);
+	float t_on = math::constrain(t_on_s, 0.f, 5.f);
+	float t_hold = math::constrain(t_hold_s, 0.f, 5.f);
 
-	} else if (_fuse_enabled && (q < q_off_use)) {
-		_fuse_enabled = false;
+	if (!PX4_ISFINITE(t_off)) { t_off = 0.f; }
+
+	if (!PX4_ISFINITE(t_on)) { t_on = 0.f; }
+
+	if (!PX4_ISFINITE(t_hold)) { t_hold = 0.f; }
+
+	const uint64_t t_off_us = static_cast<uint64_t>(t_off * 1e6f);
+	const uint64_t t_on_us = static_cast<uint64_t>(t_on * 1e6f);
+	const uint64_t t_hold_us = static_cast<uint64_t>(t_hold * 1e6f);
+
+	if (_fuse_enabled) {
+		_above_on_since = 0;
+
+		if (time_us >= _hold_until) {
+			if (q < q_off_use) {
+				if (_below_off_since == 0) {
+					_below_off_since = time_us;
+				}
+
+				if ((time_us - _below_off_since) >= t_off_us) {
+					_fuse_enabled = false;
+					_hold_until = time_us + t_hold_us;
+					_below_off_since = 0;
+				}
+
+			} else {
+				_below_off_since = 0;
+			}
+		}
+
+	} else {
+		_below_off_since = 0;
+
+		if (time_us >= _hold_until) {
+			if (q > q_on_use) {
+				if (_above_on_since == 0) {
+					_above_on_since = time_us;
+				}
+
+				if ((time_us - _above_on_since) >= t_on_us) {
+					_fuse_enabled = true;
+					_hold_until = time_us + t_hold_us;
+					_above_on_since = 0;
+				}
+
+			} else {
+				_above_on_since = 0;
+			}
+		}
 	}
 
 	const float eas2tas_c = PX4_ISFINITE(eas2tas) ? math::constrain(eas2tas, 0.9f, 10.f) : 1.f;
@@ -336,11 +413,15 @@ EKF2::EKF2(bool multi_mode, const px4::wq_config_t &config, bool replay_mode):
 	_param_ekf2_asp_df(_params->ekf2_asp_df),
 	_param_ekf2_asp_qa(_params->ekf2_asp_qa),
 	_param_ekf2_asp_qb(_params->ekf2_asp_qb),
-	_param_ekf2_asp_dv0(_params->ekf2_asp_dv0),
-	_param_ekf2_asp_rmax(_params->ekf2_asp_rmax),
-	_param_ekf2_asp_qon(_params->ekf2_asp_qon),
-	_param_ekf2_asp_qoff(_params->ekf2_asp_qoff),
-#endif // CONFIG_EKF2_AIRSPEED
+		_param_ekf2_asp_dv0(_params->ekf2_asp_dv0),
+		_param_ekf2_asp_rmax(_params->ekf2_asp_rmax),
+		_param_ekf2_asp_qon(_params->ekf2_asp_qon),
+		_param_ekf2_asp_qoff(_params->ekf2_asp_qoff),
+		_param_ekf2_asp_qtau(_params->ekf2_asp_qtau),
+		_param_ekf2_asp_toff(_params->ekf2_asp_toff),
+		_param_ekf2_asp_ton(_params->ekf2_asp_ton),
+		_param_ekf2_asp_thld(_params->ekf2_asp_thld),
+	#endif // CONFIG_EKF2_AIRSPEED
 #if defined(CONFIG_EKF2_SIDESLIP)
 	_param_ekf2_beta_gate(_params->ekf2_beta_gate),
 	_param_ekf2_beta_noise(_params->ekf2_beta_noise),
@@ -2329,6 +2410,10 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 									   _param_ekf2_eas_noise.get(),
 									   _param_ekf2_asp_qon.get(),
 									   _param_ekf2_asp_qoff.get(),
+									   _param_ekf2_asp_qtau.get(),
+									   _param_ekf2_asp_toff.get(),
+									   _param_ekf2_asp_ton.get(),
+									   _param_ekf2_asp_thld.get(),
 									   _airspeed_quality_state);
 
 				} else {
@@ -2402,6 +2487,10 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 									   _param_ekf2_eas_noise.get(),
 									   _param_ekf2_asp_qon.get(),
 									   _param_ekf2_asp_qoff.get(),
+									   _param_ekf2_asp_qtau.get(),
+									   _param_ekf2_asp_toff.get(),
+									   _param_ekf2_asp_ton.get(),
+									   _param_ekf2_asp_thld.get(),
 									   _airspeed_quality_state);
 
 				} else {

@@ -50,6 +50,7 @@ void LoggedTopics::add_default_topics()
 	add_optional_topic("actuator_controls_status_0", 300);
 	add_topic("airspeed", 1000);
 	add_optional_topic("airspeed_validated", 200);
+	add_optional_topic_multi("ekf2_airspeed_quality", 100);
 	add_optional_topic("autotune_attitude_control_status", 100);
 	add_topic_multi("battery_info", 5000, 3);
 	add_optional_topic("camera_capture");

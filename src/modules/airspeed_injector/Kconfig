@@ -1,0 +1,5 @@
+menuconfig MODULES_AIRSPEED_INJECTOR
+	bool "airspeed_injector"
+	default n
+	---help---
+		Enable support for SITL differential pressure airspeed injector
