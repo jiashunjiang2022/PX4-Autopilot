@@ -42,6 +42,7 @@
 
 #include <uORB/Publication.hpp>
 #include <uORB/SubscriptionInterval.hpp>
+#include <uORB/uORB.h>
 #include <uORB/topics/differential_pressure.h>
 #include <uORB/topics/parameter_update.h>
 
@@ -59,6 +60,11 @@ public:
 	~AirspeedInjector() override
 	{
 		ScheduleClear();
+
+		if (_diff_pressure_pub != nullptr) {
+			orb_unadvertise(_diff_pressure_pub);
+			_diff_pressure_pub = nullptr;
+		}
 	}
 
 	static int task_spawn(int argc, char *argv[])
@@ -118,8 +124,9 @@ Publishes `differential_pressure` at 10 Hz with optional narrowband and spike di
 		PX4_INFO("running: yes");
 		PX4_INFO("published samples: %" PRIu32, _published_samples);
 		PX4_INFO("last dp: %.3f Pa", (double)_last_dp_pa);
-		PX4_INFO("params en=%d base=%.3f flap=%.3f nb=%.3f spike=%.3f spike_T=%.3f",
+		PX4_INFO("EN=%d INST=%d BASE=%.3f FLAP_HZ=%.3f NB_AMP=%.3f SPIKE_AMP=%.3f SPIKE_PERIOD=%.3f",
 			 _param_aspd_inj_en.get(),
+			 _param_aspd_inj_inst.get(),
 			 (double)_param_aspd_inj_base.get(),
 			 (double)_param_aspd_inj_flap_hz.get(),
 			 (double)_param_aspd_inj_nb_amp.get(),
@@ -147,6 +154,12 @@ private:
 
 			if (_parameter_update_sub.copy(&update)) {
 				updateParams();
+
+				if ((_diff_pressure_pub != nullptr) && (_param_aspd_inj_inst.get() != _pub_instance)) {
+					orb_unadvertise(_diff_pressure_pub);
+					_diff_pressure_pub = nullptr;
+					_pub_instance = -1;
+				}
 			}
 		}
 
@@ -155,6 +168,11 @@ private:
 		}
 
 		const hrt_abstime now = hrt_absolute_time();
+
+		if (!ensure_publisher()) {
+			return;
+		}
+
 		const float t_s = now * 1e-6f;
 		const float base_pa = _param_aspd_inj_base.get();
 		const float flap_hz = _param_aspd_inj_flap_hz.get();
@@ -168,16 +186,30 @@ private:
 			dp_pa += nb_amp * sinf(2.f * M_PI_F * flap_hz * t_s);
 		}
 
-		if (PX4_ISFINITE(spike_amp) && PX4_ISFINITE(spike_period_s) && fabsf(spike_amp) > FLT_EPSILON && spike_period_s > 0.05f) {
-			const float phase = fmodf(t_s, spike_period_s);
+		if (PX4_ISFINITE(spike_amp) && PX4_ISFINITE(spike_period_s) && (spike_amp > 0.f) && (spike_period_s > FLT_EPSILON)) {
+			const uint64_t spike_period_us = static_cast<uint64_t>(spike_period_s * 1e6f);
 
-			if (phase < 0.1f) {
-				dp_pa += spike_amp;
+			if (spike_period_us > 0) {
+				if ((_next_spike_time_us == 0) || (now < (_next_spike_time_us - spike_period_us))) {
+					_next_spike_time_us = now + spike_period_us;
+				}
+
+				if (now >= _next_spike_time_us) {
+					dp_pa += spike_amp;
+
+					do {
+						_next_spike_time_us += spike_period_us;
+
+					} while (now >= _next_spike_time_us);
+				}
 			}
+
+		} else {
+			_next_spike_time_us = 0;
 		}
 
 		if (!PX4_ISFINITE(dp_pa)) {
-			return;
+			dp_pa = base_pa;
 		}
 
 		differential_pressure_s report{};
@@ -195,19 +227,64 @@ private:
 		report.temperature = NAN;
 		report.error_count = 0;
 
-		_diff_pressure_pub.publish(report);
+		if (orb_publish(ORB_ID(differential_pressure), _diff_pressure_pub, &report) != PX4_OK) {
+			return;
+		}
+
 		_last_dp_pa = dp_pa;
 		_published_samples++;
 	}
 
-	uORB::Publication<differential_pressure_s> _diff_pressure_pub{ORB_ID(differential_pressure)};
+	bool ensure_publisher()
+	{
+		if (_diff_pressure_pub != nullptr) {
+			return true;
+		}
+
+		int desired_instance = _param_aspd_inj_inst.get();
+
+		if (desired_instance < 0) {
+			desired_instance = 0;
+		}
+		int pub_instance = desired_instance;
+		const int primary_exists = orb_exists(ORB_ID(differential_pressure), 0);
+
+		if ((desired_instance > 0) && (primary_exists != PX4_OK)) {
+			PX4_WARN("waiting for differential_pressure instance 0 before advertising instance %d", desired_instance);
+			return false;
+		}
+
+		_diff_pressure_pub = orb_advertise_multi(ORB_ID(differential_pressure), nullptr, &pub_instance);
+
+		if (_diff_pressure_pub == nullptr) {
+			PX4_WARN("advertise failed");
+			return false;
+		}
+
+		_pub_instance = pub_instance;
+
+		if (_pub_instance != desired_instance) {
+			PX4_WARN("got instance %d, expected %d; not publishing for safety", _pub_instance, desired_instance);
+			orb_unadvertise(_diff_pressure_pub);
+			_diff_pressure_pub = nullptr;
+			_pub_instance = -1;
+			return false;
+		}
+
+		return true;
+	}
+
 	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
 
 	uint32_t _published_samples{0};
 	float _last_dp_pa{NAN};
+	uint64_t _next_spike_time_us{0};
+	orb_advert_t _diff_pressure_pub{nullptr};
+	int _pub_instance{-1};
 
 	DEFINE_PARAMETERS(
 		(ParamInt<px4::params::ASPD_INJ_EN>) _param_aspd_inj_en,
+		(ParamInt<px4::params::ASPD_INJ_INST>) _param_aspd_inj_inst,
 		(ParamFloat<px4::params::ASPD_INJ_BASE>) _param_aspd_inj_base,
 		(ParamFloat<px4::params::ASPD_INJ_FLAP_HZ>) _param_aspd_inj_flap_hz,
 		(ParamFloat<px4::params::ASPD_INJ_NB_AMP>) _param_aspd_inj_nb_amp,
