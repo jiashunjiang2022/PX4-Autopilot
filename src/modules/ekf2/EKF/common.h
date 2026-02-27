@@ -398,6 +398,8 @@ struct parameters {
 	float ekf2_arsp_thr{2.0f};              ///< Airspeed fusion threshold. A value of zero will deactivate airspeed fusion
 	int32_t ekf2_asp_qlty{0};               ///< enable airspeed quality estimation
 	float ekf2_asp_tw{2.0f};                ///< airspeed quality spectral window length (s)
+	float ekf2_asp_sfs{10.0f};              ///< expected spectral input sample rate (Hz)
+	float ekf2_asp_swin{4.0f};              ///< spectral window length required before ratio valid (s)
 	float ekf2_asp_df{0.5f};                ///< airspeed quality spectral band half-width (Hz)
 	float ekf2_asp_qa{0.7f};                ///< airspeed quality spectral weight
 	float ekf2_asp_qb{0.3f};                ///< airspeed quality rate weight
@@ -409,6 +411,11 @@ struct parameters {
 	float ekf2_asp_toff{0.2f};              ///< gate-off persistence duration (s)
 	float ekf2_asp_ton{0.3f};               ///< gate-on persistence duration (s)
 	float ekf2_asp_thld{0.25f};             ///< minimum gate hold duration (s)
+	float ekf2_flap_f_on{1.0f};             ///< flap active enter frequency threshold (Hz)
+	float ekf2_flap_f_off{0.6f};            ///< flap active exit frequency threshold (Hz)
+	float ekf2_flap_t_on{0.4f};             ///< flap active enter persistence (s)
+	float ekf2_flap_t_off{1.5f};            ///< flap active exit persistence (s)
+	float ekf2_flap_t_to{0.8f};             ///< flap frequency timeout (s)
 #endif // CONFIG_EKF2_AIRSPEED
 
 #if defined(CONFIG_EKF2_SIDESLIP)

@@ -170,7 +170,8 @@ private:
 		float R_as_used{0.f};
 		bool fuse_enabled{true};
 		float flap_frequency_hz{NAN};
-		float spectral_ratio{0.f};
+		float spectral_ratio{NAN};
+		float spectral_input_m_s{NAN};
 		float dv{0.f};
 		uint64_t timestamp_us{0};
 	};
@@ -180,7 +181,9 @@ private:
 	public:
 		void reset();
 		bool update(uint64_t time_us, float true_airspeed, float flap_freq_hz, float eas2tas,
-			    float tw_s, float df_hz, float a, float b, float dv0, float rmax_factor,
+			    bool flap_freq_timed_out, float flap_f_on_hz, float flap_f_off_hz,
+			    float flap_t_on_s, float flap_t_off_s,
+			    float spec_fs_hz, float spec_win_s, float df_hz, float a, float b, float dv0, float rmax_factor,
 			    float base_noise_std, float q_on, float q_off, float q_tau_s,
 			    float t_off_s, float t_on_s, float t_hold_s, AirspeedQualityState &out);
 
@@ -193,12 +196,15 @@ private:
 		float _last_airspeed{NAN};
 		uint64_t _last_time{0};
 		float _dv_filtered{0.f};
-		float _spectral_ratio{0.f};
+		float _spectral_ratio{NAN};
 		float _q_smoothed{1.f};
 		bool _fuse_enabled{true};
 		uint64_t _below_off_since{0};
 		uint64_t _above_on_since{0};
 		uint64_t _hold_until{0};
+		bool _flap_active{false};
+		uint64_t _flap_above_on_since{0};
+		uint64_t _flap_below_off_since{0};
 		float _samples[kMaxSamples]{};
 		uint64_t _times[kMaxSamples]{};
 	};
@@ -633,6 +639,10 @@ private:
 		_param_ekf2_asp_qa, ///< airspeed quality spectral weight
 		(ParamExtFloat<px4::params::EKF2_ASP_QB>)
 		_param_ekf2_asp_qb, ///< airspeed quality rate weight
+		(ParamExtFloat<px4::params::EKF2_ASP_SFS>)
+		_param_ekf2_asp_sfs, ///< expected spectral input sample rate (Hz)
+		(ParamExtFloat<px4::params::EKF2_ASP_SWIN>)
+		_param_ekf2_asp_swin, ///< spectral window length (s), must fill before valid ratio
 		(ParamExtFloat<px4::params::EKF2_ASP_DV0>)
 		_param_ekf2_asp_dv0, ///< airspeed rate normalization (m/s/s)
 		(ParamExtFloat<px4::params::EKF2_ASP_RMAX>)

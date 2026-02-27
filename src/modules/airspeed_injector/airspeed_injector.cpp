@@ -44,6 +44,7 @@
 #include <uORB/SubscriptionInterval.hpp>
 #include <uORB/uORB.h>
 #include <uORB/topics/differential_pressure.h>
+#include <uORB/topics/flap_frequency.h>
 #include <uORB/topics/parameter_update.h>
 
 using namespace time_literals;
@@ -138,7 +139,8 @@ Publishes `differential_pressure` at 10 Hz with optional narrowband and spike di
 private:
 	bool init()
 	{
-		ScheduleOnInterval(100_ms);
+		// Run at 100 Hz so flap_frequency can be published at 100 Hz.
+		ScheduleOnInterval(10_ms);
 		return true;
 	}
 
@@ -168,6 +170,7 @@ private:
 		}
 
 		const hrt_abstime now = hrt_absolute_time();
+		publish_flap_frequency(now);
 
 		if (!ensure_publisher()) {
 			return;
@@ -227,12 +230,16 @@ private:
 		report.temperature = NAN;
 		report.error_count = 0;
 
-		if (orb_publish(ORB_ID(differential_pressure), _diff_pressure_pub, &report) != PX4_OK) {
-			return;
-		}
+		// Keep differential_pressure at 10 Hz.
+		if ((now - _last_dp_pub_us) >= 100_ms) {
+			if (orb_publish(ORB_ID(differential_pressure), _diff_pressure_pub, &report) != PX4_OK) {
+				return;
+			}
 
-		_last_dp_pa = dp_pa;
-		_published_samples++;
+			_last_dp_pub_us = now;
+			_last_dp_pa = dp_pa;
+			_published_samples++;
+		}
 	}
 
 	bool ensure_publisher()
@@ -274,13 +281,23 @@ private:
 		return true;
 	}
 
+	void publish_flap_frequency(const hrt_abstime now)
+	{
+		flap_frequency_s flap_frequency{};
+		flap_frequency.timestamp = now;
+		flap_frequency.frequency_hz = _param_aspd_inj_flap_hz.get();
+		_flap_frequency_pub.publish(flap_frequency);
+	}
+
 	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
 
 	uint32_t _published_samples{0};
 	float _last_dp_pa{NAN};
 	uint64_t _next_spike_time_us{0};
+	hrt_abstime _last_dp_pub_us{0};
 	orb_advert_t _diff_pressure_pub{nullptr};
 	int _pub_instance{-1};
+	uORB::Publication<flap_frequency_s> _flap_frequency_pub{ORB_ID(flap_frequency)};
 
 	DEFINE_PARAMETERS(
 		(ParamInt<px4::params::ASPD_INJ_EN>) _param_aspd_inj_en,
