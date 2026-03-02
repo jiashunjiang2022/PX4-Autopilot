@@ -179,6 +179,7 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 		out.airspeed_q = 1.f;
 		out.R_as_used = sq(base_noise * eas2tas_c);
 		out.fuse_enabled = true;
+		out.flap_active = false;
 		out.flap_frequency_hz = flap_freq_valid ? flap_freq_hz : NAN;
 		out.spectral_ratio = NAN;
 		out.spectral_input_m_s = true_airspeed;
@@ -414,6 +415,7 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 	out.airspeed_q = q;
 	out.R_as_used = R_used;
 	out.fuse_enabled = _fuse_enabled;
+	out.flap_active = _flap_active;
 	out.flap_frequency_hz = flap_freq_hz;
 	out.spectral_ratio = _spectral_ratio;
 	out.spectral_input_m_s = true_airspeed;
@@ -2556,6 +2558,7 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					_airspeed_quality_state.airspeed_q = 1.f;
 					_airspeed_quality_state.R_as_used = sq(base_noise * eas2tas_c);
 					_airspeed_quality_state.fuse_enabled = true;
+					_airspeed_quality_state.flap_active = false;
 					_airspeed_quality_state.flap_frequency_hz = _flap_frequency_hz;
 					_airspeed_quality_state.spectral_ratio = NAN;
 					_airspeed_quality_state.spectral_input_m_s = airspeed_validated.true_airspeed_m_s;
@@ -2579,6 +2582,7 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					qmsg.airspeed_q = _airspeed_quality_state.airspeed_q;
 					qmsg.r_as_used = _airspeed_quality_state.R_as_used;
 					qmsg.fuse_enabled = _airspeed_quality_state.fuse_enabled;
+					qmsg.flap_active = _airspeed_quality_state.flap_active;
 					qmsg.flap_frequency_hz = _airspeed_quality_state.flap_frequency_hz;
 					qmsg.spectral_ratio = _airspeed_quality_state.spectral_ratio;
 					qmsg.spectral_input_m_s = _airspeed_quality_state.spectral_input_m_s;
@@ -2641,6 +2645,7 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					_airspeed_quality_state.airspeed_q = 1.f;
 					_airspeed_quality_state.R_as_used = sq(base_noise * eas2tas_c);
 					_airspeed_quality_state.fuse_enabled = true;
+					_airspeed_quality_state.flap_active = false;
 					_airspeed_quality_state.flap_frequency_hz = _flap_frequency_hz;
 					_airspeed_quality_state.spectral_ratio = NAN;
 					_airspeed_quality_state.spectral_input_m_s = true_airspeed_m_s;
@@ -2664,6 +2669,7 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					qmsg.airspeed_q = _airspeed_quality_state.airspeed_q;
 					qmsg.r_as_used = _airspeed_quality_state.R_as_used;
 					qmsg.fuse_enabled = _airspeed_quality_state.fuse_enabled;
+					qmsg.flap_active = _airspeed_quality_state.flap_active;
 					qmsg.flap_frequency_hz = _airspeed_quality_state.flap_frequency_hz;
 					qmsg.spectral_ratio = _airspeed_quality_state.spectral_ratio;
 					qmsg.spectral_input_m_s = _airspeed_quality_state.spectral_input_m_s;

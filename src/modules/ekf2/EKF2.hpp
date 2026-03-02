@@ -169,6 +169,7 @@ private:
 		float airspeed_q{1.f};
 		float R_as_used{0.f};
 		bool fuse_enabled{true};
+		bool flap_active{false};
 		float flap_frequency_hz{NAN};
 		float spectral_ratio{NAN};
 		float spectral_input_m_s{NAN};

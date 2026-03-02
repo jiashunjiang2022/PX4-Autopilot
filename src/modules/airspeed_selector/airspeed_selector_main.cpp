@@ -75,6 +75,9 @@ using namespace time_literals;
 
 static constexpr uint32_t SCHEDULE_INTERVAL{100_ms};	/**< The schedule interval in usec (10 Hz) */
 static constexpr float _kThrottleFilterTimeConstant{0.5f};
+// Downstream controllers should stop consuming physical airspeed before severe contamination
+// fully closes the EKF2 gate. This protects TECS against large spikes during partial degradation.
+static constexpr float kAirspeedQualityInvalidThreshold{0.5f};
 
 using matrix::Dcmf;
 using matrix::Quatf;
@@ -806,8 +809,10 @@ void AirspeedModule::select_airspeed_and_publish()
 	if (quality_fresh && using_physical_airspeed_sensor) {
 		const bool q_invalid = !PX4_ISFINITE(_ekf2_airspeed_quality.airspeed_q);
 		const bool gate_closed = !_ekf2_airspeed_quality.fuse_enabled;
+		const bool q_too_low = PX4_ISFINITE(_ekf2_airspeed_quality.airspeed_q)
+				       && (_ekf2_airspeed_quality.airspeed_q < kAirspeedQualityInvalidThreshold);
 
-		if (q_invalid || gate_closed) {
+		if (q_invalid || gate_closed || q_too_low) {
 			airspeed_validated.indicated_airspeed_m_s = NAN;
 			airspeed_validated.calibrated_airspeed_m_s = NAN;
 			airspeed_validated.true_airspeed_m_s = NAN;

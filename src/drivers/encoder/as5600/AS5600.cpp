@@ -37,6 +37,8 @@
 
 using namespace time_literals;
 
+static constexpr float kMinValidFlapFrequencyHz = 0.2f;
+
 AS5600::AS5600(const I2CSPIDriverConfig &config) :
 	I2C(config),
 	I2CSPIDriver(config)
@@ -204,7 +206,8 @@ void AS5600::RunImpl()
 
 	if (PX4_ISFINITE(_rpm_estimate) && (_flap_ratio > FLT_EPSILON)) {
 		// Flap-frequency consumers only care about magnitude, not rotation direction.
-		flap_frequency.frequency_hz = fabsf(_rpm_estimate) / (60.f * _flap_ratio);
+		const float flap_frequency_hz = fabsf(_rpm_estimate) / (60.f * _flap_ratio);
+		flap_frequency.frequency_hz = (flap_frequency_hz >= kMinValidFlapFrequencyHz) ? flap_frequency_hz : 0.f;
 
 	} else {
 		flap_frequency.frequency_hz = NAN;
