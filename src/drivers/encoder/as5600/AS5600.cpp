@@ -203,7 +203,8 @@ void AS5600::RunImpl()
 	flap_frequency.timestamp = now;
 
 	if (PX4_ISFINITE(_rpm_estimate) && (_flap_ratio > FLT_EPSILON)) {
-		flap_frequency.frequency_hz = _rpm_estimate / (60.f * _flap_ratio);
+		// Flap-frequency consumers only care about magnitude, not rotation direction.
+		flap_frequency.frequency_hz = fabsf(_rpm_estimate) / (60.f * _flap_ratio);
 
 	} else {
 		flap_frequency.frequency_hz = NAN;
