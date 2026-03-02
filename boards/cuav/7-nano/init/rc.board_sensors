@@ -32,5 +32,6 @@ pwm_voltage_apply
 
 # External compass on GPS1/I2C1: standard CUAV GPS/compass puck (with lights, safety button, and buzzer)
 ist8310 -X -b 1 -R 10 start
+as5600 -X -a 0x36 start
 
 netman update
