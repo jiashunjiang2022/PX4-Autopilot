@@ -255,9 +255,10 @@ PARAM_DEFINE_FLOAT(FLAP_PHASE_SHIFT, 0.0f);
  * 0: frequency PID only (no modulation)
  * 1: phase feedforward (cosine) modulation
  * 2: piecewise frequency modulation (upper/lower half-cycle at different frequencies)
+ * 3: split-cycle frequency modulation by downstroke time ratio (delta)
  *
  * @min 0
- * @max 2
+ * @max 3
  * @group Flapping Wing Control
  */
 PARAM_DEFINE_INT32(FLAP_FM_MODE, 1);
@@ -276,3 +277,108 @@ PARAM_DEFINE_INT32(FLAP_FM_MODE, 1);
  * @group Flapping Wing Control
  */
 PARAM_DEFINE_FLOAT(FLAP_FM_DELTA, 0.0f);
+
+/**
+ * Split-cycle downstroke time ratio.
+ *
+ * Used only when FLAP_FM_MODE=3.
+ * Defines downstroke duration as delta*T and upstroke as (1-delta)*T while
+ * keeping period T (effective frequency) unchanged.
+ *
+ * @min 0.1
+ * @max 0.9
+ * @decimal 3
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_SC_DELTA, 0.5f);
+
+/**
+ * Split-cycle delta slew rate [1/s].
+ *
+ * Maximum rate applied to FLAP_SC_DELTA to avoid phase/torque shocks.
+ *
+ * @min 0.01
+ * @max 10.0
+ * @decimal 2
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_SC_SLEW, 0.5f);
+
+/**
+ * Split-cycle transition blend width [deg].
+ *
+ * Blend region around 90 and 270 deg where downstroke/upstroke references are
+ * smoothly mixed to reduce current spikes near stroke reversal.
+ *
+ * @unit deg
+ * @min 0.0
+ * @max 45.0
+ * @decimal 1
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_SC_BLEND, 10.0f);
+
+/**
+ * Split-cycle instantaneous frequency multiplier limit.
+ *
+ * Instantaneous reference frequency is constrained to:
+ * [f_eff / FLAP_SC_FMAX_M, f_eff * FLAP_SC_FMAX_M].
+ *
+ * @min 1.0
+ * @max 5.0
+ * @decimal 2
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_SC_FMAX_M, 2.0f);
+
+/**
+ * Split-cycle phase error correction gain [Hz/deg].
+ *
+ * Small slow-loop correction added to instantaneous frequency from phase error.
+ * Set 0 to disable.
+ *
+ * @min 0.0
+ * @max 0.05
+ * @decimal 4
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_SC_PH_K, 0.0f);
+
+/**
+ * Split-cycle current limit [A].
+ *
+ * If >0, modulation is reduced toward delta=0.5 when measured current exceeds
+ * this threshold.
+ *
+ * @min 0.0
+ * @max 200.0
+ * @decimal 1
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_SC_ILIM_A, 0.0f);
+
+/**
+ * Split-cycle delta recovery time constant [s].
+ *
+ * First-order time constant used to move applied delta toward target delta or
+ * toward 0.5 while current limiting is active.
+ *
+ * @min 0.01
+ * @max 5.0
+ * @decimal 2
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_SC_REC_TAU, 0.30f);
+
+/**
+ * Split-cycle output slew rate [1/s].
+ *
+ * Limits motor command slew in split-cycle mode for peak current reduction.
+ * Set 0 to disable slew limiting.
+ *
+ * @min 0.0
+ * @max 20.0
+ * @decimal 2
+ * @group Flapping Wing Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_SC_U_SLEW, 4.0f);

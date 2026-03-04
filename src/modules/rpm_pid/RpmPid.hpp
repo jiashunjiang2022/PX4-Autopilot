@@ -54,6 +54,9 @@
 #include <uORB/Subscription.hpp>
 #include <uORB/SubscriptionCallback.hpp>
 #include <uORB/topics/actuator_motors.h>
+#include <uORB/topics/battery_status.h>
+#include <uORB/topics/esc_status.h>
+#include <uORB/topics/flap_control_status.h>
 #include <uORB/topics/flap_motor_setpoint.h>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/rpm.h>
@@ -82,14 +85,18 @@ private:
 	uORB::Subscription _vehicle_status_sub{ORB_ID(vehicle_status)};
 	uORB::Subscription _actuator_motors_sub{ORB_ID(actuator_motors)};
 	uORB::Subscription _wing_phase_sub{ORB_ID(wing_phase)};
+	uORB::Subscription _esc_status_sub{ORB_ID(esc_status)};
+	uORB::Subscription _battery_status_sub{ORB_ID(battery_status), 0};
 	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
 
 	uORB::Publication<flap_motor_setpoint_s> _flap_motor_setpoint_pub{ORB_ID(flap_motor_setpoint)};
+	uORB::Publication<flap_control_status_s> _flap_control_status_pub{ORB_ID(flap_control_status)};
 
 	hrt_abstime _last_run{0};
 
 	float _integral{0.f};
 	float _prev_error{0.f};
+	float _last_u_out{NAN};
 
 	// Cached params
 	float _flap_f_min{0.f};
@@ -105,8 +112,38 @@ private:
 	float _phase_ff_shift_deg{0.f};
 	int32_t _fm_mode{1};
 	float _fm_delta_hz{0.f};
+	float _sc_delta_cmd{0.5f};
+	float _sc_delta_slew{0.5f};
+	float _sc_blend_deg{10.f};
+	float _sc_fmax_mult{2.f};
+	float _sc_phase_k_hz_per_deg{0.f};
+	float _sc_i_limit_a{0.f};
+	float _sc_recover_tau_s{0.3f};
+	float _sc_u_slew{4.f};
+
+	float _sc_delta_slewed{0.5f};
+	float _sc_delta_applied{0.5f};
+	float _phase_ref_deg{NAN};
+	float _delta_meas{NAN};
+	uint32_t _last_hall_count{0};
+	bool _cycle_tracking_valid{false};
+	hrt_abstime _cycle_start_ts{0};
+	hrt_abstime _last_cycle_sample_ts{0};
+	float _down_time_s{0.f};
+	float _cycle_time_s{0.f};
+
+	enum SaturationFlags : uint16_t {
+		FLAG_PHASE_INVALID = 1 << 0,
+		FLAG_CURRENT_LIMIT = 1 << 1,
+		FLAG_OUT_SAT_LOW = 1 << 2,
+		FLAG_OUT_SAT_HIGH = 1 << 3,
+		FLAG_DELTA_REDUCED = 1 << 4,
+		FLAG_FEEDBACK_INVALID = 1 << 5
+	};
 
 	wing_phase_s _wing_phase{};
+	esc_status_s _esc_status{};
+	battery_status_s _battery_status{};
 
 		DEFINE_PARAMETERS(
 			(ParamFloat<px4::params::FLAP_F_MIN>) _param_flap_f_min,
@@ -121,6 +158,14 @@ private:
 			(ParamFloat<px4::params::FLAP_PHASE_DUTY>) _param_flap_phase_duty,
 			(ParamFloat<px4::params::FLAP_PHASE_SHIFT>) _param_flap_phase_shift,
 			(ParamInt<px4::params::FLAP_FM_MODE>) _param_flap_fm_mode,
-			(ParamFloat<px4::params::FLAP_FM_DELTA>) _param_flap_fm_delta
+			(ParamFloat<px4::params::FLAP_FM_DELTA>) _param_flap_fm_delta,
+			(ParamFloat<px4::params::FLAP_SC_DELTA>) _param_flap_sc_delta,
+			(ParamFloat<px4::params::FLAP_SC_SLEW>) _param_flap_sc_slew,
+			(ParamFloat<px4::params::FLAP_SC_BLEND>) _param_flap_sc_blend,
+			(ParamFloat<px4::params::FLAP_SC_FMAX_M>) _param_flap_sc_fmax_m,
+			(ParamFloat<px4::params::FLAP_SC_PH_K>) _param_flap_sc_ph_k,
+			(ParamFloat<px4::params::FLAP_SC_ILIM_A>) _param_flap_sc_ilim_a,
+			(ParamFloat<px4::params::FLAP_SC_REC_TAU>) _param_flap_sc_rec_tau,
+			(ParamFloat<px4::params::FLAP_SC_U_SLEW>) _param_flap_sc_u_slew
 		)
 };

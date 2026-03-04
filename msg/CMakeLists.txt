@@ -89,6 +89,7 @@ set(msg_files
 	FailureDetectorStatus.msg
 	FlapMotorSetpoint.msg
 	FlapFrequency.msg
+	FlapControlStatus.msg
 	FlightPhaseEstimation.msg
 	FollowTarget.msg
 	FollowTargetEstimator.msg
