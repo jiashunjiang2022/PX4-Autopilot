@@ -203,11 +203,26 @@ void AS5600::RunImpl()
 
 	flap_frequency_s flap_frequency{};
 	flap_frequency.timestamp = now;
+	flap_frequency.phase_rad = NAN;
 
 	if (PX4_ISFINITE(_rpm_estimate) && (_flap_ratio > FLT_EPSILON)) {
 		// Flap-frequency consumers only care about magnitude, not rotation direction.
 		const float flap_frequency_hz = fabsf(_rpm_estimate) / (60.f * _flap_ratio);
 		flap_frequency.frequency_hz = (flap_frequency_hz >= kMinValidFlapFrequencyHz) ? flap_frequency_hz : 0.f;
+
+		// Convert encoder counts to flapping-cycle phase.
+		const float counts_per_flap_cycle = 4096.f * _flap_ratio;
+
+		if (counts_per_flap_cycle > FLT_EPSILON) {
+			float phase = 2.f * M_PI_F * static_cast<float>(_total_count) / counts_per_flap_cycle;
+			phase = fmodf(phase, 2.f * M_PI_F);
+
+			if (phase < 0.f) {
+				phase += 2.f * M_PI_F;
+			}
+
+			flap_frequency.phase_rad = phase;
+		}
 
 	} else {
 		flap_frequency.frequency_hz = NAN;

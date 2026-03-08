@@ -174,6 +174,10 @@ private:
 		float spectral_ratio{NAN};
 		float spectral_input_m_s{NAN};
 		float dv{0.f};
+		float disturbance_m_s{0.f};
+		float corrected_airspeed_m_s{NAN};
+		float disturbance_var_m_s2{0.f};
+		float corruption_prob{0.f};
 		uint64_t timestamp_us{0};
 	};
 
@@ -181,15 +185,20 @@ private:
 	{
 	public:
 		void reset();
-		bool update(uint64_t time_us, float true_airspeed, float flap_freq_hz, float eas2tas,
+		bool update(uint64_t time_us, float true_airspeed, float flap_freq_hz, float flap_phase_rad, float eas2tas,
 			    bool flap_freq_timed_out, float flap_f_on_hz, float flap_f_off_hz,
 			    float flap_t_on_s, float flap_t_off_s,
 			    float spec_fs_hz, float spec_win_s, float df_hz, float a, float b, float dv0, float rmax_factor,
 			    float base_noise_std, float q_on, float q_off, float q_tau_s,
-			    float t_off_s, float t_on_s, float t_hold_s, AirspeedQualityState &out);
+			    float t_off_s, float t_on_s, float t_hold_s,
+			    int csae_enable, int csae_harmonics, float csae_lambda, float csae_p0, float csae_max_disturbance,
+			    float csae_r_unc_gain, int prf_enable, float prf_w_res, float prf_w_unc, float prf_res0, float prf_unc0,
+			    AirspeedQualityState &out);
 
 	private:
 		static constexpr int kMaxSamples = 256;
+		static constexpr int kMaxHarmonics = 3;
+		static constexpr int kMaxCoeffs = 2 * kMaxHarmonics;
 
 		int _head{0};
 		int _count{0};
@@ -208,6 +217,9 @@ private:
 		uint64_t _flap_below_off_since{0};
 		float _samples[kMaxSamples]{};
 		uint64_t _times[kMaxSamples]{};
+		float _rls_theta[kMaxCoeffs]{};
+		float _rls_P[kMaxCoeffs][kMaxCoeffs]{};
+		bool _rls_initialized{false};
 	};
 #endif // CONFIG_EKF2_AIRSPEED
 
@@ -424,6 +436,7 @@ private:
 	hrt_abstime _airspeed_validated_timestamp_last{0};
 	hrt_abstime _flap_frequency_timestamp{0};
 	float _flap_frequency_hz{NAN};
+	float _flap_phase_rad{NAN};
 
 	uORB::PublicationMulti<estimator_aid_source1d_s> _estimator_aid_src_airspeed_pub {ORB_ID(estimator_aid_src_airspeed)};
 	hrt_abstime _status_airspeed_pub_last{0};

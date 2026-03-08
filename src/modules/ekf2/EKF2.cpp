@@ -82,14 +82,26 @@ void EKF2::AirspeedQualityEstimator::reset()
 	_flap_active = false;
 	_flap_above_on_since = 0;
 	_flap_below_off_since = 0;
+	_rls_initialized = false;
+
+	for (int i = 0; i < kMaxCoeffs; i++) {
+		_rls_theta[i] = 0.f;
+
+		for (int j = 0; j < kMaxCoeffs; j++) {
+			_rls_P[i][j] = (i == j) ? 1.f : 0.f;
+		}
+	}
 }
 
-bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspeed, float flap_freq_hz, float eas2tas,
+bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspeed, float flap_freq_hz, float flap_phase_rad, float eas2tas,
 		bool flap_freq_timed_out, float flap_f_on_hz, float flap_f_off_hz,
 		float flap_t_on_s, float flap_t_off_s,
 		float spec_fs_hz, float spec_win_s, float df_hz, float a, float b, float dv0, float rmax_factor,
 		float base_noise_std, float q_on, float q_off, float q_tau_s,
-		float t_off_s, float t_on_s, float t_hold_s, AirspeedQualityState &out)
+		float t_off_s, float t_on_s, float t_hold_s,
+		int csae_enable, int csae_harmonics, float csae_lambda, float csae_p0, float csae_max_disturbance,
+		float csae_r_unc_gain, int prf_enable, float prf_w_res, float prf_w_unc, float prf_res0, float prf_unc0,
+		AirspeedQualityState &out)
 {
 	if (!PX4_ISFINITE(true_airspeed)) {
 		return false;
@@ -101,16 +113,7 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 	if (_last_time != 0 && PX4_ISFINITE(_last_airspeed)) {
 		const float dt = (time_us - _last_time) * 1e-6f;
 		sample_dt = dt;
-
-		if (dt > 0.f && dt < 1.f) {
-			const float dv = fabsf(true_airspeed - _last_airspeed) / dt;
-			const float alpha = 0.2f;
-			_dv_filtered = _dv_filtered + alpha * (dv - _dv_filtered);
-		}
 	}
-
-	_last_airspeed = true_airspeed;
-	_last_time = time_us;
 
 	float flap_f_on = math::constrain(flap_f_on_hz, 0.1f, 10.f);
 	float flap_f_off = math::constrain(flap_f_off_hz, 0.f, 10.f);
@@ -162,6 +165,124 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 		_flap_below_off_since = 0;
 	}
 
+	float disturbance_estimate = 0.f;
+	float disturbance_variance = 0.f;
+	float disturbance_residual = 0.f;
+	float corrected_airspeed = true_airspeed;
+	const bool csae_on = (csae_enable > 0);
+	const bool phase_valid = PX4_ISFINITE(flap_phase_rad);
+	const int harmonics = math::constrain(csae_harmonics, 1, kMaxHarmonics);
+	const float lambda = math::constrain(csae_lambda, 0.90f, 1.f);
+	const float p0 = math::constrain(csae_p0, 1.f, 1e5f);
+	const float max_disturbance = math::max(0.f, csae_max_disturbance);
+
+	if (csae_on && _flap_active && phase_valid && (max_disturbance > FLT_EPSILON)) {
+		const int coeff_count = 2 * harmonics;
+
+		if (!_rls_initialized) {
+			for (int i = 0; i < kMaxCoeffs; i++) {
+				_rls_theta[i] = 0.f;
+
+				for (int j = 0; j < kMaxCoeffs; j++) {
+					_rls_P[i][j] = (i == j) ? p0 : 0.f;
+				}
+			}
+
+			_rls_initialized = true;
+		}
+
+		float phi[kMaxCoeffs]{};
+		float P_phi[kMaxCoeffs]{};
+
+		for (int k = 1; k <= harmonics; k++) {
+			const float angle = k * flap_phase_rad;
+			phi[2 * (k - 1)] = cosf(angle);
+			phi[2 * (k - 1) + 1] = sinf(angle);
+		}
+
+		for (int i = 0; i < coeff_count; i++) {
+			float sum = 0.f;
+
+			for (int j = 0; j < coeff_count; j++) {
+				sum += _rls_P[i][j] * phi[j];
+			}
+
+			P_phi[i] = sum;
+		}
+
+		float denom = lambda;
+
+		for (int i = 0; i < coeff_count; i++) {
+			denom += phi[i] * P_phi[i];
+		}
+
+		if (PX4_ISFINITE(denom) && (denom > 1e-6f)) {
+			float K[kMaxCoeffs]{};
+
+			for (int i = 0; i < coeff_count; i++) {
+				K[i] = P_phi[i] / denom;
+			}
+
+			for (int i = 0; i < coeff_count; i++) {
+				disturbance_estimate += phi[i] * _rls_theta[i];
+			}
+
+			const float disturbance_pred = disturbance_estimate;
+
+			const float innovation = true_airspeed - disturbance_estimate;
+
+			for (int i = 0; i < coeff_count; i++) {
+				_rls_theta[i] += K[i] * innovation;
+			}
+
+			float phiTP[kMaxCoeffs]{};
+
+			for (int j = 0; j < coeff_count; j++) {
+				float sum = 0.f;
+
+				for (int i = 0; i < coeff_count; i++) {
+					sum += phi[i] * _rls_P[i][j];
+				}
+
+				phiTP[j] = sum;
+			}
+
+			for (int i = 0; i < coeff_count; i++) {
+				for (int j = 0; j < coeff_count; j++) {
+					_rls_P[i][j] = (_rls_P[i][j] - K[i] * phiTP[j]) / lambda;
+				}
+			}
+
+			disturbance_estimate = 0.f;
+
+			for (int i = 0; i < coeff_count; i++) {
+				disturbance_estimate += phi[i] * _rls_theta[i];
+			}
+
+			for (int i = 0; i < coeff_count; i++) {
+				disturbance_variance += phi[i] * P_phi[i];
+			}
+
+			disturbance_residual = fabsf(disturbance_estimate - disturbance_pred);
+
+			disturbance_estimate = math::constrain(disturbance_estimate, -max_disturbance, max_disturbance);
+			disturbance_variance = math::constrain(disturbance_variance, 0.f, sq(max_disturbance));
+			corrected_airspeed = true_airspeed - disturbance_estimate;
+		}
+
+	} else if (!_flap_active) {
+		_rls_initialized = false;
+	}
+
+	if (sample_dt > 0.f && sample_dt < 1.f && PX4_ISFINITE(_last_airspeed)) {
+		const float dv = fabsf(corrected_airspeed - _last_airspeed) / sample_dt;
+		const float alpha = 0.2f;
+		_dv_filtered = _dv_filtered + alpha * (dv - _dv_filtered);
+	}
+
+	_last_airspeed = corrected_airspeed;
+	_last_time = time_us;
+
 	if (!_flap_active) {
 		// Stop spectral gating during gliding/non-flapping, keep airspeed fusion at baseline.
 		_head = 0;
@@ -182,14 +303,18 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 		out.flap_active = false;
 		out.flap_frequency_hz = flap_freq_valid ? flap_freq_hz : NAN;
 		out.spectral_ratio = NAN;
-		out.spectral_input_m_s = true_airspeed;
+		out.spectral_input_m_s = corrected_airspeed;
 		out.dv = PX4_ISFINITE(_dv_filtered) ? math::max(_dv_filtered, 0.f) : 0.f;
+		out.disturbance_m_s = disturbance_estimate;
+		out.corrected_airspeed_m_s = corrected_airspeed;
+		out.disturbance_var_m_s2 = disturbance_variance;
+		out.corruption_prob = 0.f;
 		out.timestamp_us = time_us;
 		return false;
 	}
 
 	const int index = _head;
-	_samples[index] = true_airspeed;
+	_samples[index] = corrected_airspeed;
 	_times[index] = time_us;
 	_head = (index + 1) % kMaxSamples;
 	_count = math::min(_count + 1, kMaxSamples);
@@ -286,7 +411,18 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 	const float dv_filtered_use = PX4_ISFINITE(_dv_filtered) ? math::max(_dv_filtered, 0.f) : dv0_clamped;
 	const float dv_norm = math::min(dv_filtered_use / dv0_clamped, 1.f);
 
-	float q = 1.f - a * spectral_ratio_use - b * dv_norm;
+	const float res0 = math::max(prf_res0, 0.01f);
+	const float unc0 = math::max(prf_unc0, 0.01f);
+	const float res_norm = math::constrain(disturbance_residual / res0, 0.f, 1.f);
+	const float unc_norm = math::constrain(sqrtf(math::max(disturbance_variance, 0.f)) / unc0, 0.f, 1.f);
+	float corruption_prob = 0.f;
+
+	if (prf_enable > 0) {
+		corruption_prob = a * spectral_ratio_use + b * dv_norm + prf_w_res * res_norm + prf_w_unc * unc_norm;
+		corruption_prob = math::constrain(corruption_prob, 0.f, 1.f);
+	}
+
+	float q = (prf_enable > 0) ? (1.f - corruption_prob) : (1.f - a * spectral_ratio_use - b * dv_norm);
 
 	if (!PX4_ISFINITE(q)) {
 		q = 0.f;
@@ -400,16 +536,18 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 	const float rmax = PX4_ISFINITE(rmax_factor) ? math::max(rmax_factor, 1.f) : 1.f;
 	const float R_min = sq(base_noise * eas2tas_c);
 	const float R_max = R_min * rmax;
-	float R_used = R_min * (1.f + (1.f - q) * (rmax - 1.f));
+	const float unc_gain = math::max(csae_r_unc_gain, 0.f);
+	float R_used = R_min * (1.f + (1.f - q) * (rmax - 1.f)) + unc_gain * disturbance_variance;
+	const float R_max_with_unc = R_max + unc_gain * sq(max_disturbance);
 
 	if (!PX4_ISFINITE(R_used)) {
 		R_used = R_max;
 	}
 
-	R_used = math::constrain(R_used, R_min, R_max);
+	R_used = math::constrain(R_used, R_min, R_max_with_unc);
 
 	if (!PX4_ISFINITE(R_used)) {
-		R_used = R_max;
+		R_used = R_max_with_unc;
 	}
 
 	out.airspeed_q = q;
@@ -418,8 +556,12 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 	out.flap_active = _flap_active;
 	out.flap_frequency_hz = flap_freq_hz;
 	out.spectral_ratio = _spectral_ratio;
-	out.spectral_input_m_s = true_airspeed;
+	out.spectral_input_m_s = corrected_airspeed;
 	out.dv = dv_filtered_use;
+	out.disturbance_m_s = disturbance_estimate;
+	out.corrected_airspeed_m_s = corrected_airspeed;
+	out.disturbance_var_m_s2 = disturbance_variance;
+	out.corruption_prob = corruption_prob;
 	out.timestamp_us = time_us;
 
 	return do_eval;
@@ -2473,6 +2615,13 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 			} else {
 				_flap_frequency_hz = NAN;
 			}
+
+			if (PX4_ISFINITE(flap_frequency.phase_rad)) {
+				_flap_phase_rad = flap_frequency.phase_rad;
+
+			} else {
+				_flap_phase_rad = NAN;
+			}
 		}
 	}
 
@@ -2481,12 +2630,34 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 	static const param_t flap_t_on_handle = param_find("EKF2_FLAP_T_ON");
 	static const param_t flap_t_off_handle = param_find("EKF2_FLAP_T_OFF");
 	static const param_t flap_t_to_handle = param_find("EKF2_FLAP_T_TO");
+	static const param_t csae_en_handle = param_find("EKF2_CSAE_EN");
+	static const param_t csae_k_handle = param_find("EKF2_CSAE_K");
+	static const param_t csae_lmb_handle = param_find("EKF2_CSAE_LMB");
+	static const param_t csae_p0_handle = param_find("EKF2_CSAE_P0");
+	static const param_t csae_max_handle = param_find("EKF2_CSAE_MAX");
+	static const param_t csae_runc_handle = param_find("EKF2_CSAE_RUNC");
+	static const param_t prf_en_handle = param_find("EKF2_PRF_EN");
+	static const param_t prf_wres_handle = param_find("EKF2_PRF_WRES");
+	static const param_t prf_wunc_handle = param_find("EKF2_PRF_WUNC");
+	static const param_t prf_res0_handle = param_find("EKF2_PRF_RES0");
+	static const param_t prf_unc0_handle = param_find("EKF2_PRF_UNC0");
 
 	float flap_f_on_hz = 1.0f;
 	float flap_f_off_hz = 0.6f;
 	float flap_t_on_s = 0.4f;
 	float flap_t_off_s = 1.5f;
 	float flap_t_to_s = 0.8f;
+	int32_t csae_en = 0;
+	int32_t csae_k = 2;
+	float csae_lmb = 0.995f;
+	float csae_p0 = 100.f;
+	float csae_max = 10.f;
+	float csae_r_unc_gain = 1.f;
+	int32_t prf_en = 0;
+	float prf_w_res = 0.25f;
+	float prf_w_unc = 0.20f;
+	float prf_res0 = 1.f;
+	float prf_unc0 = 1.f;
 
 	if (flap_f_on_handle != PARAM_INVALID) { param_get(flap_f_on_handle, &flap_f_on_hz); }
 
@@ -2497,6 +2668,17 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 	if (flap_t_off_handle != PARAM_INVALID) { param_get(flap_t_off_handle, &flap_t_off_s); }
 
 	if (flap_t_to_handle != PARAM_INVALID) { param_get(flap_t_to_handle, &flap_t_to_s); }
+	if (csae_en_handle != PARAM_INVALID) { param_get(csae_en_handle, &csae_en); }
+	if (csae_k_handle != PARAM_INVALID) { param_get(csae_k_handle, &csae_k); }
+	if (csae_lmb_handle != PARAM_INVALID) { param_get(csae_lmb_handle, &csae_lmb); }
+	if (csae_p0_handle != PARAM_INVALID) { param_get(csae_p0_handle, &csae_p0); }
+	if (csae_max_handle != PARAM_INVALID) { param_get(csae_max_handle, &csae_max); }
+	if (csae_runc_handle != PARAM_INVALID) { param_get(csae_runc_handle, &csae_r_unc_gain); }
+	if (prf_en_handle != PARAM_INVALID) { param_get(prf_en_handle, &prf_en); }
+	if (prf_wres_handle != PARAM_INVALID) { param_get(prf_wres_handle, &prf_w_res); }
+	if (prf_wunc_handle != PARAM_INVALID) { param_get(prf_wunc_handle, &prf_w_unc); }
+	if (prf_res0_handle != PARAM_INVALID) { param_get(prf_res0_handle, &prf_res0); }
+	if (prf_unc0_handle != PARAM_INVALID) { param_get(prf_unc0_handle, &prf_unc0); }
 
 	const uint64_t flap_timeout_us = static_cast<uint64_t>(math::constrain(flap_t_to_s, 0.1f, 5.f) * 1e6f);
 	const bool flap_frequency_timed_out = (_flap_frequency_timestamp == 0)
@@ -2505,6 +2687,7 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 
 	if (flap_frequency_timed_out) {
 		_flap_frequency_hz = NAN;
+		_flap_phase_rad = NAN;
 	}
 
 	// EKF airspeed sample
@@ -2529,7 +2712,7 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 
 				if (_param_ekf2_asp_qlty.get() > 0) {
 					_airspeed_quality_estimator.update(airspeed_validated.timestamp, airspeed_validated.true_airspeed_m_s,
-									   _flap_frequency_hz, cas2tas,
+									   _flap_frequency_hz, _flap_phase_rad, cas2tas,
 									   flap_frequency_timed_out,
 									   flap_f_on_hz,
 									   flap_f_off_hz,
@@ -2549,6 +2732,17 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 									   _param_ekf2_asp_toff.get(),
 									   _param_ekf2_asp_ton.get(),
 									   _param_ekf2_asp_thld.get(),
+									   csae_en,
+									   csae_k,
+									   csae_lmb,
+									   csae_p0,
+									   csae_max,
+									   csae_r_unc_gain,
+									   prf_en,
+									   prf_w_res,
+									   prf_w_unc,
+									   prf_res0,
+									   prf_unc0,
 									   _airspeed_quality_state);
 
 				} else {
@@ -2563,12 +2757,20 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					_airspeed_quality_state.spectral_ratio = NAN;
 					_airspeed_quality_state.spectral_input_m_s = airspeed_validated.true_airspeed_m_s;
 					_airspeed_quality_state.dv = 0.f;
+					_airspeed_quality_state.disturbance_m_s = 0.f;
+					_airspeed_quality_state.corrected_airspeed_m_s = airspeed_validated.true_airspeed_m_s;
+					_airspeed_quality_state.disturbance_var_m_s2 = 0.f;
+					_airspeed_quality_state.corruption_prob = 0.f;
 					_airspeed_quality_state.timestamp_us = airspeed_validated.timestamp;
 				}
 
+				const float fused_true_airspeed = PX4_ISFINITE(_airspeed_quality_state.corrected_airspeed_m_s)
+						      ? _airspeed_quality_state.corrected_airspeed_m_s
+						      : airspeed_validated.true_airspeed_m_s;
+
 				airspeedSample airspeed_sample {
 					.time_us = airspeed_validated.timestamp,
-					.true_airspeed = airspeed_validated.true_airspeed_m_s,
+					.true_airspeed = fused_true_airspeed,
 					.eas2tas = cas2tas,
 					.noise_var = _airspeed_quality_state.R_as_used,
 					.quality = _airspeed_quality_state.airspeed_q,
@@ -2587,6 +2789,10 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					qmsg.spectral_ratio = _airspeed_quality_state.spectral_ratio;
 					qmsg.spectral_input_m_s = _airspeed_quality_state.spectral_input_m_s;
 					qmsg.dv = _airspeed_quality_state.dv;
+					qmsg.disturbance_m_s = _airspeed_quality_state.disturbance_m_s;
+					qmsg.airspeed_corrected_m_s = _airspeed_quality_state.corrected_airspeed_m_s;
+					qmsg.disturbance_var_m_s2 = _airspeed_quality_state.disturbance_var_m_s2;
+					qmsg.corruption_prob = _airspeed_quality_state.corruption_prob;
 
 					_ekf2_airspeed_quality_pub.publish(qmsg);
 					_airspeed_quality_pub_last = _airspeed_quality_state.timestamp_us;
@@ -2616,7 +2822,7 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 
 				if (_param_ekf2_asp_qlty.get() > 0) {
 					_airspeed_quality_estimator.update(airspeed.timestamp_sample, true_airspeed_m_s,
-									   _flap_frequency_hz, cas2tas,
+									   _flap_frequency_hz, _flap_phase_rad, cas2tas,
 									   flap_frequency_timed_out,
 									   flap_f_on_hz,
 									   flap_f_off_hz,
@@ -2636,6 +2842,17 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 									   _param_ekf2_asp_toff.get(),
 									   _param_ekf2_asp_ton.get(),
 									   _param_ekf2_asp_thld.get(),
+									   csae_en,
+									   csae_k,
+									   csae_lmb,
+									   csae_p0,
+									   csae_max,
+									   csae_r_unc_gain,
+									   prf_en,
+									   prf_w_res,
+									   prf_w_unc,
+									   prf_res0,
+									   prf_unc0,
 									   _airspeed_quality_state);
 
 				} else {
@@ -2650,12 +2867,20 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					_airspeed_quality_state.spectral_ratio = NAN;
 					_airspeed_quality_state.spectral_input_m_s = true_airspeed_m_s;
 					_airspeed_quality_state.dv = 0.f;
+					_airspeed_quality_state.disturbance_m_s = 0.f;
+					_airspeed_quality_state.corrected_airspeed_m_s = true_airspeed_m_s;
+					_airspeed_quality_state.disturbance_var_m_s2 = 0.f;
+					_airspeed_quality_state.corruption_prob = 0.f;
 					_airspeed_quality_state.timestamp_us = airspeed.timestamp_sample;
 				}
 
+				const float fused_true_airspeed = PX4_ISFINITE(_airspeed_quality_state.corrected_airspeed_m_s)
+						      ? _airspeed_quality_state.corrected_airspeed_m_s
+						      : true_airspeed_m_s;
+
 				airspeedSample airspeed_sample {
 					.time_us = airspeed.timestamp_sample,
-					.true_airspeed = true_airspeed_m_s,
+					.true_airspeed = fused_true_airspeed,
 					.eas2tas = cas2tas,
 					.noise_var = _airspeed_quality_state.R_as_used,
 					.quality = _airspeed_quality_state.airspeed_q,
@@ -2674,6 +2899,10 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					qmsg.spectral_ratio = _airspeed_quality_state.spectral_ratio;
 					qmsg.spectral_input_m_s = _airspeed_quality_state.spectral_input_m_s;
 					qmsg.dv = _airspeed_quality_state.dv;
+					qmsg.disturbance_m_s = _airspeed_quality_state.disturbance_m_s;
+					qmsg.airspeed_corrected_m_s = _airspeed_quality_state.corrected_airspeed_m_s;
+					qmsg.disturbance_var_m_s2 = _airspeed_quality_state.disturbance_var_m_s2;
+					qmsg.corruption_prob = _airspeed_quality_state.corruption_prob;
 
 					_ekf2_airspeed_quality_pub.publish(qmsg);
 					_airspeed_quality_pub_last = _airspeed_quality_state.timestamp_us;

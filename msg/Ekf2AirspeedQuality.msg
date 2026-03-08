@@ -8,3 +8,7 @@ float32 flap_frequency_hz
 float32 spectral_ratio
 float32 spectral_input_m_s
 float32 dv
+float32 disturbance_m_s
+float32 airspeed_corrected_m_s
+float32 disturbance_var_m_s2
+float32 corruption_prob

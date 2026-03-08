@@ -37,6 +37,10 @@ TOPIC_FIELDS = {
         "flap_frequency_hz",
         "spectral_ratio",
         "dv",
+        "disturbance_m_s",
+        "airspeed_corrected_m_s",
+        "disturbance_var_m_s2",
+        "corruption_prob",
     ],
 }
 

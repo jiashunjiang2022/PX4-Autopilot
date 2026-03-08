@@ -286,6 +286,19 @@ private:
 		flap_frequency_s flap_frequency{};
 		flap_frequency.timestamp = now;
 		flap_frequency.frequency_hz = _param_aspd_inj_flap_hz.get();
+		flap_frequency.phase_rad = NAN;
+
+		if (PX4_ISFINITE(flap_frequency.frequency_hz) && flap_frequency.frequency_hz > FLT_EPSILON) {
+			float phase = 2.f * M_PI_F * flap_frequency.frequency_hz * (now * 1e-6f);
+			phase = fmodf(phase, 2.f * M_PI_F);
+
+			if (phase < 0.f) {
+				phase += 2.f * M_PI_F;
+			}
+
+			flap_frequency.phase_rad = phase;
+		}
+
 		_flap_frequency_pub.publish(flap_frequency);
 	}
 

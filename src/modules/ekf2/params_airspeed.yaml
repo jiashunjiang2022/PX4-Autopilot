@@ -177,6 +177,101 @@ parameters:
       max: 2.0
       unit: s
       decimal: 2
+    EKF2_CSAE_EN:
+      description:
+        short: Enable cycle-synchronous airspeed compensation
+        long: If enabled, estimate flap-synchronous harmonic disturbance from flap phase
+          and subtract it from true airspeed before quality scoring and fusion.
+      type: int32
+      default: 0
+      min: 0
+      max: 1
+      decimal: 0
+    EKF2_CSAE_K:
+      description:
+        short: CSAE harmonic count
+      type: int32
+      default: 2
+      min: 1
+      max: 3
+      decimal: 0
+    EKF2_CSAE_LMB:
+      description:
+        short: CSAE RLS forgetting factor
+      type: float
+      default: 0.995
+      min: 0.90
+      max: 1.00
+      decimal: 3
+    EKF2_CSAE_P0:
+      description:
+        short: CSAE initial covariance scale
+      type: float
+      default: 100.0
+      min: 1.0
+      max: 10000.0
+      decimal: 1
+    EKF2_CSAE_MAX:
+      description:
+        short: CSAE max disturbance magnitude
+      type: float
+      default: 10.0
+      min: 0.0
+      max: 30.0
+      unit: m/s
+      decimal: 1
+    EKF2_CSAE_RUNC:
+      description:
+        short: CSAE uncertainty noise gain
+      type: float
+      default: 1.0
+      min: 0.0
+      max: 10.0
+      decimal: 2
+    EKF2_PRF_EN:
+      description:
+        short: Enable probabilistic risk fusion
+        long: Fuse spectral, rate, compensation-residual and compensation-uncertainty
+          features into a corruption probability used for quality and gating.
+      type: int32
+      default: 0
+      min: 0
+      max: 1
+      decimal: 0
+    EKF2_PRF_WRES:
+      description:
+        short: Risk weight for compensation residual
+      type: float
+      default: 0.25
+      min: 0.0
+      max: 1.0
+      decimal: 2
+    EKF2_PRF_WUNC:
+      description:
+        short: Risk weight for compensation uncertainty
+      type: float
+      default: 0.20
+      min: 0.0
+      max: 1.0
+      decimal: 2
+    EKF2_PRF_RES0:
+      description:
+        short: Residual normalization for risk fusion
+      type: float
+      default: 1.0
+      min: 0.1
+      max: 10.0
+      unit: m/s
+      decimal: 2
+    EKF2_PRF_UNC0:
+      description:
+        short: Uncertainty normalization for risk fusion
+      type: float
+      default: 1.0
+      min: 0.1
+      max: 10.0
+      unit: m/s
+      decimal: 2
     EKF2_FLAP_F_ON:
       description:
         short: Flap active enter frequency threshold
