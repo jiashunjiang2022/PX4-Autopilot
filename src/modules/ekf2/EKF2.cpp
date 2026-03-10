@@ -519,7 +519,7 @@ EKF2::EKF2(bool multi_mode, const px4::wq_config_t &config, bool replay_mode):
 		_param_ekf2_asp_toff(_params->ekf2_asp_toff),
 		_param_ekf2_asp_ton(_params->ekf2_asp_ton),
 		_param_ekf2_asp_thld(_params->ekf2_asp_thld),
-#endif // CONFIG_EKF2_AIRSPEED
+	#endif // CONFIG_EKF2_AIRSPEED
 #if defined(CONFIG_EKF2_SIDESLIP)
 	_param_ekf2_beta_gate(_params->ekf2_beta_gate),
 	_param_ekf2_beta_noise(_params->ekf2_beta_noise),
@@ -610,11 +610,18 @@ EKF2::EKF2(bool multi_mode, const px4::wq_config_t &config, bool replay_mode):
 	_param_ekf2_abias_init(_params->ekf2_abias_init),
 	_param_ekf2_angerr_init(_params->ekf2_angerr_init),
 	_param_ekf2_abl_lim(_params->ekf2_abl_lim),
-	_param_ekf2_abl_acclim(_params->ekf2_abl_acclim),
-	_param_ekf2_abl_gyrlim(_params->ekf2_abl_gyrlim),
-	_param_ekf2_abl_tau(_params->ekf2_abl_tau),
-	_param_ekf2_gyr_b_lim(_params->ekf2_gyr_b_lim)
-{
+		_param_ekf2_abl_acclim(_params->ekf2_abl_acclim),
+		_param_ekf2_abl_gyrlim(_params->ekf2_abl_gyrlim),
+		_param_ekf2_abl_tau(_params->ekf2_abl_tau),
+		_param_ekf2_gyr_b_lim(_params->ekf2_gyr_b_lim)
+#if defined(CONFIG_EKF2_AIRSPEED)
+		, _param_ekf2_flap_f_on(_params->ekf2_flap_f_on)
+		, _param_ekf2_flap_f_off(_params->ekf2_flap_f_off)
+		, _param_ekf2_flap_t_on(_params->ekf2_flap_t_on)
+		, _param_ekf2_flap_t_off(_params->ekf2_flap_t_off)
+		, _param_ekf2_flap_t_to(_params->ekf2_flap_t_to)
+#endif // CONFIG_EKF2_AIRSPEED
+	{
 	AdvertiseTopics();
 }
 
@@ -2476,27 +2483,17 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 		}
 	}
 
-	static const param_t flap_f_on_handle = param_find("EKF2_FLAP_F_ON");
-	static const param_t flap_f_off_handle = param_find("EKF2_FLAP_F_OFF");
-	static const param_t flap_t_on_handle = param_find("EKF2_FLAP_T_ON");
-	static const param_t flap_t_off_handle = param_find("EKF2_FLAP_T_OFF");
-	static const param_t flap_t_to_handle = param_find("EKF2_FLAP_T_TO");
+	_param_ekf2_flap_f_on.update();
+	_param_ekf2_flap_f_off.update();
+	_param_ekf2_flap_t_on.update();
+	_param_ekf2_flap_t_off.update();
+	_param_ekf2_flap_t_to.update();
 
-	float flap_f_on_hz = 1.0f;
-	float flap_f_off_hz = 0.6f;
-	float flap_t_on_s = 0.4f;
-	float flap_t_off_s = 1.5f;
-	float flap_t_to_s = 0.8f;
-
-	if (flap_f_on_handle != PARAM_INVALID) { param_get(flap_f_on_handle, &flap_f_on_hz); }
-
-	if (flap_f_off_handle != PARAM_INVALID) { param_get(flap_f_off_handle, &flap_f_off_hz); }
-
-	if (flap_t_on_handle != PARAM_INVALID) { param_get(flap_t_on_handle, &flap_t_on_s); }
-
-	if (flap_t_off_handle != PARAM_INVALID) { param_get(flap_t_off_handle, &flap_t_off_s); }
-
-	if (flap_t_to_handle != PARAM_INVALID) { param_get(flap_t_to_handle, &flap_t_to_s); }
+	const float flap_f_on_hz = _param_ekf2_flap_f_on.get();
+	const float flap_f_off_hz = _param_ekf2_flap_f_off.get();
+	const float flap_t_on_s = _param_ekf2_flap_t_on.get();
+	const float flap_t_off_s = _param_ekf2_flap_t_off.get();
+	const float flap_t_to_s = _param_ekf2_flap_t_to.get();
 
 	const uint64_t flap_timeout_us = static_cast<uint64_t>(math::constrain(flap_t_to_s, 0.1f, 5.f) * 1e6f);
 	const bool flap_frequency_timed_out = (_flap_frequency_timestamp == 0)

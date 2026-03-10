@@ -433,6 +433,7 @@ private:
 
 	AirspeedQualityEstimator _airspeed_quality_estimator{};
 	AirspeedQualityState _airspeed_quality_state{};
+
 #endif // CONFIG_EKF2_AIRSPEED
 
 #if defined(CONFIG_EKF2_SIDESLIP)
@@ -656,11 +657,11 @@ private:
 		_param_ekf2_asp_qtau, ///< airspeed quality smoothing time constant (s)
 		(ParamExtFloat<px4::params::EKF2_ASP_TOFF>)
 		_param_ekf2_asp_toff, ///< quality below off threshold duration to disable fusion (s)
-		(ParamExtFloat<px4::params::EKF2_ASP_TON>)
-		_param_ekf2_asp_ton, ///< quality above on threshold duration to re-enable fusion (s)
-		(ParamExtFloat<px4::params::EKF2_ASP_THLD>)
-		_param_ekf2_asp_thld, ///< minimum gate hold duration after each switch (s)
-#endif // CONFIG_EKF2_AIRSPEED
+			(ParamExtFloat<px4::params::EKF2_ASP_TON>)
+			_param_ekf2_asp_ton, ///< quality above on threshold duration to re-enable fusion (s)
+			(ParamExtFloat<px4::params::EKF2_ASP_THLD>)
+			_param_ekf2_asp_thld, ///< minimum gate hold duration after each switch (s)
+		#endif // CONFIG_EKF2_AIRSPEED
 
 #if defined(CONFIG_EKF2_SIDESLIP)
 		(ParamExtFloat<px4::params::EKF2_BETA_GATE>) _param_ekf2_beta_gate,
@@ -807,8 +808,17 @@ private:
 		(ParamExtFloat<px4::params::EKF2_GYR_B_LIM>) _param_ekf2_gyr_b_lim,	///< Gyro bias learning limit (rad/s)
 
 		// output predictor filter time constants
-		(ParamFloat<px4::params::EKF2_TAU_VEL>) _param_ekf2_tau_vel,
-		(ParamFloat<px4::params::EKF2_TAU_POS>) _param_ekf2_tau_pos
-	)
-};
+			(ParamFloat<px4::params::EKF2_TAU_VEL>) _param_ekf2_tau_vel,
+			(ParamFloat<px4::params::EKF2_TAU_POS>) _param_ekf2_tau_pos
+		)
+
+#if defined(CONFIG_EKF2_AIRSPEED)
+	// Keep these outside DEFINE_PARAMETERS() to stay under macro argument limit.
+	do_not_explicitly_use_this_namespace::ParamExtFloat<px4::params::EKF2_FLAP_F_ON> _param_ekf2_flap_f_on;
+	do_not_explicitly_use_this_namespace::ParamExtFloat<px4::params::EKF2_FLAP_F_OFF> _param_ekf2_flap_f_off;
+	do_not_explicitly_use_this_namespace::ParamExtFloat<px4::params::EKF2_FLAP_T_ON> _param_ekf2_flap_t_on;
+	do_not_explicitly_use_this_namespace::ParamExtFloat<px4::params::EKF2_FLAP_T_OFF> _param_ekf2_flap_t_off;
+	do_not_explicitly_use_this_namespace::ParamExtFloat<px4::params::EKF2_FLAP_T_TO> _param_ekf2_flap_t_to;
+#endif // CONFIG_EKF2_AIRSPEED
+	};
 #endif // !EKF2_HPP
