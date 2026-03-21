@@ -18,6 +18,11 @@ float32 delta_cmd                     # Commanded downstroke time ratio
 float32 delta_slewed                  # Slew-limited delta command
 float32 delta_applied                 # Delta after limit/constraint handling
 float32 delta_meas                    # Measured downstroke ratio from hall-cycle timing
+float32 f_up_cmd_hz                   # Commanded upstroke instantaneous frequency [Hz]
+float32 f_down_cmd_hz                 # Commanded downstroke instantaneous frequency [Hz]
+bool in_downstroke                    # True when current aligned phase is inside the downstroke half-cycle
+float32 wave_cmd                      # Commanded normalized flap waveform sample from phase_ref_deg
+float32 wave_meas                     # Measured normalized flap waveform sample from phase_deg
 
 float32 u_ref                         # Upstream normalized thrust reference [0..1]
 float32 u_pid                         # PID contribution added to u_ref

@@ -216,6 +216,11 @@ void RpmPid::Run()
 		float phase_deg_used = NAN;
 		float phase_ref_deg = NAN;
 		float phase_err_deg = NAN;
+		float f_up_cmd_hz = NAN;
+		float f_down_cmd_hz = NAN;
+		bool in_downstroke = false;
+		float wave_cmd = NAN;
+		float wave_meas = NAN;
 		float i_meas_a = NAN;
 		float v_meas_v = NAN;
 		float p_meas_w = NAN;
@@ -400,8 +405,13 @@ void RpmPid::Run()
 						const float w_down = downstroke_weight(phase_deg_used, _sc_blend_deg);
 						const float f_low = f_eff_sp / _sc_fmax_mult;
 						const float f_high = f_eff_sp * _sc_fmax_mult;
+						const bool phase_in_downstroke = (phase_deg_used > 90.f && phase_deg_used < 270.f);
 
 						f_sp = math::constrain(f_up + (f_down - f_up) * w_down, f_low, f_high);
+						f_up_cmd_hz = f_up;
+						f_down_cmd_hz = f_down;
+						in_downstroke = phase_in_downstroke;
+						wave_meas = cosf(phase_deg_used * (M_PI_F / 180.f));
 
 						if (!PX4_ISFINITE(_phase_ref_deg)) {
 							_phase_ref_deg = phase_deg_used;
@@ -412,6 +422,7 @@ void RpmPid::Run()
 
 						phase_ref_deg = _phase_ref_deg;
 						phase_err_deg = wrap180(_phase_ref_deg - phase_deg_used);
+						wave_cmd = cosf(phase_ref_deg * (M_PI_F / 180.f));
 
 						if (_sc_phase_k_hz_per_deg > FLT_EPSILON) {
 							f_sp += _sc_phase_k_hz_per_deg * phase_err_deg;
@@ -526,6 +537,11 @@ void RpmPid::Run()
 		control_status.delta_slewed = _sc_delta_slewed;
 		control_status.delta_applied = _sc_delta_applied;
 		control_status.delta_meas = _delta_meas;
+		control_status.f_up_cmd_hz = f_up_cmd_hz;
+		control_status.f_down_cmd_hz = f_down_cmd_hz;
+		control_status.in_downstroke = in_downstroke;
+		control_status.wave_cmd = wave_cmd;
+		control_status.wave_meas = wave_meas;
 		control_status.u_ref = u_ref;
 		control_status.u_pid = u_pid;
 		control_status.u_out = u_out;
