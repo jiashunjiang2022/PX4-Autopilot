@@ -60,3 +60,11 @@ px4_add_module(
 		version
 		component_general_json # for checksums.h
 	)
+
+px4_add_functional_gtest(
+	SRC LoggedTopicsTest.cpp
+	EXTRA_SRCS
+		logged_topics.cpp
+	LINKLIBS
+		parameters
+)
