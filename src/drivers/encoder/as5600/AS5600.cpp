@@ -244,6 +244,6 @@ void AS5600::print_status()
 {
 	I2CSPIDriverBase::print_status();
 	PX4_INFO("last angle: %.3f rad", static_cast<double>(_last_angle_rad));
-	PX4_INFO("rpm: raw=%.1f est=%.1f", static_cast<double>(_rpm_estimate),
-		 static_cast<double>(_rpm_estimate));
+	PX4_INFO("rpm est=%.1f flap_hz=%.2f", static_cast<double>(_rpm_estimate),
+		 static_cast<double>((PX4_ISFINITE(_rpm_estimate) && (_flap_ratio > FLT_EPSILON)) ? fabsf(_rpm_estimate) / (60.f * _flap_ratio) : NAN));
 }

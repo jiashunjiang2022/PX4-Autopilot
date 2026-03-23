@@ -826,10 +826,13 @@ void AirspeedModule::select_airspeed_and_publish()
 	if (quality_fresh && using_physical_airspeed_sensor) {
 		const bool q_invalid = !PX4_ISFINITE(_ekf2_airspeed_quality.airspeed_q);
 		const bool gate_closed = !_ekf2_airspeed_quality.fuse_enabled;
+		const bool spectral_driven = _ekf2_airspeed_quality.spectral_ratio_valid
+					 || !_ekf2_airspeed_quality.q_is_dv_only;
 		const bool q_too_low = PX4_ISFINITE(_ekf2_airspeed_quality.airspeed_q)
 				       && (_ekf2_airspeed_quality.airspeed_q < kAirspeedQualityInvalidThreshold);
 
-		if (q_invalid || gate_closed || q_too_low) {
+		// Only let low-q alone invalidate the physical airspeed once the spectral path is actually contributing.
+		if (q_invalid || gate_closed || (q_too_low && spectral_driven)) {
 			airspeed_validated.indicated_airspeed_m_s = NAN;
 			airspeed_validated.calibrated_airspeed_m_s = NAN;
 			airspeed_validated.true_airspeed_m_s = NAN;
