@@ -167,6 +167,8 @@ private:
 #if defined(CONFIG_EKF2_AIRSPEED)
 	struct AirspeedQualityState {
 		float airspeed_q{1.f};
+		float q_raw{1.f};
+		float q_smoothed{1.f};
 		float R_as_used{0.f};
 		bool fuse_enabled{true};
 		bool flap_active{false};
@@ -174,6 +176,15 @@ private:
 		float spectral_ratio{NAN};
 		float spectral_input_m_s{NAN};
 		float dv{0.f};
+		bool spectral_ratio_valid{false};
+		bool enough_window{false};
+		bool do_eval{false};
+		bool flap_freq_timed_out{false};
+		bool q_is_dv_only{false};
+		uint16_t spectral_window_count{0};
+		uint16_t spectral_min_samples{0};
+		uint32_t spectral_age_ms{0};
+		uint8_t gate_reason{ekf2_airspeed_quality_s::GATE_REASON_NONE};
 		uint64_t timestamp_us{0};
 	};
 
@@ -198,6 +209,9 @@ private:
 		uint64_t _last_time{0};
 		float _dv_filtered{0.f};
 		float _spectral_ratio{NAN};
+		bool _spectral_ratio_valid{false};
+		float _spectral_ratio_last_valid{NAN};
+		uint64_t _spectral_ratio_last_update_us{0};
 		float _q_smoothed{1.f};
 		bool _fuse_enabled{true};
 		uint64_t _below_off_since{0};
@@ -206,6 +220,12 @@ private:
 		bool _flap_active{false};
 		uint64_t _flap_above_on_since{0};
 		uint64_t _flap_below_off_since{0};
+		bool _last_do_eval{false};
+		bool _last_enough_window{false};
+		bool _last_flap_freq_timed_out{false};
+		bool _q_is_dv_only{false};
+		int _last_window_count{0};
+		int _last_min_samples{0};
 		float _samples[kMaxSamples]{};
 		uint64_t _times[kMaxSamples]{};
 	};
