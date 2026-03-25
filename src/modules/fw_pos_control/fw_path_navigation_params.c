@@ -49,7 +49,7 @@ PARAM_DEFINE_FLOAT(FW_PN_R_SLEW_MAX, 90.0f);
  * Path navigation switch distance
  *
  * Distance to the start waypoint before switching to the line-following logic.
- * Used by all guidance modes (NPFG/L1/PID).
+ * Used by all guidance modes (NPFG/L1/L1_WIND).
  *
  * @unit m
  * @min 1.0
@@ -81,7 +81,7 @@ PARAM_DEFINE_FLOAT(FW_GND_SPD_MIN, 5.0f);
  * @max 2
  * @value 0 NPFG
  * @value 1 L1
- * @value 2 PID
+ * @value 2 L1_WIND
  * @group FW Lateral Control
  */
 PARAM_DEFINE_INT32(FW_GUIDANCE_MODE, 0);
@@ -112,72 +112,73 @@ PARAM_DEFINE_FLOAT(FW_L1_PERIOD, 25.0f);
 PARAM_DEFINE_FLOAT(FW_L1_DAMPING, 0.75f);
 
 /**
- * PID Guidance: Proportional Gain
+ * Wind-aware L1 period
  *
- * Controls the responsiveness to cross-track error.
- * Higher values = faster correction, but may cause oscillations.
+ * Period used by FW_GUIDANCE_MODE=2 (L1_WIND).
  *
- * @min 0.0
- * @max 10.0
- * @decimal 2
- * @increment 0.1
- * @group FW Lateral Control
- */
-PARAM_DEFINE_FLOAT(FW_PID_XTE_KP, 2.0f);
-
-/**
- * PID Guidance: Integral Gain
- *
- * Eliminates steady-state error. Use with caution to avoid windup.
- *
- * @min 0.0
- * @max 2.0
- * @decimal 3
- * @increment 0.01
- * @group FW Lateral Control
- */
-PARAM_DEFINE_FLOAT(FW_PID_XTE_KI, 0.1f);
-
-/**
- * PID Guidance: Derivative Gain
- *
- * Provides damping, reduces overshoot. Higher values = more damping.
- *
- * @min 0.0
- * @max 5.0
- * @decimal 2
- * @increment 0.1
- * @group FW Lateral Control
- */
-PARAM_DEFINE_FLOAT(FW_PID_XTE_KD, 1.0f);
-
-/**
- * PID Guidance: Maximum Lateral Acceleration
- *
- * Limits the maximum lateral acceleration output.
- *
- * @unit m/s^2
- * @min 1.0
- * @max 10.0
- * @decimal 1
- * @increment 0.5
- * @group FW Lateral Control
- */
-PARAM_DEFINE_FLOAT(FW_PID_XTE_MAXA, 6.0f);
-
-/**
- * PID Guidance: Integral Limit
- *
- * Prevents integral windup. Set to maximum expected steady-state error.
- *
- * @unit m
- * @min 0.0
- * @max 100.0
+ * @unit s
+ * @min 10.0
+ * @max 50.0
  * @decimal 1
  * @increment 1.0
  * @group FW Lateral Control
  */
-PARAM_DEFINE_FLOAT(FW_PID_XTE_ILIM, 50.0f);
+PARAM_DEFINE_FLOAT(FW_WL1_PERIOD, 25.0f);
+
+/**
+ * Wind-aware L1 damping
+ *
+ * Damping ratio used by FW_GUIDANCE_MODE=2 (L1_WIND).
+ *
+ * @min 0.1
+ * @max 1.5
+ * @decimal 2
+ * @increment 0.01
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_WL1_DAMPING, 0.75f);
+
+/**
+ * Wind-aware L1 crosswind correction gain
+ *
+ * Scales the wind correction angle applied on top of the base L1 ground-track command.
+ *
+ * @min 0.0
+ * @max 2.0
+ * @decimal 2
+ * @increment 0.01
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_WL1_XW_GAIN, 1.0f);
+
+/**
+ * Wind-aware L1 crosswind correction limit
+ *
+ * Absolute limit for the wind correction angle applied by FW_GUIDANCE_MODE=2.
+ *
+ * @unit deg
+ * @min 0.0
+ * @max 60.0
+ * @decimal 1
+ * @increment 0.5
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_WL1_XW_LIM, 25.0f);
+
+/**
+ * Wind-aware L1 minimum airspeed
+ *
+ * Minimum airspeed used when computing the wind correction ratio.
+ * Below this threshold FW_GUIDANCE_MODE=2 degrades to plain L1.
+ *
+ * @unit m/s
+ * @min 5.0
+ * @max 40.0
+ * @decimal 1
+ * @increment 0.5
+ * @group FW Lateral Control
+ */
+PARAM_DEFINE_FLOAT(FW_WL1_MIN_ASPD, 12.0f);
 
 /**
  * NPFG period

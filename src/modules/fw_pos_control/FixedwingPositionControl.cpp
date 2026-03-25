@@ -126,16 +126,6 @@ FixedwingPositionControl::parameters_update()
 	_npfg.setRollLimit(radians(_param_fw_r_lim.get()));
 	_npfg.setPeriodSafetyFactor(_param_npfg_period_safety_factor.get());
 
-	_pid_kd = _param_pid_xte_kd.get();
-	_pid_xte.setGains(
-		_param_pid_xte_kp.get(),
-		_param_pid_xte_ki.get(),
-		0.0f
-	);
-	_pid_xte.setOutputLimit(_param_pid_xte_maxa.get());
-	_pid_xte.setIntegralLimit(_param_pid_xte_ilim.get());
-	_pid_xte.setSetpoint(0.0f);
-
 	// TECS parameters
 	_tecs.set_max_climb_rate(_performance_model.getMaximumClimbRate(_air_density));
 	_tecs.set_max_sink_rate(_param_fw_t_sink_max.get());
@@ -534,7 +524,10 @@ FixedwingPositionControl::status_publish()
 	fw_guidance_status_s fw_guidance_status{};
 	fw_guidance_status.timestamp = hrt_absolute_time();
 	fw_guidance_status.guidance_mode = guidance_mode;
+	fw_guidance_status.guidance_active = _guidance_output.guidance_active;
+	fw_guidance_status.degraded_to_l1 = _guidance_output.degraded_to_l1;
 	fw_guidance_status.track_error = pos_ctrl_status.xtrack_error;
+	fw_guidance_status.raw_track_error = _guidance_output.track_error;
 	fw_guidance_status.course_setpoint = pos_ctrl_status.nav_bearing;
 	fw_guidance_status.lateral_acceleration = _guidance_output.lateral_acceleration;
 
@@ -548,7 +541,10 @@ FixedwingPositionControl::status_publish()
 
 	const Vector2f ground_vel{_local_pos.vx, _local_pos.vy};
 	fw_guidance_status.ground_speed = ground_vel.length();
-	fw_guidance_status.airspeed_ref = (guidance_mode == 0) ? (_npfg.getAirspeedRef() / _eas2tas) : NAN;
+	fw_guidance_status.airspeed_ref = (guidance_mode == 0) ? (_npfg.getAirspeedRef() / _eas2tas) : _guidance_airspeed_ref;
+	fw_guidance_status.wind_correction = _guidance_output.wind_correction;
+	fw_guidance_status.wind_speed = _guidance_output.wind_speed;
+	fw_guidance_status.airspeed_used = _guidance_output.airspeed_used;
 
 	_fw_guidance_status_pub.publish(fw_guidance_status);
 }
@@ -619,14 +615,16 @@ float FixedwingPositionControl::getGuidanceRollSetpoint()
 	return math::constrain(roll_body, -radians(_param_fw_r_lim.get()), radians(_param_fw_r_lim.get()));
 }
 
-float FixedwingPositionControl::getGuidanceAirspeedRef(float target_airspeed) const
+float FixedwingPositionControl::getGuidanceAirspeedRef(float target_airspeed)
 {
 	const int guidance_mode = _param_fw_guidance_mode.get();
 
 	if (guidance_mode == 0) {
-		return _npfg.getAirspeedRef() / _eas2tas;
+		_guidance_airspeed_ref = _npfg.getAirspeedRef() / _eas2tas;
+		return _guidance_airspeed_ref;
 	}
 
+	_guidance_airspeed_ref = target_airspeed;
 	return target_airspeed;
 }
 
@@ -3247,12 +3245,8 @@ void FixedwingPositionControl::guideToPath(const Vector2f &vehicle_pos, const Ve
 	const int guidance_mode = _param_fw_guidance_mode.get();
 
 	if (guidance_mode != _guidance_mode_last) {
-		_pid_xte.resetIntegral();
-		_pid_last_error = NAN;
-		_pid_last_course = 0.0f;
-		_pid_last_update_time = 0U;
-		_l1_last_time = 0U;
-		_l1_last_course = 0.0f;
+		_guidance_last_time = 0U;
+		_guidance_last_course = 0.0f;
 	}
 
 	_guidance_mode_last = guidance_mode;
@@ -3261,14 +3255,74 @@ void FixedwingPositionControl::guideToPath(const Vector2f &vehicle_pos, const Ve
 		_guidance_output = navigateL1(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, closest_point_on_path, path_curvature);
 
 	} else if (guidance_mode == 2) {
-		_guidance_output = navigatePID(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, closest_point_on_path, path_curvature);
+		_guidance_output = navigateL1Wind(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, closest_point_on_path,
+						 path_curvature);
 
 	} else {
 		_npfg.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, closest_point_on_path, path_curvature);
+		_guidance_output.guidance_active = true;
+		_guidance_output.degraded_to_l1 = false;
 		_guidance_output.course_setpoint = _npfg.getBearing();
 		_guidance_output.lateral_acceleration = _npfg.getLateralAccel();
 		_guidance_output.track_error = _npfg.getTrackError();
+		_guidance_output.wind_correction = 0.0f;
+		_guidance_output.wind_speed = _wind_valid ? wind_vel.length() : NAN;
+		_guidance_output.airspeed_used = _airspeed_valid ? math::max(_airspeed_eas * _eas2tas, 0.0f) : NAN;
 	}
+}
+
+FixedwingPositionControl::L1TrackingData FixedwingPositionControl::getL1TrackingData(const Vector2f &vehicle_pos,
+		const Vector2f &ground_vel, const Vector2f &unit_path_tangent, const Vector2f &closest_point_on_path,
+		float period, float damping) const
+{
+	L1TrackingData data{};
+	data.ground_speed = math::max(ground_vel.length(), 0.1f);
+	data.path_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
+
+	const float l1_ratio = (1.0f / M_PI_F) * damping * period;
+	data.k_l1 = 4.0f * damping * damping;
+	data.l1_distance = math::max(l1_ratio * data.ground_speed, 1.0f);
+
+	const Vector2f path_to_vehicle = vehicle_pos - closest_point_on_path;
+	data.track_error = path_to_vehicle % unit_path_tangent;
+
+	float sine_eta1 = data.track_error / math::max(data.l1_distance, 0.1f);
+	sine_eta1 = math::constrain(sine_eta1, -1.0f, 1.0f);
+	data.eta1 = asinf(sine_eta1);
+
+	float xtrack_vel = ground_vel % unit_path_tangent;
+	float ltrack_vel = ground_vel * unit_path_tangent;
+
+	if (fabsf(ltrack_vel) < 0.1f) {
+		ltrack_vel = (ltrack_vel >= 0.0f) ? 0.1f : -0.1f;
+	}
+
+	const float eta2 = atan2f(xtrack_vel, ltrack_vel);
+	data.eta = math::constrain(data.eta1 + eta2, -M_PI_F / 2.0f, M_PI_F / 2.0f);
+	return data;
+}
+
+float FixedwingPositionControl::slewLimitedCourseSetpoint(float desired_course)
+{
+	const uint64_t current_time = hrt_absolute_time();
+	float dt = 0.0f;
+
+	if (_guidance_last_time > 0U) {
+		dt = (current_time - _guidance_last_time) / 1e6f;
+		dt = math::constrain(dt, 0.001f, 0.1f);
+	}
+
+	if (dt > 0.0f) {
+		float course_diff = matrix::wrap_pi(desired_course - _guidance_last_course);
+		const float max_course_change_rate = M_PI_F / 3.0f;
+		const float max_course_change = max_course_change_rate * dt;
+		course_diff = math::constrain(course_diff, -max_course_change, max_course_change);
+		desired_course = _guidance_last_course + course_diff;
+	}
+
+	_guidance_last_course = desired_course;
+	_guidance_last_time = current_time;
+	return desired_course;
 }
 
 FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigateL1(const Vector2f &vehicle_pos,
@@ -3279,176 +3333,89 @@ FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigateL1(co
 	(void)wind_vel;
 	(void)path_curvature;
 
-	float ground_speed = math::max(ground_vel.length(), 0.1f);
+	const L1TrackingData l1 = getL1TrackingData(vehicle_pos, ground_vel, unit_path_tangent, closest_point_on_path,
+				 _param_fw_l1_period.get(), _param_fw_l1_damping.get());
+	sp.guidance_active = true;
+	sp.degraded_to_l1 = false;
+	sp.track_error = l1.track_error;
+	sp.wind_correction = 0.0f;
+	sp.wind_speed = _wind_valid ? wind_vel.length() : NAN;
+	sp.airspeed_used = _airspeed_valid ? math::max(_airspeed_eas * _eas2tas, 0.0f) : NAN;
 
-	if (ground_speed < 3.0f) {
+	if (l1.ground_speed < 3.0f) {
 		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
 		sp.lateral_acceleration = 0.0f;
-		sp.track_error = 0.0f;
 		return sp;
 	}
 
-	const float l1_period = _param_fw_l1_period.get();
-	const float l1_damping = _param_fw_l1_damping.get();
-	const float l1_ratio = (1.0f / M_PI_F) * l1_damping * l1_period;
-	const float k_l1 = 4.0f * l1_damping * l1_damping;
-
-	float l1_distance = l1_ratio * ground_speed;
-	l1_distance = math::max(l1_distance, 1.0f);
-
-	matrix::Vector2f vector_ab = unit_path_tangent;
-	matrix::Vector2f path_to_vehicle = vehicle_pos - closest_point_on_path;
-	float xtrack_error = path_to_vehicle % vector_ab;
-
-	float sine_eta1 = xtrack_error / math::max(l1_distance, 0.1f);
-	sine_eta1 = math::constrain(sine_eta1, -1.0f, 1.0f);
-	float eta1 = asinf(sine_eta1);
-
-	float xtrack_vel = ground_vel % vector_ab;
-	float ltrack_vel = ground_vel * vector_ab;
-
-	if (fabsf(ltrack_vel) < 0.1f) {
-		ltrack_vel = (ltrack_vel >= 0) ? 0.1f : -0.1f;
-	}
-
-	float eta2 = atan2f(xtrack_vel, ltrack_vel);
-	float eta = eta1 + eta2;
-	eta = math::constrain(eta, -M_PI_F / 2.0f, M_PI_F / 2.0f);
-
-	float desired_course = atan2f(vector_ab(1), vector_ab(0)) + eta1;
-
-	const uint64_t current_time = hrt_absolute_time();
-	float dt = 0.0f;
-
-	if (_l1_last_time > 0U) {
-		dt = (current_time - _l1_last_time) / 1e6f;
-		dt = math::constrain(dt, 0.001f, 0.1f);
-	}
-
-	if (dt > 0.0f) {
-		float course_diff = matrix::wrap_pi(desired_course - _l1_last_course);
-		const float max_course_change_rate = M_PI_F / 3.0f;
-		const float max_course_change = max_course_change_rate * dt;
-		course_diff = math::constrain(course_diff, -max_course_change, max_course_change);
-		desired_course = _l1_last_course + course_diff;
-	}
-
-	_l1_last_course = desired_course;
-	_l1_last_time = current_time;
-
-	const float lateral_acceleration = k_l1 * ground_speed * ground_speed / l1_distance * sinf(eta);
-
-	sp.course_setpoint = desired_course;
-	sp.lateral_acceleration = lateral_acceleration;
-	sp.track_error = xtrack_error;
+	sp.course_setpoint = slewLimitedCourseSetpoint(l1.path_bearing + l1.eta1);
+	sp.lateral_acceleration = l1.k_l1 * l1.ground_speed * l1.ground_speed / l1.l1_distance * sinf(l1.eta);
 	return sp;
 }
 
-FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigatePID(const Vector2f &vehicle_pos,
+FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigateL1Wind(const Vector2f &vehicle_pos,
 		const Vector2f &ground_vel, const Vector2f &wind_vel, const Vector2f &unit_path_tangent,
 		const Vector2f &closest_point_on_path, const float &path_curvature)
 {
 	GuidanceOutput sp{};
-	(void)wind_vel;
 	(void)path_curvature;
 
-	float ground_speed = math::max(ground_vel.length(), 0.1f);
+	const L1TrackingData l1 = getL1TrackingData(vehicle_pos, ground_vel, unit_path_tangent, closest_point_on_path,
+				 _param_fw_wl1_period.get(), _param_fw_wl1_damping.get());
+	sp.guidance_active = true;
+	sp.degraded_to_l1 = false;
+	sp.track_error = l1.track_error;
+	sp.wind_speed = _wind_valid ? wind_vel.length() : NAN;
+	sp.airspeed_used = _airspeed_valid ? math::max(_airspeed_eas * _eas2tas, 0.0f) : NAN;
 
-	if (ground_speed < 3.0f) {
+	if (l1.ground_speed < 3.0f) {
 		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
 		sp.lateral_acceleration = 0.0f;
-		sp.track_error = 0.0f;
-		_pid_xte.resetIntegral();
-		_pid_last_update_time = 0U;
+		sp.degraded_to_l1 = true;
+		sp.wind_correction = 0.0f;
 		return sp;
 	}
 
-	matrix::Vector2f path_to_vehicle = vehicle_pos - closest_point_on_path;
-	float cross_track_error = path_to_vehicle % unit_path_tangent;
+	const float base_course = l1.path_bearing + l1.eta1;
+	const float min_airspeed = _param_fw_wl1_min_airspd.get();
+	const bool airspeed_usable = PX4_ISFINITE(sp.airspeed_used) && sp.airspeed_used >= min_airspeed;
 
-	float last_error = _pid_last_error;
-	bool reset_integral = false;
-
-	if (PX4_ISFINITE(last_error)) {
-		if ((cross_track_error * last_error) < 0.0f || fabsf(cross_track_error) < 0.5f) {
-			_pid_xte.resetIntegral();
-			reset_integral = true;
-		}
+	if (!_wind_valid || !airspeed_usable) {
+		sp.course_setpoint = slewLimitedCourseSetpoint(base_course);
+		sp.lateral_acceleration = l1.k_l1 * l1.ground_speed * l1.ground_speed / l1.l1_distance * sinf(l1.eta);
+		sp.degraded_to_l1 = true;
+		sp.wind_correction = 0.0f;
+		return sp;
 	}
 
-	const hrt_abstime current_time = hrt_absolute_time();
-	float dt_raw = (_pid_last_update_time > 0U) ? ((current_time - _pid_last_update_time) / 1e6f) : 0.02f;
-	const float dt = math::constrain(dt_raw, 0.001f, 0.05f);
-	_pid_last_update_time = current_time;
+	const float effective_airspeed = math::max(sp.airspeed_used, min_airspeed);
+	const Vector2f path_normal(-unit_path_tangent(1), unit_path_tangent(0));
+	const float wind_cross = wind_vel * path_normal;
+	const float crosswind_ratio = math::constrain(wind_cross / effective_airspeed, -0.95f, 0.95f);
+	const float wind_correction_limit = radians(_param_fw_wl1_xw_lim_deg.get());
+	const float wind_correction = math::constrain(asinf(crosswind_ratio) * _param_fw_wl1_xw_gain.get(),
+				       -wind_correction_limit, wind_correction_limit);
 
-	float lateral_accel_cmd = _pid_xte.update(-cross_track_error, dt);
+	const Vector2f air_vel = ground_vel - wind_vel;
+	const float airspeed_for_heading = air_vel.length();
 
-	float pid_d = 0.0f;
-
-	if (!reset_integral && PX4_ISFINITE(last_error)) {
-		const float error_rate = (cross_track_error - last_error) / math::max(dt, 0.005f);
-		pid_d = _pid_kd * error_rate;
-		lateral_accel_cmd += pid_d;
+	if (!PX4_ISFINITE(airspeed_for_heading) || airspeed_for_heading < min_airspeed) {
+		sp.course_setpoint = slewLimitedCourseSetpoint(base_course);
+		sp.lateral_acceleration = l1.k_l1 * l1.ground_speed * l1.ground_speed / l1.l1_distance * sinf(l1.eta);
+		sp.degraded_to_l1 = true;
+		sp.wind_correction = 0.0f;
+		sp.airspeed_used = airspeed_for_heading;
+		return sp;
 	}
 
-	_pid_last_error = cross_track_error;
+	const float current_air_heading = atan2f(air_vel(1), air_vel(0));
+	const float commanded_air_heading = base_course + wind_correction;
+	const float heading_error = math::constrain(wrap_pi(commanded_air_heading - current_air_heading),
+				   -M_PI_F / 2.0f, M_PI_F / 2.0f);
 
-	const float max_lateral_accel = _param_pid_xte_maxa.get();
-	lateral_accel_cmd = math::constrain(
-		lateral_accel_cmd,
-		-max_lateral_accel,
-		max_lateral_accel
-	);
-
-	const float path_bearing = atan2f(unit_path_tangent(1), unit_path_tangent(0));
-	float course_correction = 0.0f;
-	const float error_magnitude = fabsf(cross_track_error);
-	float tau = 1.0f;
-
-	if (fabsf(ground_speed) > FLT_EPSILON) {
-		if (error_magnitude > 50.0f) {
-			tau = 0.3f;
-
-		} else if (error_magnitude > 20.0f) {
-			tau = 0.5f;
-
-		} else if (error_magnitude > 5.0f) {
-			tau = 1.0f;
-
-		} else {
-			tau = 2.0f;
-		}
-
-		const float min_lookahead = 15.0f;
-		const float max_lookahead = 80.0f;
-		const float lookahead_distance = math::constrain(ground_speed * tau, min_lookahead, max_lookahead);
-
-		float geometric_correction = atan2f(cross_track_error, lookahead_distance);
-		const float max_geometric_angle = M_PI_F / 2.5f;
-		course_correction = math::constrain(geometric_correction, -max_geometric_angle, max_geometric_angle);
-	}
-
-	float desired_course = path_bearing + course_correction;
-	desired_course = matrix::wrap_pi(desired_course);
-
-	float course_diff_abs = fabsf(matrix::wrap_pi(desired_course - _pid_last_course));
-	bool course_initialized = (course_diff_abs < M_PI_F / 2.0f)
-				  && (fabsf(_pid_last_course) > FLT_EPSILON || course_diff_abs < 0.1f);
-
-	if (error_magnitude < 10.0f && course_initialized) {
-		float course_diff = matrix::wrap_pi(desired_course - _pid_last_course);
-		const float max_course_change_rate = M_PI_F / 6.0f;
-		const float max_course_change = max_course_change_rate * dt;
-		course_diff = math::constrain(course_diff, -max_course_change, max_course_change);
-		desired_course = _pid_last_course + course_diff;
-		desired_course = matrix::wrap_pi(desired_course);
-	}
-
-	_pid_last_course = desired_course;
-
-	sp.course_setpoint = desired_course;
-	sp.lateral_acceleration = lateral_accel_cmd;
-	sp.track_error = cross_track_error;
+	sp.course_setpoint = slewLimitedCourseSetpoint(commanded_air_heading);
+	sp.lateral_acceleration = l1.k_l1 * l1.ground_speed * l1.ground_speed / l1.l1_distance * sinf(heading_error);
+	sp.wind_correction = wind_correction;
 	return sp;
 }
 

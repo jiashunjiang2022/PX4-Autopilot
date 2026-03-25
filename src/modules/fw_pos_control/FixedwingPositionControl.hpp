@@ -57,7 +57,6 @@
 #include <lib/geo/geo.h>
 #include <lib/atmosphere/atmosphere.h>
 #include <lib/npfg/npfg.hpp>
-#include <lib/pid/PID.hpp>
 #include <lib/tecs/TECS.hpp>
 #include <lib/mathlib/mathlib.h>
 #include <lib/perf/perf_counter.h>
@@ -431,23 +430,34 @@ private:
 	hrt_abstime _time_since_first_reduced_roll{0U}; ///< absolute time since start when entering reduced roll angle for the first time
 	hrt_abstime _time_since_last_npfg_call{0U}; 	///< absolute time since start when the npfg reduced roll angle calculations was last performed
 
-	// L1/PID guidance state
-	PID _pid_xte;
-	float _pid_kd{0.0f};
-	float _pid_last_course{0.0f};
-	float _pid_last_error{NAN};
-	hrt_abstime _pid_last_update_time{0U};
-	hrt_abstime _l1_last_time{0U};
-	float _l1_last_course{0.0f};
+	// L1/L1_WIND guidance state
+	hrt_abstime _guidance_last_time{0U};
+	float _guidance_last_course{0.0f};
 	int _guidance_mode_last{-1};
 
+	struct L1TrackingData {
+		float ground_speed{0.0f};
+		float path_bearing{NAN};
+		float l1_distance{1.0f};
+		float k_l1{0.0f};
+		float eta{0.0f};
+		float eta1{0.0f};
+		float track_error{0.0f};
+	};
+
 	struct GuidanceOutput {
+		bool guidance_active{false};
+		bool degraded_to_l1{false};
 		float course_setpoint{NAN};
 		float lateral_acceleration{0.0f};
 		float track_error{NAN};
+		float wind_correction{0.0f};
+		float wind_speed{NAN};
+		float airspeed_used{NAN};
 	};
 
 	GuidanceOutput _guidance_output{};
+	float _guidance_airspeed_ref{NAN};
 
 	PerformanceModel _performance_model;
 
@@ -979,12 +989,16 @@ private:
 			     const matrix::Vector2f &wind_vel);
 	void guideToPath(const Vector2f &vehicle_pos, const Vector2f &ground_vel, const Vector2f &wind_vel,
 			 const Vector2f &unit_path_tangent, const Vector2f &closest_point_on_path, const float &path_curvature);
+	L1TrackingData getL1TrackingData(const Vector2f &vehicle_pos, const Vector2f &ground_vel,
+					 const Vector2f &unit_path_tangent, const Vector2f &closest_point_on_path,
+					 float period, float damping) const;
+	float slewLimitedCourseSetpoint(float desired_course);
 	GuidanceOutput navigateL1(const Vector2f &vehicle_pos, const Vector2f &ground_vel, const Vector2f &wind_vel,
 				  const Vector2f &unit_path_tangent, const Vector2f &closest_point_on_path, const float &path_curvature);
-	GuidanceOutput navigatePID(const Vector2f &vehicle_pos, const Vector2f &ground_vel, const Vector2f &wind_vel,
-				   const Vector2f &unit_path_tangent, const Vector2f &closest_point_on_path, const float &path_curvature);
+	GuidanceOutput navigateL1Wind(const Vector2f &vehicle_pos, const Vector2f &ground_vel, const Vector2f &wind_vel,
+				      const Vector2f &unit_path_tangent, const Vector2f &closest_point_on_path, const float &path_curvature);
 	float getGuidanceRollSetpoint();
-	float getGuidanceAirspeedRef(float target_airspeed) const;
+	float getGuidanceAirspeedRef(float target_airspeed);
 	float getGuidanceCourseSetpoint() const { return _guidance_output.course_setpoint; }
 
 	DEFINE_PARAMETERS(
@@ -996,11 +1010,11 @@ private:
 		(ParamFloat<px4::params::FW_R_LIM>) _param_fw_r_lim,
 		(ParamFloat<px4::params::FW_L1_PERIOD>) _param_fw_l1_period,
 		(ParamFloat<px4::params::FW_L1_DAMPING>) _param_fw_l1_damping,
-		(ParamFloat<px4::params::FW_PID_XTE_KP>) _param_pid_xte_kp,
-		(ParamFloat<px4::params::FW_PID_XTE_KI>) _param_pid_xte_ki,
-		(ParamFloat<px4::params::FW_PID_XTE_KD>) _param_pid_xte_kd,
-		(ParamFloat<px4::params::FW_PID_XTE_MAXA>) _param_pid_xte_maxa,
-		(ParamFloat<px4::params::FW_PID_XTE_ILIM>) _param_pid_xte_ilim,
+		(ParamFloat<px4::params::FW_WL1_PERIOD>) _param_fw_wl1_period,
+		(ParamFloat<px4::params::FW_WL1_DAMPING>) _param_fw_wl1_damping,
+		(ParamFloat<px4::params::FW_WL1_XW_GAIN>) _param_fw_wl1_xw_gain,
+		(ParamFloat<px4::params::FW_WL1_XW_LIM>) _param_fw_wl1_xw_lim_deg,
+		(ParamFloat<px4::params::FW_WL1_MIN_ASPD>) _param_fw_wl1_min_airspd,
 
 		(ParamFloat<px4::params::NPFG_PERIOD>) _param_npfg_period,
 		(ParamFloat<px4::params::NPFG_DAMPING>) _param_npfg_damping,
