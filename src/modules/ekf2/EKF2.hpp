@@ -205,6 +205,7 @@ private:
 		int _head{0};
 		int _count{0};
 		uint64_t _last_eval_time{0};
+		uint64_t _last_eval_interval_us{0};
 		float _last_airspeed{NAN};
 		uint64_t _last_time{0};
 		float _dv_filtered{0.f};

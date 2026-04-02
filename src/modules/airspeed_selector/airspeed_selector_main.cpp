@@ -85,6 +85,9 @@ static constexpr float kAirspeedBlockageReferenceErrorThreshold{8.0f};
 static constexpr float kAirspeedBlockageClearErrorThreshold{4.0f};
 static constexpr uint64_t kAirspeedBlockageTriggerTimeUs{2_s};
 static constexpr uint64_t kAirspeedBlockageClearTimeUs{1_s};
+static constexpr uint64_t kQualityDisableHoldUs{2_s};
+static constexpr uint64_t kQualityReenableDwellUs{1_s};
+static constexpr float kQualityQHysteresis{0.05f};
 
 using matrix::Dcmf;
 using matrix::Quatf;
@@ -174,6 +177,9 @@ private:
 	float _ground_minus_wind_CAS{NAN}; /**< calibrated airspeed from groundspeed minus windspeed */
 	bool _armed_prev{false};
 	bool _ekf2_airspeed_quality_valid{false};
+	bool _quality_disable_latched{false};
+	hrt_abstime _quality_disable_hold_until{0};
+	hrt_abstime _quality_reenable_since{0};
 	bool _airspeed_blockage_detected{false};
 	hrt_abstime _airspeed_blockage_candidate_since{0};
 	hrt_abstime _airspeed_blockage_clear_since{0};
@@ -823,21 +829,57 @@ void AirspeedModule::select_airspeed_and_publish()
 
 	update_airspeed_blockage_status(airspeed_validated, using_physical_airspeed_sensor);
 
-	if (quality_fresh && using_physical_airspeed_sensor) {
-		const bool q_invalid = !PX4_ISFINITE(_ekf2_airspeed_quality.airspeed_q);
-		const bool gate_closed = !_ekf2_airspeed_quality.fuse_enabled;
-		const bool spectral_driven = _ekf2_airspeed_quality.spectral_ratio_valid
+	if (using_physical_airspeed_sensor) {
+		bool disable_condition = false;
+		bool reopen_condition = false;
+
+		if (quality_fresh) {
+			const bool q_invalid = !PX4_ISFINITE(_ekf2_airspeed_quality.airspeed_q);
+			const bool gate_closed = !_ekf2_airspeed_quality.fuse_enabled;
+			const bool spectral_driven = _ekf2_airspeed_quality.spectral_ratio_valid
 					 || !_ekf2_airspeed_quality.q_is_dv_only;
-		const bool q_too_low = PX4_ISFINITE(_ekf2_airspeed_quality.airspeed_q)
+			const bool q_too_low = PX4_ISFINITE(_ekf2_airspeed_quality.airspeed_q)
 				       && (_ekf2_airspeed_quality.airspeed_q < kAirspeedQualityInvalidThreshold);
 
-		// Only let low-q alone invalidate the physical airspeed once the spectral path is actually contributing.
-		if (q_invalid || gate_closed || (q_too_low && spectral_driven)) {
+			disable_condition = q_invalid || gate_closed || (q_too_low && spectral_driven);
+			reopen_condition = _ekf2_airspeed_quality.fuse_enabled
+				       && PX4_ISFINITE(_ekf2_airspeed_quality.airspeed_q)
+				       && (_ekf2_airspeed_quality.airspeed_q > (kAirspeedQualityInvalidThreshold + kQualityQHysteresis));
+		}
+
+		if (disable_condition) {
+			_quality_disable_latched = true;
+			_quality_disable_hold_until = _time_now_usec + kQualityDisableHoldUs;
+			_quality_reenable_since = 0;
+		}
+
+		if (_quality_disable_latched) {
+			const bool hold_active = _time_now_usec < _quality_disable_hold_until;
+
+			if (hold_active || !quality_fresh || !reopen_condition) {
+				_quality_reenable_since = 0;
+
+			} else if (_quality_reenable_since == 0) {
+				_quality_reenable_since = _time_now_usec;
+
+			} else if ((_time_now_usec - _quality_reenable_since) >= kQualityReenableDwellUs) {
+				_quality_disable_latched = false;
+				_quality_disable_hold_until = 0;
+				_quality_reenable_since = 0;
+			}
+		}
+
+		if (_quality_disable_latched) {
 			airspeed_validated.indicated_airspeed_m_s = NAN;
 			airspeed_validated.calibrated_airspeed_m_s = NAN;
 			airspeed_validated.true_airspeed_m_s = NAN;
 			airspeed_validated.airspeed_source = airspeed_validated_s::SOURCE_DISABLED;
 		}
+
+	} else {
+		_quality_disable_latched = false;
+		_quality_disable_hold_until = 0;
+		_quality_reenable_since = 0;
 	}
 
 	if (_airspeed_blockage_detected && using_physical_airspeed_sensor) {
