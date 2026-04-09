@@ -65,33 +65,78 @@ static float goertzel_power(const float *samples, int count, float freq_hz, floa
 	return s1 * s1 + s2 * s2 - coeff * s1 * s2;
 }
 
-void EKF2::AirspeedQualityEstimator::reset()
+static constexpr uint64_t kFlapActiveGraceUs = 700_ms;
+static constexpr uint64_t kMinAirspeedSampleGapResetUs = 1_s;
+
+void EKF2::AirspeedQualityEstimator::resetSpectralWindow(SpectralResetReason reason)
 {
 	_head = 0;
 	_count = 0;
 	_last_eval_time = 0;
 	_last_eval_interval_us = 0;
-	_last_airspeed = NAN;
-	_last_time = 0;
-	_dv_filtered = 0.f;
 	_spectral_ratio = NAN;
 	_spectral_ratio_valid = false;
 	_spectral_ratio_last_valid = NAN;
 	_spectral_ratio_last_update_us = 0;
+	_last_do_eval = false;
+	_last_enough_window = false;
+	_last_window_count = 0;
+	_last_min_samples = 0;
+	_spectral_reset_reason = reason;
+}
+
+void EKF2::AirspeedQualityEstimator::pruneSpectralWindow(uint64_t oldest_keep_time_us)
+{
+	while (_count > 0) {
+		const int oldest = (_head - _count + kMaxSamples) % kMaxSamples;
+
+		if (_times[oldest] >= oldest_keep_time_us) {
+			break;
+		}
+
+		_count--;
+	}
+}
+
+uint32_t EKF2::AirspeedQualityEstimator::flapActiveStreakMs(uint64_t time_us) const
+{
+	if (!_flap_active || (_flap_active_since == 0) || (time_us < _flap_active_since)) {
+		return 0;
+	}
+
+	return static_cast<uint32_t>(math::min((time_us - _flap_active_since) / 1000ULL, 4294967295ULL));
+}
+
+uint32_t EKF2::AirspeedQualityEstimator::flapRecentTrueAgeMs(uint64_t time_us) const
+{
+	if ((_last_flap_true_us == 0) || (time_us < _last_flap_true_us)) {
+		return 0;
+	}
+
+	return static_cast<uint32_t>(math::min((time_us - _last_flap_true_us) / 1000ULL, 4294967295ULL));
+}
+
+void EKF2::AirspeedQualityEstimator::reset()
+{
+	resetSpectralWindow(SpectralResetReason::ExplicitReset);
+	_last_airspeed = NAN;
+	_last_time = 0;
+	_dv_filtered = 0.f;
 	_q_smoothed = 1.f;
 	_fuse_enabled = true;
 	_below_off_since = 0;
 	_above_on_since = 0;
 	_hold_until = 0;
 	_flap_active = false;
+	_flap_active_since = 0;
 	_flap_above_on_since = 0;
 	_flap_below_off_since = 0;
-	_last_do_eval = false;
-	_last_enough_window = false;
+	_last_flap_true_us = 0;
+	_last_flap_freq_valid_hz = NAN;
+	_last_flap_freq_valid_us = 0;
 	_last_flap_freq_timed_out = false;
 	_q_is_dv_only = false;
-	_last_window_count = 0;
-	_last_min_samples = 0;
+	_spectral_reset_reason = SpectralResetReason::None;
 }
 
 bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspeed, float flap_freq_hz, float eas2tas,
@@ -105,6 +150,10 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 		return false;
 	}
 
+	const float spec_fs_hz_clamped = math::constrain(spec_fs_hz, 2.f, 50.f);
+	const float spec_win_s_clamped = math::constrain(spec_win_s, 1.f, 10.f);
+	const uint64_t spec_win_us = static_cast<uint64_t>(spec_win_s_clamped * 1e6f);
+	const uint64_t sample_gap_reset_us = math::max(kMinAirspeedSampleGapResetUs, spec_win_us / 4);
 	const uint64_t last_time_us = _last_time;
 	float sample_dt = NAN;
 
@@ -138,9 +187,19 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 
 	const bool flap_freq_valid = PX4_ISFINITE(flap_freq_hz) && (flap_freq_hz > FLT_EPSILON);
 
+	if (flap_freq_valid) {
+		_last_flap_freq_valid_hz = flap_freq_hz;
+		_last_flap_freq_valid_us = time_us;
+	}
+
+	if ((last_time_us != 0) && (time_us > last_time_us) && ((time_us - last_time_us) > sample_gap_reset_us)) {
+		resetSpectralWindow(SpectralResetReason::AirspeedTimeout);
+	}
+
 	if (_flap_active) {
 		if (flap_freq_timed_out) {
 			_flap_active = false;
+			_flap_active_since = 0;
 			_flap_below_off_since = 0;
 
 		} else if (!flap_freq_valid || (flap_freq_hz < flap_f_off)) {
@@ -150,6 +209,7 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 
 			if ((time_us - _flap_below_off_since) >= static_cast<uint64_t>(flap_t_off * 1e6f)) {
 				_flap_active = false;
+				_flap_active_since = 0;
 				_flap_below_off_since = 0;
 			}
 
@@ -167,6 +227,7 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 
 			if ((time_us - _flap_above_on_since) >= static_cast<uint64_t>(flap_t_on * 1e6f)) {
 				_flap_active = true;
+				_flap_active_since = time_us;
 				_flap_above_on_since = 0;
 			}
 
@@ -177,16 +238,18 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 		_flap_below_off_since = 0;
 	}
 
-	if (!_flap_active) {
-		// Stop spectral gating during gliding/non-flapping, keep airspeed fusion at baseline.
-		_head = 0;
-		_count = 0;
-		_last_eval_time = 0;
-		_last_eval_interval_us = 0;
-		_spectral_ratio = NAN;
-		_spectral_ratio_valid = false;
-		_spectral_ratio_last_valid = NAN;
-		_spectral_ratio_last_update_us = 0;
+	if (_flap_active) {
+		_last_flap_true_us = time_us;
+	}
+
+	const uint32_t flap_recent_true_age_ms = flapRecentTrueAgeMs(time_us);
+	const bool flap_recently_true = (_last_flap_true_us > 0)
+					&& (time_us >= _last_flap_true_us)
+					&& ((time_us - _last_flap_true_us) <= kFlapActiveGraceUs);
+
+	if (!_flap_active && !flap_recently_true) {
+		// Stop spectral gating only after flap activity has been absent past the grace interval.
+		resetSpectralWindow(SpectralResetReason::NoRecentFlap);
 		_q_smoothed = 1.f;
 		_q_is_dv_only = false;
 		_fuse_enabled = true;
@@ -215,6 +278,9 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 		out.spectral_window_count = 0;
 		out.spectral_min_samples = 0;
 		out.spectral_age_ms = 0;
+		out.spectral_reset_reason = static_cast<uint8_t>(_spectral_reset_reason);
+		out.flap_active_streak_ms = 0;
+		out.flap_recent_true_age_ms = flap_recent_true_age_ms;
 		out.gate_reason = ekf2_airspeed_quality_s::GATE_REASON_FORCE_BASELINE;
 		out.timestamp_us = time_us;
 		return false;
@@ -225,10 +291,8 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 	_times[index] = time_us;
 	_head = (index + 1) % kMaxSamples;
 	_count = math::min(_count + 1, kMaxSamples);
-
-	const float spec_fs_hz_clamped = math::constrain(spec_fs_hz, 2.f, 50.f);
-	const float spec_win_s_clamped = math::constrain(spec_win_s, 1.f, 10.f);
-	const uint64_t window_start = time_us - static_cast<uint64_t>(spec_win_s_clamped * 1e6f);
+	pruneSpectralWindow(time_us - spec_win_us);
+	const uint64_t window_start = time_us - spec_win_us;
 
 	float window_samples[kMaxSamples];
 	uint64_t window_times[kMaxSamples];
@@ -249,10 +313,12 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 	const int min_samples = math::max(8, static_cast<int>(spec_fs_hz_clamped * spec_win_s_clamped * 0.9f));
 	const bool enough_window = (window_count >= min_samples)
 				   && (window_times[window_count - 1] - window_times[0] >= static_cast<uint64_t>(spec_win_s_clamped * 0.95f * 1e6f));
+	const bool eval_eligible = _flap_active || flap_recently_true;
 
 	const uint64_t eval_interval_us = static_cast<uint64_t>(0.5f * spec_win_s_clamped * 1e6f);
 	_last_eval_interval_us = eval_interval_us;
-	const bool do_eval = enough_window && (_last_eval_time == 0 || (time_us - _last_eval_time) >= eval_interval_us);
+	const bool do_eval = eval_eligible && enough_window
+			     && (_last_eval_time == 0 || (time_us - _last_eval_time) >= eval_interval_us);
 	_last_enough_window = enough_window;
 	_last_do_eval = do_eval;
 	_last_window_count = window_count;
@@ -260,6 +326,7 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 
 	if (do_eval) {
 		_last_eval_time = time_us;
+		_spectral_reset_reason = SpectralResetReason::None;
 
 		float mean = 0.f;
 
@@ -276,6 +343,12 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 		const float dt_window = (window_times[window_count - 1] - window_times[0]) * 1e-6f;
 		const float fs_hz = (window_count > 1 && dt_window > 0.f) ? ((window_count - 1) / dt_window) : 0.f;
 		float spectral_ratio_eval = NAN;
+		const bool use_recent_flap_frequency = !flap_freq_valid
+						       && (_last_flap_freq_valid_us > 0)
+						       && (time_us >= _last_flap_freq_valid_us)
+						       && ((time_us - _last_flap_freq_valid_us) <= kFlapActiveGraceUs);
+		const float flap_freq_for_eval = flap_freq_valid ? flap_freq_hz
+						  : (use_recent_flap_frequency ? _last_flap_freq_valid_hz : NAN);
 
 		if (fs_hz > 1.f) {
 			const float nyquist_hz = fs_hz * 0.5f;
@@ -289,7 +362,8 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 			float flap_power = 0.f;
 
 			if (upper_limit_hz > lower_limit_hz) {
-				const float center_hz = PX4_ISFINITE(flap_freq_hz) ? math::constrain(flap_freq_hz, lower_limit_hz, upper_limit_hz) : NAN;
+				const float center_hz = PX4_ISFINITE(flap_freq_for_eval)
+							? math::constrain(flap_freq_for_eval, lower_limit_hz, upper_limit_hz) : NAN;
 				const float flap_low = PX4_ISFINITE(center_hz) ? math::max(lower_limit_hz, center_hz - df_hz) : NAN;
 				const float flap_high = PX4_ISFINITE(center_hz) ? math::min(upper_limit_hz, center_hz + df_hz) : NAN;
 
@@ -507,6 +581,9 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 	out.spectral_age_ms = (_spectral_ratio_valid && (_spectral_ratio_last_update_us > 0) && (time_us >= _spectral_ratio_last_update_us))
 				      ? static_cast<uint32_t>(math::min((time_us - _spectral_ratio_last_update_us) / 1000ULL, 4294967295ULL))
 				      : 0U;
+	out.spectral_reset_reason = static_cast<uint8_t>(_spectral_reset_reason);
+	out.flap_active_streak_ms = flapActiveStreakMs(time_us);
+	out.flap_recent_true_age_ms = flapRecentTrueAgeMs(time_us);
 	out.gate_reason = gate_reason;
 	out.timestamp_us = time_us;
 
@@ -2683,6 +2760,9 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					_airspeed_quality_state.spectral_window_count = 0;
 					_airspeed_quality_state.spectral_min_samples = 0;
 					_airspeed_quality_state.spectral_age_ms = 0;
+					_airspeed_quality_state.spectral_reset_reason = ekf2_airspeed_quality_s::SPECTRAL_RESET_REASON_QUALITY_DISABLED;
+					_airspeed_quality_state.flap_active_streak_ms = 0;
+					_airspeed_quality_state.flap_recent_true_age_ms = 0;
 					_airspeed_quality_state.gate_reason = ekf2_airspeed_quality_s::GATE_REASON_FORCE_BASELINE;
 					_airspeed_quality_state.timestamp_us = airspeed_validated.timestamp;
 				}
@@ -2718,6 +2798,9 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					qmsg.spectral_window_count = _airspeed_quality_state.spectral_window_count;
 					qmsg.spectral_min_samples = _airspeed_quality_state.spectral_min_samples;
 					qmsg.spectral_age_ms = _airspeed_quality_state.spectral_age_ms;
+					qmsg.spectral_reset_reason = _airspeed_quality_state.spectral_reset_reason;
+					qmsg.flap_active_streak_ms = _airspeed_quality_state.flap_active_streak_ms;
+					qmsg.flap_recent_true_age_ms = _airspeed_quality_state.flap_recent_true_age_ms;
 					qmsg.gate_reason = _airspeed_quality_state.gate_reason;
 
 					_ekf2_airspeed_quality_pub.publish(qmsg);
@@ -2772,6 +2855,9 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					qmsg.spectral_window_count = _airspeed_quality_state.spectral_window_count;
 					qmsg.spectral_min_samples = _airspeed_quality_state.spectral_min_samples;
 					qmsg.spectral_age_ms = _airspeed_quality_state.spectral_age_ms;
+					qmsg.spectral_reset_reason = _airspeed_quality_state.spectral_reset_reason;
+					qmsg.flap_active_streak_ms = _airspeed_quality_state.flap_active_streak_ms;
+					qmsg.flap_recent_true_age_ms = _airspeed_quality_state.flap_recent_true_age_ms;
 					qmsg.gate_reason = _airspeed_quality_state.gate_reason;
 
 					_ekf2_airspeed_quality_pub.publish(qmsg);
@@ -2832,6 +2918,9 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 				_airspeed_quality_state.spectral_window_count = 0;
 				_airspeed_quality_state.spectral_min_samples = 0;
 				_airspeed_quality_state.spectral_age_ms = 0;
+				_airspeed_quality_state.spectral_reset_reason = ekf2_airspeed_quality_s::SPECTRAL_RESET_REASON_QUALITY_DISABLED;
+				_airspeed_quality_state.flap_active_streak_ms = 0;
+				_airspeed_quality_state.flap_recent_true_age_ms = 0;
 				_airspeed_quality_state.gate_reason = ekf2_airspeed_quality_s::GATE_REASON_FORCE_BASELINE;
 				_airspeed_quality_state.timestamp_us = raw_airspeed.timestamp_sample;
 			}
@@ -2867,6 +2956,9 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 				qmsg.spectral_window_count = _airspeed_quality_state.spectral_window_count;
 				qmsg.spectral_min_samples = _airspeed_quality_state.spectral_min_samples;
 				qmsg.spectral_age_ms = _airspeed_quality_state.spectral_age_ms;
+				qmsg.spectral_reset_reason = _airspeed_quality_state.spectral_reset_reason;
+				qmsg.flap_active_streak_ms = _airspeed_quality_state.flap_active_streak_ms;
+				qmsg.flap_recent_true_age_ms = _airspeed_quality_state.flap_recent_true_age_ms;
 				qmsg.gate_reason = _airspeed_quality_state.gate_reason;
 
 				_ekf2_airspeed_quality_pub.publish(qmsg);

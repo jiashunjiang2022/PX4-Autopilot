@@ -7,6 +7,12 @@ uint8 GATE_REASON_HOLD = 3
 uint8 GATE_REASON_Q_ABOVE_ON = 4
 uint8 GATE_REASON_DV_ONLY = 5
 
+uint8 SPECTRAL_RESET_REASON_NONE = 0
+uint8 SPECTRAL_RESET_REASON_EXPLICIT = 1
+uint8 SPECTRAL_RESET_REASON_QUALITY_DISABLED = 2
+uint8 SPECTRAL_RESET_REASON_AIRSPEED_TIMEOUT = 3
+uint8 SPECTRAL_RESET_REASON_NO_RECENT_FLAP = 4
+
 float32 airspeed_q
 float32 q_raw
 float32 q_smoothed
@@ -25,4 +31,7 @@ bool q_is_dv_only
 uint16 spectral_window_count
 uint16 spectral_min_samples
 uint32 spectral_age_ms
+uint8 spectral_reset_reason
+uint32 flap_active_streak_ms
+uint32 flap_recent_true_age_ms
 uint8 gate_reason

@@ -184,6 +184,9 @@ private:
 		uint16_t spectral_window_count{0};
 		uint16_t spectral_min_samples{0};
 		uint32_t spectral_age_ms{0};
+		uint8_t spectral_reset_reason{ekf2_airspeed_quality_s::SPECTRAL_RESET_REASON_NONE};
+		uint32_t flap_active_streak_ms{0};
+		uint32_t flap_recent_true_age_ms{0};
 		uint8_t gate_reason{ekf2_airspeed_quality_s::GATE_REASON_NONE};
 		uint64_t timestamp_us{0};
 	};
@@ -201,6 +204,18 @@ private:
 
 	private:
 		static constexpr int kMaxSamples = 256;
+		enum class SpectralResetReason : uint8_t {
+			None = ekf2_airspeed_quality_s::SPECTRAL_RESET_REASON_NONE,
+			ExplicitReset = ekf2_airspeed_quality_s::SPECTRAL_RESET_REASON_EXPLICIT,
+			QualityDisabled = ekf2_airspeed_quality_s::SPECTRAL_RESET_REASON_QUALITY_DISABLED,
+			AirspeedTimeout = ekf2_airspeed_quality_s::SPECTRAL_RESET_REASON_AIRSPEED_TIMEOUT,
+			NoRecentFlap = ekf2_airspeed_quality_s::SPECTRAL_RESET_REASON_NO_RECENT_FLAP,
+		};
+
+		void resetSpectralWindow(SpectralResetReason reason);
+		void pruneSpectralWindow(uint64_t oldest_keep_time_us);
+		uint32_t flapActiveStreakMs(uint64_t time_us) const;
+		uint32_t flapRecentTrueAgeMs(uint64_t time_us) const;
 
 		int _head{0};
 		int _count{0};
@@ -219,12 +234,17 @@ private:
 		uint64_t _above_on_since{0};
 		uint64_t _hold_until{0};
 		bool _flap_active{false};
+		uint64_t _flap_active_since{0};
 		uint64_t _flap_above_on_since{0};
 		uint64_t _flap_below_off_since{0};
+		uint64_t _last_flap_true_us{0};
+		float _last_flap_freq_valid_hz{NAN};
+		uint64_t _last_flap_freq_valid_us{0};
 		bool _last_do_eval{false};
 		bool _last_enough_window{false};
 		bool _last_flap_freq_timed_out{false};
 		bool _q_is_dv_only{false};
+		SpectralResetReason _spectral_reset_reason{SpectralResetReason::None};
 		int _last_window_count{0};
 		int _last_min_samples{0};
 		float _samples[kMaxSamples]{};
