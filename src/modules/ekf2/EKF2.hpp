@@ -187,6 +187,11 @@ private:
 		uint8_t spectral_reset_reason{ekf2_airspeed_quality_s::SPECTRAL_RESET_REASON_NONE};
 		uint32_t flap_active_streak_ms{0};
 		uint32_t flap_recent_true_age_ms{0};
+		float gate_q_used{NAN};
+		bool gate_off_condition{false};
+		bool gate_on_condition{false};
+		uint32_t gate_off_streak_ms{0};
+		uint32_t gate_on_streak_ms{0};
 		uint8_t gate_reason{ekf2_airspeed_quality_s::GATE_REASON_NONE};
 		uint64_t timestamp_us{0};
 	};
@@ -216,6 +221,8 @@ private:
 		void pruneSpectralWindow(uint64_t oldest_keep_time_us);
 		uint32_t flapActiveStreakMs(uint64_t time_us) const;
 		uint32_t flapRecentTrueAgeMs(uint64_t time_us) const;
+		uint32_t gateOffStreakMs(uint64_t time_us) const;
+		uint32_t gateOnStreakMs(uint64_t time_us) const;
 
 		int _head{0};
 		int _count{0};

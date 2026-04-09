@@ -116,6 +116,24 @@ uint32_t EKF2::AirspeedQualityEstimator::flapRecentTrueAgeMs(uint64_t time_us) c
 	return static_cast<uint32_t>(math::min((time_us - _last_flap_true_us) / 1000ULL, 4294967295ULL));
 }
 
+uint32_t EKF2::AirspeedQualityEstimator::gateOffStreakMs(uint64_t time_us) const
+{
+	if ((_below_off_since == 0) || (time_us < _below_off_since)) {
+		return 0;
+	}
+
+	return static_cast<uint32_t>(math::min((time_us - _below_off_since) / 1000ULL, 4294967295ULL));
+}
+
+uint32_t EKF2::AirspeedQualityEstimator::gateOnStreakMs(uint64_t time_us) const
+{
+	if ((_above_on_since == 0) || (time_us < _above_on_since)) {
+		return 0;
+	}
+
+	return static_cast<uint32_t>(math::min((time_us - _above_on_since) / 1000ULL, 4294967295ULL));
+}
+
 void EKF2::AirspeedQualityEstimator::reset()
 {
 	resetSpectralWindow(SpectralResetReason::ExplicitReset);
@@ -281,6 +299,11 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 		out.spectral_reset_reason = static_cast<uint8_t>(_spectral_reset_reason);
 		out.flap_active_streak_ms = 0;
 		out.flap_recent_true_age_ms = flap_recent_true_age_ms;
+		out.gate_q_used = NAN;
+		out.gate_off_condition = false;
+		out.gate_on_condition = false;
+		out.gate_off_streak_ms = 0;
+		out.gate_on_streak_ms = 0;
 		out.gate_reason = ekf2_airspeed_quality_s::GATE_REASON_FORCE_BASELINE;
 		out.timestamp_us = time_us;
 		return false;
@@ -487,13 +510,21 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 	const uint64_t t_off_us = static_cast<uint64_t>(t_off * 1e6f);
 	const uint64_t t_on_us = static_cast<uint64_t>(t_on * 1e6f);
 	const uint64_t t_hold_us = static_cast<uint64_t>(t_hold * 1e6f);
+	const float gate_q_off = math::min(q_raw, q);
+	const float gate_q_on = q;
 	uint8_t gate_reason = ekf2_airspeed_quality_s::GATE_REASON_NONE;
+	bool gate_off_condition = false;
+	bool gate_on_condition = false;
+	float gate_q_used = NAN;
 
 	if (_fuse_enabled) {
 		_above_on_since = 0;
+		gate_q_used = gate_q_off;
 
 		if (time_us >= _hold_until) {
-			if (q < q_off_use) {
+			gate_off_condition = gate_q_off < q_off_use;
+
+			if (gate_off_condition) {
 				gate_reason = ekf2_airspeed_quality_s::GATE_REASON_Q_BELOW_OFF;
 
 				if (_below_off_since == 0) {
@@ -516,9 +547,12 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 
 	} else {
 		_below_off_since = 0;
+		gate_q_used = gate_q_on;
 
 		if (time_us >= _hold_until) {
-			if (q > q_on_use) {
+			gate_on_condition = gate_q_on > q_on_use;
+
+			if (gate_on_condition) {
 				gate_reason = ekf2_airspeed_quality_s::GATE_REASON_Q_ABOVE_ON;
 
 				if (_above_on_since == 0) {
@@ -584,6 +618,11 @@ bool EKF2::AirspeedQualityEstimator::update(uint64_t time_us, float true_airspee
 	out.spectral_reset_reason = static_cast<uint8_t>(_spectral_reset_reason);
 	out.flap_active_streak_ms = flapActiveStreakMs(time_us);
 	out.flap_recent_true_age_ms = flapRecentTrueAgeMs(time_us);
+	out.gate_q_used = gate_q_used;
+	out.gate_off_condition = gate_off_condition;
+	out.gate_on_condition = gate_on_condition;
+	out.gate_off_streak_ms = gateOffStreakMs(time_us);
+	out.gate_on_streak_ms = gateOnStreakMs(time_us);
 	out.gate_reason = gate_reason;
 	out.timestamp_us = time_us;
 
@@ -2763,6 +2802,11 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					_airspeed_quality_state.spectral_reset_reason = ekf2_airspeed_quality_s::SPECTRAL_RESET_REASON_QUALITY_DISABLED;
 					_airspeed_quality_state.flap_active_streak_ms = 0;
 					_airspeed_quality_state.flap_recent_true_age_ms = 0;
+					_airspeed_quality_state.gate_q_used = NAN;
+					_airspeed_quality_state.gate_off_condition = false;
+					_airspeed_quality_state.gate_on_condition = false;
+					_airspeed_quality_state.gate_off_streak_ms = 0;
+					_airspeed_quality_state.gate_on_streak_ms = 0;
 					_airspeed_quality_state.gate_reason = ekf2_airspeed_quality_s::GATE_REASON_FORCE_BASELINE;
 					_airspeed_quality_state.timestamp_us = airspeed_validated.timestamp;
 				}
@@ -2801,6 +2845,11 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					qmsg.spectral_reset_reason = _airspeed_quality_state.spectral_reset_reason;
 					qmsg.flap_active_streak_ms = _airspeed_quality_state.flap_active_streak_ms;
 					qmsg.flap_recent_true_age_ms = _airspeed_quality_state.flap_recent_true_age_ms;
+					qmsg.gate_q_used = _airspeed_quality_state.gate_q_used;
+					qmsg.gate_off_condition = _airspeed_quality_state.gate_off_condition;
+					qmsg.gate_on_condition = _airspeed_quality_state.gate_on_condition;
+					qmsg.gate_off_streak_ms = _airspeed_quality_state.gate_off_streak_ms;
+					qmsg.gate_on_streak_ms = _airspeed_quality_state.gate_on_streak_ms;
 					qmsg.gate_reason = _airspeed_quality_state.gate_reason;
 
 					_ekf2_airspeed_quality_pub.publish(qmsg);
@@ -2858,6 +2907,11 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 					qmsg.spectral_reset_reason = _airspeed_quality_state.spectral_reset_reason;
 					qmsg.flap_active_streak_ms = _airspeed_quality_state.flap_active_streak_ms;
 					qmsg.flap_recent_true_age_ms = _airspeed_quality_state.flap_recent_true_age_ms;
+					qmsg.gate_q_used = _airspeed_quality_state.gate_q_used;
+					qmsg.gate_off_condition = _airspeed_quality_state.gate_off_condition;
+					qmsg.gate_on_condition = _airspeed_quality_state.gate_on_condition;
+					qmsg.gate_off_streak_ms = _airspeed_quality_state.gate_off_streak_ms;
+					qmsg.gate_on_streak_ms = _airspeed_quality_state.gate_on_streak_ms;
 					qmsg.gate_reason = _airspeed_quality_state.gate_reason;
 
 					_ekf2_airspeed_quality_pub.publish(qmsg);
@@ -2921,6 +2975,11 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 				_airspeed_quality_state.spectral_reset_reason = ekf2_airspeed_quality_s::SPECTRAL_RESET_REASON_QUALITY_DISABLED;
 				_airspeed_quality_state.flap_active_streak_ms = 0;
 				_airspeed_quality_state.flap_recent_true_age_ms = 0;
+				_airspeed_quality_state.gate_q_used = NAN;
+				_airspeed_quality_state.gate_off_condition = false;
+				_airspeed_quality_state.gate_on_condition = false;
+				_airspeed_quality_state.gate_off_streak_ms = 0;
+				_airspeed_quality_state.gate_on_streak_ms = 0;
 				_airspeed_quality_state.gate_reason = ekf2_airspeed_quality_s::GATE_REASON_FORCE_BASELINE;
 				_airspeed_quality_state.timestamp_us = raw_airspeed.timestamp_sample;
 			}
@@ -2959,6 +3018,11 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 				qmsg.spectral_reset_reason = _airspeed_quality_state.spectral_reset_reason;
 				qmsg.flap_active_streak_ms = _airspeed_quality_state.flap_active_streak_ms;
 				qmsg.flap_recent_true_age_ms = _airspeed_quality_state.flap_recent_true_age_ms;
+				qmsg.gate_q_used = _airspeed_quality_state.gate_q_used;
+				qmsg.gate_off_condition = _airspeed_quality_state.gate_off_condition;
+				qmsg.gate_on_condition = _airspeed_quality_state.gate_on_condition;
+				qmsg.gate_off_streak_ms = _airspeed_quality_state.gate_off_streak_ms;
+				qmsg.gate_on_streak_ms = _airspeed_quality_state.gate_on_streak_ms;
 				qmsg.gate_reason = _airspeed_quality_state.gate_reason;
 
 				_ekf2_airspeed_quality_pub.publish(qmsg);

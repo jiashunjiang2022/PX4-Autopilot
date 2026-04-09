@@ -34,4 +34,9 @@ uint32 spectral_age_ms
 uint8 spectral_reset_reason
 uint32 flap_active_streak_ms
 uint32 flap_recent_true_age_ms
+float32 gate_q_used
+bool gate_off_condition
+bool gate_on_condition
+uint32 gate_off_streak_ms
+uint32 gate_on_streak_ms
 uint8 gate_reason
