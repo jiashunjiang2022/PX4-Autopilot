@@ -8,8 +8,8 @@ parameters:
           short: AS5600 drive revolutions per flapping cycle
           long: |
             Mechanical ratio between AS5600 encoder shaft revolutions and one flapping drive cycle.
-            The AS5600 wing_phase topic uses this to convert accumulated encoder counts into relative
-            flapping phase. This does not define an absolute mechanical zero.
+            The Hall-indexed wing_phase module uses this together with encoder_count and Hall pulses
+            to convert accumulated encoder counts into flapping phase. Hall defines the mechanical zero.
         type: float
         min: 0.01
         max: 1000.0

@@ -34,4 +34,7 @@ pwm_voltage_apply
 ist8310 -X -b 1 -R 10 start
 as5600 -X -a 0x36 start
 
+# Hall-indexed wing phase from encoder counts + rpm_capture Hall pulse
+wing_phase start
+
 netman update

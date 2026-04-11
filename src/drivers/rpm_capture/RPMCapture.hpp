@@ -42,6 +42,7 @@
 #include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
 #include <uORB/Publication.hpp>
 #include <uORB/PublicationMulti.hpp>
+#include <uORB/topics/hall_event.h>
 #include <uORB/topics/pwm_input.h>
 #include <uORB/topics/rpm.h>
 
@@ -80,12 +81,14 @@ private:
 	uint32_t _rpm_capture_gpio{0};
 	uORB::Publication<pwm_input_s> _pwm_input_pub{ORB_ID(pwm_input)};
 	uORB::PublicationMulti<rpm_s> _rpm_pub{ORB_ID(rpm)};
+	uORB::Publication<hall_event_s> _hall_pub{ORB_ID(hall_event)};
 
 	hrt_abstime _hrt_timestamp{0};
 	hrt_abstime _hrt_timestamp_prev{0};
 	uint32_t _period{UINT32_MAX};
 	uint32_t _error_count{0};
 	px4::atomic<bool> _interrupt_happened{false};
+	px4::atomic<uint32_t> _pulse_count{0};
 
 	hrt_abstime _timestamp_last_update{0}; ///< to caluclate dt
 	AlphaFilter<float> _rpm_filter;

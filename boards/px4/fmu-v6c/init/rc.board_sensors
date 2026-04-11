@@ -29,3 +29,6 @@ ist8310 -X -b 1 -R 10 start
 
 # External AS5600 magnetic encoder (auto-probe external I2C buses), fixed address 0x36
 as5600 -X -a 0x36 start
+
+# Hall-indexed wing phase from encoder counts + rpm_capture Hall pulse
+wing_phase start

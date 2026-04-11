@@ -1,0 +1,9 @@
+menuconfig MODULES_WING_PHASE
+	bool "wing_phase"
+	default n
+	---help---
+		Compute Hall-indexed flapping phase from encoder counts and Hall index pulses.
+
+if MODULES_WING_PHASE
+
+endif

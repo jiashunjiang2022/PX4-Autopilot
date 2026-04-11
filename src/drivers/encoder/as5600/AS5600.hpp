@@ -51,7 +51,6 @@
 #include <uORB/topics/debug_vect.h>
 #include <uORB/topics/flap_frequency.h>
 #include <uORB/topics/rpm.h>
-#include <uORB/topics/wing_phase.h>
 
 /* Configuration Constants */
 #define AS5600_I2C_ADDRESS_DEFAULT 0x36
@@ -90,5 +89,4 @@ private:
 	uORB::Publication<encoder_count_s> _encoder_pub{ORB_ID(encoder_count)};
 	uORB::Publication<flap_frequency_s> _flap_frequency_pub{ORB_ID(flap_frequency)};
 	uORB::PublicationMulti<rpm_s> _rpm_pub{ORB_ID(rpm)};
-	uORB::Publication<wing_phase_s> _wing_phase_pub{ORB_ID(wing_phase)};
 };
