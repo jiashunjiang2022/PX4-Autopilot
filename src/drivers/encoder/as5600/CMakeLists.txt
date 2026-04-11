@@ -38,8 +38,9 @@ px4_add_module(
 		AS5600.cpp
 		AS5600.hpp
 		as5600_main.cpp
+	MODULE_CONFIG
+		module.yaml
 	DEPENDS
 		drivers__device
 		px4_work_queue
 )
-

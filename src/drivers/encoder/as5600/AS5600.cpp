@@ -38,6 +38,7 @@
 using namespace time_literals;
 
 static constexpr float kMinValidFlapFrequencyHz = 0.2f;
+static constexpr float kAS5600CountsPerRevolution = 4096.f;
 
 AS5600::AS5600(const I2CSPIDriverConfig &config) :
 	I2C(config),
@@ -85,6 +86,21 @@ bool AS5600::read_angle(float &angle_rad)
 	return true;
 }
 
+void AS5600::update_flap_ratio_param()
+{
+	if (_param_flap_ratio_handle == PARAM_INVALID) {
+		return;
+	}
+
+	float ratio = _flap_ratio;
+
+	if (param_get(_param_flap_ratio_handle, &ratio) == PX4_OK) {
+		if (PX4_ISFINITE(ratio) && ratio > FLT_EPSILON) {
+			_flap_ratio = ratio;
+		}
+	}
+}
+
 int AS5600::init()
 {
 	int ret = I2C::init();
@@ -100,15 +116,7 @@ int AS5600::init()
 
 	_param_flap_ratio_handle = param_find("FLAP_RATIO");
 
-	if (_param_flap_ratio_handle != PARAM_INVALID) {
-		float ratio = _flap_ratio;
-
-		if (param_get(_param_flap_ratio_handle, &ratio) == PX4_OK) {
-			if (ratio > FLT_EPSILON) {
-				_flap_ratio = ratio;
-			}
-		}
-	}
+	update_flap_ratio_param();
 
 	ScheduleOnInterval(10_ms); // 100 Hz
 	return PX4_OK;
@@ -128,14 +136,7 @@ void AS5600::RunImpl()
 	const hrt_abstime now = hrt_absolute_time();
 
 	if (_param_flap_ratio_handle != PARAM_INVALID && (now - _last_param_update) > 1_s) {
-		float ratio = _flap_ratio;
-
-		if (param_get(_param_flap_ratio_handle, &ratio) == PX4_OK) {
-			if (ratio > FLT_EPSILON) {
-				_flap_ratio = ratio;
-			}
-		}
-
+		update_flap_ratio_param();
 		_last_param_update = now;
 	}
 
@@ -203,16 +204,15 @@ void AS5600::RunImpl()
 
 	flap_frequency_s flap_frequency{};
 	flap_frequency.timestamp = now;
+	float flap_frequency_hz = NAN;
 
-	if (PX4_ISFINITE(_rpm_estimate) && (_flap_ratio > FLT_EPSILON)) {
+	if (PX4_ISFINITE(_rpm_estimate) && PX4_ISFINITE(_flap_ratio) && (_flap_ratio > FLT_EPSILON)) {
 		// Flap-frequency consumers only care about magnitude, not rotation direction.
-		const float flap_frequency_hz = fabsf(_rpm_estimate) / (60.f * _flap_ratio);
-		flap_frequency.frequency_hz = (flap_frequency_hz >= kMinValidFlapFrequencyHz) ? flap_frequency_hz : 0.f;
-
-	} else {
-		flap_frequency.frequency_hz = NAN;
+		flap_frequency_hz = fabsf(_rpm_estimate) / (60.f * _flap_ratio);
+		flap_frequency_hz = (flap_frequency_hz >= kMinValidFlapFrequencyHz) ? flap_frequency_hz : 0.f;
 	}
 
+	flap_frequency.frequency_hz = flap_frequency_hz;
 	_flap_frequency_pub.publish(flap_frequency);
 
 	_last_angle_rad = angle_rad;
@@ -227,6 +227,29 @@ void AS5600::RunImpl()
 	enc.total_count = _total_count;
 	enc.position_raw = angle_raw;
 	_encoder_pub.publish(enc);
+
+	wing_phase_s wing_phase{};
+	wing_phase.timestamp = now;
+	wing_phase.flap_frequency_hz = flap_frequency_hz;
+	wing_phase.encoder_position_raw = angle_raw;
+	wing_phase.encoder_total_count = _total_count;
+	wing_phase.phase_valid = PX4_ISFINITE(_flap_ratio) && (_flap_ratio > FLT_EPSILON);
+
+	if (wing_phase.phase_valid) {
+		wing_phase.phase_unwrapped_rad = static_cast<float>(_total_count) *
+						 (2.f * M_PI_F / (kAS5600CountsPerRevolution * _flap_ratio));
+		wing_phase.phase_rad = matrix::wrap_2pi(wing_phase.phase_unwrapped_rad);
+		wing_phase.phase_sin = sinf(wing_phase.phase_rad);
+		wing_phase.phase_cos = cosf(wing_phase.phase_rad);
+
+	} else {
+		wing_phase.phase_unwrapped_rad = NAN;
+		wing_phase.phase_rad = NAN;
+		wing_phase.phase_sin = NAN;
+		wing_phase.phase_cos = NAN;
+	}
+
+	_wing_phase_pub.publish(wing_phase);
 
 	// debug_vect: x = angle, y = rpm_estimate, z = rpm_raw
 	debug_vect_s dbg{};

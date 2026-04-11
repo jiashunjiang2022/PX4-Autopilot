@@ -397,6 +397,7 @@ void LoggedTopics::add_flapping_dataset_topics()
 	add_topic("flap_frequency");
 	add_optional_topic_multi("rpm");
 	add_topic("encoder_count");
+	add_topic("wing_phase");
 	add_topic("debug_vect");
 
 	add_optional_topic("airspeed_validated");
