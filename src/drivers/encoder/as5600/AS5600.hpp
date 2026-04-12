@@ -73,6 +73,7 @@ private:
 
 	bool read_raw_angle(uint16_t &angle_raw);
 	bool read_angle(float &angle_rad);
+	void update_flap_ratio_param();
 
 	hrt_abstime _last_read{0};
 	float _last_angle_rad{0.f};

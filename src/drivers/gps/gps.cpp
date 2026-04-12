@@ -791,6 +791,15 @@ GPS::run()
 		param_get(handle, &f9p_uart2_baudrate);
 	}
 
+	bool ubx_ppk_output = false;
+	handle = param_find("GPS_DUMP_COMM");
+
+	if (handle != PARAM_INVALID) {
+		int32_t gps_dump_comm = 0;
+		param_get(handle, &gps_dump_comm);
+		ubx_ppk_output = (gps_dump_comm == 2);
+	}
+
 	int32_t gnssSystemsParam = static_cast<int32_t>(GPSHelper::GNSSSystemsMask::RECEIVER_DEFAULTS);
 
 	if (_instance == Instance::Main) {
@@ -871,12 +880,26 @@ GPS::run()
 		case gps_driver_mode_t::None:
 			_mode = gps_driver_mode_t::UBX;
 
-		/* FALLTHROUGH */
-		case gps_driver_mode_t::UBX:
-			_helper = new GPSDriverUBX(_interface, &GPS::callback, this, &_report_gps_pos, _p_report_sat_info,
-						   gps_ubx_dynmodel, heading_offset, f9p_uart2_baudrate, ubx_mode);
-			set_device_type(DRV_GPS_DEVTYPE_UBX);
-			break;
+			/* FALLTHROUGH */
+			case gps_driver_mode_t::UBX:
+			{
+				GPSDriverUBX::Settings ubx_settings{};
+				ubx_settings.dynamic_model = static_cast<uint8_t>(gps_ubx_dynmodel);
+				ubx_settings.dgnss_timeout = 0;
+				ubx_settings.min_cno = 0;
+				ubx_settings.min_elev = 0;
+				ubx_settings.output_rate = 0;
+				ubx_settings.heading_offset = heading_offset;
+				ubx_settings.uart2_baudrate = f9p_uart2_baudrate;
+				ubx_settings.ppk_output = ubx_ppk_output;
+				ubx_settings.jam_det_sensitivity_hi = false;
+				ubx_settings.mode = ubx_mode;
+
+				_helper = new GPSDriverUBX(_interface, &GPS::callback, this, &_report_gps_pos, _p_report_sat_info,
+						   ubx_settings);
+			}
+				set_device_type(DRV_GPS_DEVTYPE_UBX);
+				break;
 #ifndef CONSTRAINED_FLASH
 
 		case gps_driver_mode_t::MTK:

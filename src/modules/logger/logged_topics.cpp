@@ -359,6 +359,37 @@ void LoggedTopics::add_system_identification_topics()
 	add_topic("actuator_motors");
 }
 
+void LoggedTopics::add_flapping_dataset_topics()
+{
+	add_topic("sensor_combined");
+	add_topic("vehicle_acceleration");
+	add_topic("vehicle_angular_velocity");
+	add_topic("vehicle_attitude");
+	add_topic("vehicle_local_position");
+	add_optional_topic("vehicle_odometry");
+
+	add_topic("actuator_motors");
+	add_topic("actuator_servos");
+	add_topic("flap_motor_setpoint");
+	add_topic_multi("vehicle_thrust_setpoint", 0, 2);
+	add_topic_multi("vehicle_torque_setpoint", 0, 2);
+
+	add_topic("flap_frequency");
+	add_optional_topic_multi("rpm");
+	add_topic("encoder_count");
+	add_topic("hall_event");
+	add_topic("wing_phase");
+	add_topic("debug_vect");
+
+	add_optional_topic("airspeed_validated");
+	add_topic_multi("ekf2_airspeed_quality");
+	add_topic("vehicle_air_data");
+	add_topic("wind");
+	add_optional_topic_multi("airspeed_wind");
+	add_topic_multi("sensor_gps", 0, 4);
+	add_topic_multi("sensor_gnss_relative", 0, 1);
+}
+
 void LoggedTopics::add_mavlink_tunnel()
 {
 	add_topic("mavlink_tunnel");
@@ -573,5 +604,9 @@ void LoggedTopics::initialize_configured_topics(SDLogProfileMask profile)
 
 	if (profile & SDLogProfileMask::MAVLINK_TUNNEL) {
 		add_mavlink_tunnel();
+	}
+
+	if (profile & SDLogProfileMask::FLAPPING_DATASET) {
+		add_flapping_dataset_topics();
 	}
 }

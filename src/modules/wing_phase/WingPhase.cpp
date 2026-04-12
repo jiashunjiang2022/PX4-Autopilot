@@ -34,13 +34,10 @@
 /**
  * @file WingPhase.cpp
  *
- * Compute gear B phase (0..360 deg) from encoder count (gear A) + hall index (gear B zero).
- *
- * - Assumes encoder PPR = 4096 on gear A.
- * - Gear ratio R = FLAP_RATIO (default 7.5): A 转 R 圈 -> B 转 1 圈
- * - Hall index pulse zeroes the phase (reset offset to current total_count).
- * - phase_deg = ((total_count - reset_offset) % (PPR*R)) * 360 / (PPR*R)
+ * Compute Hall-indexed wing phase from encoder counts and Hall index pulses.
  */
+
+#include "WingPhaseMath.hpp"
 
 #include <px4_platform_common/getopt.h>
 #include <px4_platform_common/log.h>
@@ -48,10 +45,12 @@
 #include <px4_platform_common/module_params.h>
 #include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
 
+#include <math.h>
 #include <uORB/Publication.hpp>
 #include <uORB/Subscription.hpp>
-#include <uORB/SubscriptionCallback.hpp>
+#include <uORB/SubscriptionInterval.hpp>
 #include <uORB/topics/encoder_count.h>
+#include <uORB/topics/flap_frequency.h>
 #include <uORB/topics/hall_event.h>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/wing_phase.h>
@@ -71,23 +70,34 @@ public:
 	bool init();
 
 private:
+	static constexpr float kCountsPerRevolution = 4096.f;
+	static constexpr float kRadToDeg = 57.2957795130823208768f;
+
 	void Run() override;
 	void updateParams() override;
-
-	static constexpr int32_t kPpr = 4096; // encoder PPR on gear A
+	void updateEncoderSample(const encoder_count_s &encoder);
+	void tryResolvePendingHall();
+	float computeLegacyPhaseDeg() const;
 
 	uORB::Subscription _encoder_sub{ORB_ID(encoder_count)};
+	uORB::Subscription _flap_frequency_sub{ORB_ID(flap_frequency)};
 	uORB::Subscription _hall_sub{ORB_ID(hall_event)};
 	uORB::SubscriptionInterval _param_update_sub{ORB_ID(parameter_update), 1_s};
 	uORB::Publication<wing_phase_s> _phase_pub{ORB_ID(wing_phase)};
 
-	int64_t _reset_offset{0};
-	uint32_t _hall_pulses{0};
-	uint32_t _hall_pulses_prev{0};
-	float _period_cnt{kPpr * 7.5f}; // PPR * gear ratio
+	double _zero_count{0.0};
 	int64_t _last_total_count{0};
-	hrt_abstime _last_enc_ts{0};
-	bool _enc_valid{false};
+	uint32_t _last_position_raw{0};
+	uint32_t _hall_pulse_count{0};
+	hrt_abstime _last_encoder_timestamp{0};
+	hrt_abstime _pending_hall_timestamp{0};
+	float _last_flap_frequency_hz{NAN};
+	float _counts_per_cycle{kCountsPerRevolution * 7.5f};
+	bool _encoder_valid{false};
+	bool _hall_locked{false};
+	bool _hall_pending{false};
+	wing_phase::EncoderSample _previous_encoder_sample{};
+	wing_phase::EncoderSample _current_encoder_sample{};
 
 	DEFINE_PARAMETERS(
 		(ParamFloat<px4::params::FLAP_RATIO>) _param_flap_ratio
@@ -103,16 +113,73 @@ WingPhase::WingPhase() :
 bool WingPhase::init()
 {
 	updateParams();
-
-	ScheduleOnInterval(5000); // 5 ms
-
+	ScheduleOnInterval(5_ms);
 	return true;
 }
 
 void WingPhase::updateParams()
 {
 	ModuleParams::updateParams();
-	_period_cnt = kPpr * _param_flap_ratio.get(); // counts per B revolution
+	_counts_per_cycle = kCountsPerRevolution * _param_flap_ratio.get();
+}
+
+void WingPhase::updateEncoderSample(const encoder_count_s &encoder)
+{
+	if (_current_encoder_sample.timestamp != 0) {
+		_previous_encoder_sample = _current_encoder_sample;
+	}
+
+	_current_encoder_sample.timestamp = encoder.timestamp;
+	_current_encoder_sample.total_count = static_cast<double>(encoder.total_count);
+
+	_last_total_count = encoder.total_count;
+	_last_position_raw = encoder.position_raw;
+	_last_encoder_timestamp = encoder.timestamp;
+	_encoder_valid = true;
+}
+
+void WingPhase::tryResolvePendingHall()
+{
+	if (!_hall_pending || !_encoder_valid || _current_encoder_sample.timestamp == 0) {
+		return;
+	}
+
+	if (_pending_hall_timestamp == _current_encoder_sample.timestamp) {
+		_zero_count = _current_encoder_sample.total_count;
+		_hall_locked = true;
+		_hall_pending = false;
+		return;
+	}
+
+	if (_previous_encoder_sample.timestamp == 0) {
+		return;
+	}
+
+	const auto interpolation = wing_phase::interpolate_count_at_timestamp(_previous_encoder_sample, _current_encoder_sample,
+				     _pending_hall_timestamp);
+
+	if (interpolation.valid) {
+		_zero_count = interpolation.total_count;
+		_hall_locked = true;
+		_hall_pending = false;
+	}
+}
+
+float WingPhase::computeLegacyPhaseDeg() const
+{
+	if (!PX4_ISFINITE(_counts_per_cycle) || _counts_per_cycle <= FLT_EPSILON) {
+		return NAN;
+	}
+
+	const double zero_count = _hall_locked ? _zero_count : 0.0;
+	const double delta_count = static_cast<double>(_last_total_count) - zero_count;
+	double phase_deg = fmod(delta_count * (360.0 / static_cast<double>(_counts_per_cycle)), 360.0);
+
+	if (phase_deg < 0.0) {
+		phase_deg += 360.0;
+	}
+
+	return static_cast<float>(phase_deg);
 }
 
 void WingPhase::Run()
@@ -122,62 +189,68 @@ void WingPhase::Run()
 		return;
 	}
 
-	// update params
 	if (_param_update_sub.updated()) {
-		parameter_update_s p{};
-		_param_update_sub.copy(&p);
+		parameter_update_s parameter_update{};
+		_param_update_sub.copy(&parameter_update);
 		updateParams();
 	}
 
-	// process hall events
+	encoder_count_s encoder{};
+	bool encoder_updated = false;
+
+	while (_encoder_sub.update(&encoder)) {
+		updateEncoderSample(encoder);
+		encoder_updated = true;
+	}
+
+	flap_frequency_s flap_frequency{};
+
+	while (_flap_frequency_sub.update(&flap_frequency)) {
+		_last_flap_frequency_hz = flap_frequency.frequency_hz;
+	}
+
 	hall_event_s hall{};
-	bool hall_updated = false;
 
 	while (_hall_sub.update(&hall)) {
-		_hall_pulses = hall.pulse_count;
-		hall_updated = true;
+		if (hall.pulse_count != _hall_pulse_count) {
+			_pending_hall_timestamp = hall.timestamp;
+			_hall_pending = true;
+		}
+
+		_hall_pulse_count = hall.pulse_count;
 	}
 
-	// process encoder counts
-	encoder_count_s enc{};
-	bool enc_updated = false;
+	tryResolvePendingHall();
 
-	while (_encoder_sub.update(&enc)) {
-		_last_total_count = enc.total_count;
-		_last_enc_ts = enc.timestamp;
-		_enc_valid = true;
-		enc_updated = true;
-	}
-
-	if (!_enc_valid || _period_cnt <= 0.f) {
+	if (!_encoder_valid || !encoder_updated) {
 		return;
 	}
 
-	// on new hall pulse, reset offset to current encoder count modulo period
-	if (hall_updated && _hall_pulses != _hall_pulses_prev) {
-		_reset_offset = _last_total_count % static_cast<int64_t>(_period_cnt);
-		_hall_pulses_prev = _hall_pulses;
+	const wing_phase::Result phase = wing_phase::compute_phase(_last_total_count, _zero_count, _counts_per_cycle, _hall_locked);
+
+	wing_phase_s message{};
+	message.timestamp = _last_encoder_timestamp ? _last_encoder_timestamp : hrt_absolute_time();
+	message.phase_deg = computeLegacyPhaseDeg();
+	message.flap_frequency_hz = _last_flap_frequency_hz;
+	message.total_count = _last_total_count;
+	message.encoder_position_raw = _last_position_raw;
+	message.hall_pulse_count = _hall_pulse_count;
+	message.phase_valid = phase.valid;
+
+	if (phase.valid) {
+		message.phase_unwrapped_rad = phase.phase_unwrapped_rad;
+		message.phase_rad = phase.phase_rad;
+		message.phase_sin = sinf(message.phase_rad);
+		message.phase_cos = cosf(message.phase_rad);
+
+	} else {
+		message.phase_unwrapped_rad = NAN;
+		message.phase_rad = NAN;
+		message.phase_sin = NAN;
+		message.phase_cos = NAN;
 	}
 
-	if (!enc_updated && !hall_updated) {
-		return;
-	}
-
-	const int64_t period = static_cast<int64_t>(_period_cnt);
-	int64_t delta = (_last_total_count - _reset_offset) % period;
-
-	if (delta < 0) {
-		delta += period;
-	}
-
-	const float phase_deg = static_cast<float>(delta) * (360.f / _period_cnt);
-
-	wing_phase_s msg{};
-	msg.timestamp = _last_enc_ts ? _last_enc_ts : hrt_absolute_time();
-	msg.phase_deg = phase_deg;
-	msg.total_count = _last_total_count;
-	msg.hall_pulse_count = _hall_pulses;
-	_phase_pub.publish(msg);
+	_phase_pub.publish(message);
 }
 
 int WingPhase::task_spawn(int argc, char *argv[])
@@ -215,13 +288,11 @@ int WingPhase::print_usage(const char *reason)
 
 	PRINT_MODULE_DESCRIPTION(
 		R"DESCR_STR(
-Compute gear B phase using encoder counts (gear A) and hall index (gear B zero).
+Compute Hall-indexed flapping phase from encoder counts and Hall index pulses.
 
-Assumes encoder PPR=4096; gear ratio from FLAP_RATIO (default 7.5): A 转 R 圈 -> B 转 1 圈.
-Phase formula:
-  delta = (total_count - reset_offset) mod (PPR*R)
-  phase_deg = delta * 360 / (PPR*R)
-Hall pulse resets reset_offset.
+Hall pulses define the mechanical zero. AS5600 encoder counts provide the continuous
+phase between Hall events. Legacy phase_deg is preserved for existing FUSION consumers,
+while richer radian-domain outputs are also published for logging and offline analysis.
 )DESCR_STR");
 
 	PRINT_MODULE_USAGE_NAME("wing_phase", "controller");

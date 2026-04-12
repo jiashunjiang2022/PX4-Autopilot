@@ -42,8 +42,8 @@
 #include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
 #include <uORB/Publication.hpp>
 #include <uORB/PublicationMulti.hpp>
-#include <uORB/topics/pwm_input.h>
 #include <uORB/topics/hall_event.h>
+#include <uORB/topics/pwm_input.h>
 #include <uORB/topics/rpm.h>
 
 using namespace time_literals;
