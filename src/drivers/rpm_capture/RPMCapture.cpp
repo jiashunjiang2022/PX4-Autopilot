@@ -103,6 +103,7 @@ void RPMCapture::Run()
 	}
 
 	hrt_abstime now = hrt_absolute_time();
+	bool new_hall_pulse = false;
 
 	if (_interrupt_happened.load()) {
 		// There was an interrupt
@@ -110,6 +111,7 @@ void RPMCapture::Run()
 		_hrt_timestamp_prev = _hrt_timestamp;
 		_interrupt_happened.store(false);
 		_pulse_count.fetch_add(1);
+		new_hall_pulse = true;
 
 		pwm_input_s pwm_input{};
 		pwm_input.timestamp = now;
@@ -149,10 +151,12 @@ void RPMCapture::Run()
 	rpm.rpm_estimate = _rpm_filter.getState();
 	_rpm_pub.publish(rpm);
 
-	hall_event_s hall{};
-	hall.timestamp = now;
-	hall.pulse_count = _pulse_count.load();
-	_hall_pub.publish(hall);
+	if (new_hall_pulse) {
+		hall_event_s hall{};
+		hall.timestamp = _hrt_timestamp;
+		hall.pulse_count = _pulse_count.load();
+		_hall_pub.publish(hall);
+	}
 }
 
 int RPMCapture::gpio_interrupt_callback(int irq, void *context, void *arg)

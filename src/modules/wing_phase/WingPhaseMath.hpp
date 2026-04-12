@@ -1,9 +1,16 @@
 #pragma once
 
+#include <drivers/drv_hrt.h>
+
 #include <stdint.h>
 
 namespace wing_phase
 {
+
+struct EncoderSample {
+	hrt_abstime timestamp{0};
+	double total_count{0.0};
+};
 
 struct Result {
 	bool valid{false};
@@ -11,6 +18,13 @@ struct Result {
 	float phase_unwrapped_rad{0.f};
 };
 
-Result compute_phase(int64_t encoder_total_count, int64_t zero_count, float counts_per_cycle, bool zero_locked);
+struct CountInterpolationResult {
+	bool valid{false};
+	double total_count{0.0};
+};
+
+CountInterpolationResult interpolate_count_at_timestamp(const EncoderSample &previous, const EncoderSample &current,
+		hrt_abstime target_timestamp);
+Result compute_phase(double encoder_total_count, double zero_count, float counts_per_cycle, bool zero_locked);
 
 } // namespace wing_phase

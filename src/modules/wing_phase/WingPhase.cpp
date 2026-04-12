@@ -74,6 +74,8 @@ private:
 
 	void Run() override;
 	void updateParams() override;
+	void updateEncoderSample(const encoder_count_s &encoder);
+	void tryResolvePendingHall();
 
 	uORB::Subscription _encoder_sub{ORB_ID(encoder_count)};
 	uORB::Subscription _flap_frequency_sub{ORB_ID(flap_frequency)};
@@ -81,15 +83,19 @@ private:
 	uORB::SubscriptionInterval _param_update_sub{ORB_ID(parameter_update), 1_s};
 	uORB::Publication<wing_phase_s> _phase_pub{ORB_ID(wing_phase)};
 
-	int64_t _zero_count{0};
+	double _zero_count{0.0};
 	int64_t _last_total_count{0};
 	uint32_t _last_position_raw{0};
 	uint32_t _hall_pulse_count{0};
 	hrt_abstime _last_encoder_timestamp{0};
+	hrt_abstime _pending_hall_timestamp{0};
 	float _last_flap_frequency_hz{NAN};
 	float _counts_per_cycle{kCountsPerRevolution * 7.5f};
 	bool _encoder_valid{false};
 	bool _hall_locked{false};
+	bool _hall_pending{false};
+	wing_phase::EncoderSample _previous_encoder_sample{};
+	wing_phase::EncoderSample _current_encoder_sample{};
 
 	DEFINE_PARAMETERS(
 		(ParamFloat<px4::params::FLAP_RATIO>) _param_flap_ratio
@@ -115,6 +121,48 @@ void WingPhase::updateParams()
 	_counts_per_cycle = kCountsPerRevolution * _param_flap_ratio.get();
 }
 
+void WingPhase::updateEncoderSample(const encoder_count_s &encoder)
+{
+	if (_current_encoder_sample.timestamp != 0) {
+		_previous_encoder_sample = _current_encoder_sample;
+	}
+
+	_current_encoder_sample.timestamp = encoder.timestamp;
+	_current_encoder_sample.total_count = static_cast<double>(encoder.total_count);
+
+	_last_total_count = encoder.total_count;
+	_last_position_raw = encoder.position_raw;
+	_last_encoder_timestamp = encoder.timestamp;
+	_encoder_valid = true;
+}
+
+void WingPhase::tryResolvePendingHall()
+{
+	if (!_hall_pending || !_encoder_valid || _current_encoder_sample.timestamp == 0) {
+		return;
+	}
+
+	if (_pending_hall_timestamp == _current_encoder_sample.timestamp) {
+		_zero_count = _current_encoder_sample.total_count;
+		_hall_locked = true;
+		_hall_pending = false;
+		return;
+	}
+
+	if (_previous_encoder_sample.timestamp == 0) {
+		return;
+	}
+
+	const auto interpolation = wing_phase::interpolate_count_at_timestamp(_previous_encoder_sample, _current_encoder_sample,
+				     _pending_hall_timestamp);
+
+	if (interpolation.valid) {
+		_zero_count = interpolation.total_count;
+		_hall_locked = true;
+		_hall_pending = false;
+	}
+}
+
 void WingPhase::Run()
 {
 	if (should_exit()) {
@@ -132,35 +180,30 @@ void WingPhase::Run()
 	bool encoder_updated = false;
 
 	while (_encoder_sub.update(&encoder)) {
-		_last_total_count = encoder.total_count;
-		_last_position_raw = encoder.position_raw;
-		_last_encoder_timestamp = encoder.timestamp;
-		_encoder_valid = true;
+		updateEncoderSample(encoder);
 		encoder_updated = true;
 	}
 
 	flap_frequency_s flap_frequency{};
-	bool flap_frequency_updated = false;
 
 	while (_flap_frequency_sub.update(&flap_frequency)) {
 		_last_flap_frequency_hz = flap_frequency.frequency_hz;
-		flap_frequency_updated = true;
 	}
 
 	hall_event_s hall{};
-	bool hall_updated = false;
 
 	while (_hall_sub.update(&hall)) {
-		if (_encoder_valid && hall.pulse_count != _hall_pulse_count) {
-			_zero_count = _last_total_count;
-			_hall_locked = true;
+		if (hall.pulse_count != _hall_pulse_count) {
+			_pending_hall_timestamp = hall.timestamp;
+			_hall_pending = true;
 		}
 
 		_hall_pulse_count = hall.pulse_count;
-		hall_updated = true;
 	}
 
-	if (!_encoder_valid || (!encoder_updated && !flap_frequency_updated && !hall_updated)) {
+	tryResolvePendingHall();
+
+	if (!_encoder_valid || !encoder_updated) {
 		return;
 	}
 
