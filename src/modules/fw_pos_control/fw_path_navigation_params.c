@@ -172,13 +172,13 @@ PARAM_DEFINE_FLOAT(FW_WL1_XW_LIM, 25.0f);
  * Below this threshold FW_GUIDANCE_MODE=2 degrades to plain L1.
  *
  * @unit m/s
- * @min 5.0
+ * @min 0.5
  * @max 40.0
  * @decimal 1
  * @increment 0.5
  * @group FW Lateral Control
  */
-PARAM_DEFINE_FLOAT(FW_WL1_MIN_ASPD, 12.0f);
+PARAM_DEFINE_FLOAT(FW_WL1_MIN_ASPD, 2.0f);
 
 /**
  * NPFG period

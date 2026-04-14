@@ -164,7 +164,7 @@ PARAM_DEFINE_FLOAT(FW_T_SINK_MIN, 2.0f);
  * @increment 0.5
  * @group FW Performance
  */
-PARAM_DEFINE_FLOAT(FW_AIRSPD_TRIM, 15.0f);
+PARAM_DEFINE_FLOAT(FW_AIRSPD_TRIM, 6.5f);
 
 /**
  * Stall Airspeed (CAS)
@@ -179,7 +179,7 @@ PARAM_DEFINE_FLOAT(FW_AIRSPD_TRIM, 15.0f);
  * @increment 0.5
  * @group FW Performance
  */
-PARAM_DEFINE_FLOAT(FW_AIRSPD_STALL, 7.0f);
+PARAM_DEFINE_FLOAT(FW_AIRSPD_STALL, 1.5f);
 
 /**
  * Minimum Airspeed (CAS)
@@ -198,7 +198,7 @@ PARAM_DEFINE_FLOAT(FW_AIRSPD_STALL, 7.0f);
  * @increment 0.5
  * @group FW Performance
  */
-PARAM_DEFINE_FLOAT(FW_AIRSPD_MIN, 10.0f);
+PARAM_DEFINE_FLOAT(FW_AIRSPD_MIN, 2.0f);
 
 /**
  * Maximum Airspeed (CAS)
@@ -211,4 +211,4 @@ PARAM_DEFINE_FLOAT(FW_AIRSPD_MIN, 10.0f);
  * @increment 0.5
  * @group FW Performance
  */
-PARAM_DEFINE_FLOAT(FW_AIRSPD_MAX, 20.0f);
+PARAM_DEFINE_FLOAT(FW_AIRSPD_MAX, 12.0f);

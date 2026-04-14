@@ -18,3 +18,6 @@ float32 airspeed_ref          # [m/s] airspeed reference used by guidance
 float32 wind_correction       # [rad] applied wind correction angle
 float32 wind_speed            # [m/s] horizontal wind speed estimate
 float32 airspeed_used         # [m/s] airspeed used for wind compensation
+bool wind_valid               # true if the wind estimate is valid
+bool airspeed_valid           # true if the airspeed estimate is valid
+float32 base_course           # [rad] guidance course setpoint before wind correction

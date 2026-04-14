@@ -448,7 +448,10 @@ private:
 	struct GuidanceOutput {
 		bool guidance_active{false};
 		bool degraded_to_l1{false};
+		bool wind_valid{false};
+		bool airspeed_valid{false};
 		float course_setpoint{NAN};
+		float base_course{NAN};
 		float lateral_acceleration{0.0f};
 		float track_error{NAN};
 		float wind_correction{0.0f};

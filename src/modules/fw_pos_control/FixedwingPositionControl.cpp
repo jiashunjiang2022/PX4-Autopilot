@@ -527,9 +527,12 @@ FixedwingPositionControl::status_publish()
 	fw_guidance_status.guidance_mode = guidance_mode;
 	fw_guidance_status.guidance_active = _guidance_output.guidance_active;
 	fw_guidance_status.degraded_to_l1 = _guidance_output.degraded_to_l1;
+	fw_guidance_status.wind_valid = _guidance_output.wind_valid;
+	fw_guidance_status.airspeed_valid = _guidance_output.airspeed_valid;
 	fw_guidance_status.track_error = pos_ctrl_status.xtrack_error;
 	fw_guidance_status.raw_track_error = _guidance_output.track_error;
 	fw_guidance_status.course_setpoint = pos_ctrl_status.nav_bearing;
+	fw_guidance_status.base_course = _guidance_output.base_course;
 	fw_guidance_status.lateral_acceleration = _guidance_output.lateral_acceleration;
 
 	const float roll_body = atanf(_guidance_output.lateral_acceleration / CONSTANTS_ONE_G);
@@ -3263,7 +3266,10 @@ void FixedwingPositionControl::guideToPath(const Vector2f &vehicle_pos, const Ve
 		_npfg.guideToPath(vehicle_pos, ground_vel, wind_vel, unit_path_tangent, closest_point_on_path, path_curvature);
 		_guidance_output.guidance_active = true;
 		_guidance_output.degraded_to_l1 = false;
+		_guidance_output.wind_valid = _wind_valid;
+		_guidance_output.airspeed_valid = _airspeed_valid;
 		_guidance_output.course_setpoint = _npfg.getBearing();
+		_guidance_output.base_course = _guidance_output.course_setpoint;
 		_guidance_output.lateral_acceleration = _npfg.getLateralAccel();
 		_guidance_output.track_error = _npfg.getTrackError();
 		_guidance_output.wind_correction = 0.0f;
@@ -3338,6 +3344,8 @@ FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigateL1(co
 				 _param_fw_l1_period.get(), _param_fw_l1_damping.get());
 	sp.guidance_active = true;
 	sp.degraded_to_l1 = false;
+	sp.wind_valid = _wind_valid;
+	sp.airspeed_valid = _airspeed_valid;
 	sp.track_error = l1.track_error;
 	sp.wind_correction = 0.0f;
 	sp.wind_speed = _wind_valid ? wind_vel.length() : NAN;
@@ -3345,11 +3353,13 @@ FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigateL1(co
 
 	if (l1.ground_speed < 3.0f) {
 		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
+		sp.base_course = sp.course_setpoint;
 		sp.lateral_acceleration = 0.0f;
 		return sp;
 	}
 
 	sp.course_setpoint = slewLimitedCourseSetpoint(l1.path_bearing + l1.eta1);
+	sp.base_course = sp.course_setpoint;
 	sp.lateral_acceleration = l1_control::calculateLateralAcceleration(
 					      l1.ground_speed,
 					      l1.l1_distance,
@@ -3372,12 +3382,15 @@ FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigateL1Win
 				 _param_fw_wl1_period.get(), _param_fw_wl1_damping.get());
 	sp.guidance_active = true;
 	sp.degraded_to_l1 = false;
+	sp.wind_valid = _wind_valid;
+	sp.airspeed_valid = _airspeed_valid;
 	sp.track_error = l1.track_error;
 	sp.wind_speed = _wind_valid ? wind_vel.length() : NAN;
 	sp.airspeed_used = _airspeed_valid ? math::max(_airspeed_eas * _eas2tas, 0.0f) : NAN;
 
 	if (l1.ground_speed < 3.0f) {
 		sp.course_setpoint = atan2f(unit_path_tangent(1), unit_path_tangent(0));
+		sp.base_course = sp.course_setpoint;
 		sp.lateral_acceleration = 0.0f;
 		sp.degraded_to_l1 = true;
 		sp.wind_correction = 0.0f;
@@ -3385,6 +3398,7 @@ FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigateL1Win
 	}
 
 	const float base_course = l1.path_bearing + l1.eta1;
+	sp.base_course = base_course;
 	const float min_airspeed = _param_fw_wl1_min_airspd.get();
 	const bool airspeed_usable = PX4_ISFINITE(sp.airspeed_used) && sp.airspeed_used >= min_airspeed;
 
