@@ -33,7 +33,11 @@
 
 px4_add_library(l1
 	ECL_L1_Pos_Controller.cpp
+	L1ControlMath.cpp
 	ECL_L1_Pos_Controller.hpp
+	L1ControlMath.hpp
 )
 
 target_link_libraries(l1 PRIVATE geo)
+
+px4_add_unit_gtest(SRC L1ControlMathTest.cpp LINKLIBS l1)

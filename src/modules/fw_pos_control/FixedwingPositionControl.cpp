@@ -33,6 +33,7 @@
 
 #include "FixedwingPositionControl.hpp"
 
+#include <lib/l1/L1ControlMath.hpp>
 #include <px4_platform_common/events.h>
 
 using math::constrain;
@@ -3349,7 +3350,15 @@ FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigateL1(co
 	}
 
 	sp.course_setpoint = slewLimitedCourseSetpoint(l1.path_bearing + l1.eta1);
-	sp.lateral_acceleration = l1.k_l1 * l1.ground_speed * l1.ground_speed / l1.l1_distance * sinf(l1.eta);
+	sp.lateral_acceleration = l1_control::calculateLateralAcceleration(
+					      l1.ground_speed,
+					      l1.l1_distance,
+					      l1.k_l1,
+					      l1.eta,
+					      ground_vel,
+					      unit_path_tangent,
+					      l1.track_error,
+					      path_curvature);
 	return sp;
 }
 
@@ -3358,7 +3367,6 @@ FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigateL1Win
 		const Vector2f &closest_point_on_path, const float &path_curvature)
 {
 	GuidanceOutput sp{};
-	(void)path_curvature;
 
 	const L1TrackingData l1 = getL1TrackingData(vehicle_pos, ground_vel, unit_path_tangent, closest_point_on_path,
 				 _param_fw_wl1_period.get(), _param_fw_wl1_damping.get());
@@ -3382,7 +3390,15 @@ FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigateL1Win
 
 	if (!_wind_valid || !airspeed_usable) {
 		sp.course_setpoint = slewLimitedCourseSetpoint(base_course);
-		sp.lateral_acceleration = l1.k_l1 * l1.ground_speed * l1.ground_speed / l1.l1_distance * sinf(l1.eta);
+		sp.lateral_acceleration = l1_control::calculateLateralAcceleration(
+					      l1.ground_speed,
+					      l1.l1_distance,
+					      l1.k_l1,
+					      l1.eta,
+					      ground_vel,
+					      unit_path_tangent,
+					      l1.track_error,
+					      path_curvature);
 		sp.degraded_to_l1 = true;
 		sp.wind_correction = 0.0f;
 		return sp;
@@ -3401,7 +3417,15 @@ FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigateL1Win
 
 	if (!PX4_ISFINITE(airspeed_for_heading) || airspeed_for_heading < min_airspeed) {
 		sp.course_setpoint = slewLimitedCourseSetpoint(base_course);
-		sp.lateral_acceleration = l1.k_l1 * l1.ground_speed * l1.ground_speed / l1.l1_distance * sinf(l1.eta);
+		sp.lateral_acceleration = l1_control::calculateLateralAcceleration(
+					      l1.ground_speed,
+					      l1.l1_distance,
+					      l1.k_l1,
+					      l1.eta,
+					      ground_vel,
+					      unit_path_tangent,
+					      l1.track_error,
+					      path_curvature);
 		sp.degraded_to_l1 = true;
 		sp.wind_correction = 0.0f;
 		sp.airspeed_used = airspeed_for_heading;
@@ -3414,7 +3438,12 @@ FixedwingPositionControl::GuidanceOutput FixedwingPositionControl::navigateL1Win
 				   -M_PI_F / 2.0f, M_PI_F / 2.0f);
 
 	sp.course_setpoint = slewLimitedCourseSetpoint(commanded_air_heading);
-	sp.lateral_acceleration = l1.k_l1 * l1.ground_speed * l1.ground_speed / l1.l1_distance * sinf(heading_error);
+	sp.lateral_acceleration = l1.k_l1 * l1.ground_speed * l1.ground_speed / l1.l1_distance * sinf(heading_error)
+				  + l1_control::calculateCurvatureLateralAcceleration(
+					  ground_vel,
+					  unit_path_tangent,
+					  l1.track_error,
+					  path_curvature);
 	sp.wind_correction = wind_correction;
 	return sp;
 }
