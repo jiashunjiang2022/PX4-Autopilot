@@ -94,7 +94,7 @@ private:
 	// Cached params
 	float _flap_f_min{0.f};
 	float _flap_f_max{5.f};
-	float _flap_ratio{7.5f};
+	float _flap_ratio{8.0f};
 	float _kp{0.001f};
 	float _ki{0.f};
 	float _kd{0.f};

@@ -70,7 +70,7 @@ PARAM_DEFINE_FLOAT(FLAP_F_MAX, 5.0f);
  * @max 100.0
  * @group Flapping Wing Control
  */
-PARAM_DEFINE_FLOAT(FLAP_RATIO, 7.5f);
+PARAM_DEFINE_FLOAT(FLAP_RATIO, 8.0f);
 
 /**
  * RPM controller P gain.

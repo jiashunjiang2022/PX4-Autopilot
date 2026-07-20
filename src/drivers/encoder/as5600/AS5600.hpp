@@ -78,7 +78,7 @@ private:
 	hrt_abstime _last_read{0};
 	float _last_angle_rad{0.f};
 	float _rpm_estimate{0.f};
-	float _flap_ratio{7.5f};
+	float _flap_ratio{8.0f};
 	hrt_abstime _last_param_update{0};
 	param_t _param_flap_ratio_handle{PARAM_INVALID};
 	uint16_t _last_pos{0};
