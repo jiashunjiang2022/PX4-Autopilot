@@ -157,13 +157,13 @@ PARAM_DEFINE_FLOAT(FW_P_LIM_MAX, 30.0f);
  * Applies in any altitude controlled flight mode.
  *
  * @unit deg
- * @min 35.0
- * @max 75.0
+ * @min 5.0
+ * @max 60.0
  * @decimal 1
  * @increment 0.5
  * @group FW General
  */
-PARAM_DEFINE_FLOAT(FW_R_LIM, 50.0f);
+PARAM_DEFINE_FLOAT(FW_R_LIM, 30.0f);
 
 /**
  * Throttle limit max
