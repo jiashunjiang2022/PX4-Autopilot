@@ -1,0 +1,33 @@
+Script started on 2026-08-05 23:07:50+08:00 [<not executed on terminal>]
+test_bootstrap_may_not_overlap_formal_interval (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.BootstrapTests) ... ok
+test_bootstrap_never_matches (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.BootstrapTests) ... ok
+test_bootstrap_timeout_fails (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.BootstrapTests) ... ok
+test_post_bootstrap_mismatch_fails (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.BootstrapTests) ... ok
+test_preflight_bootstrap_succeeds_after_warmup (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.BootstrapTests) ... ok
+test_constant_r_on_synthetic_is_rejected (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.FailClosedTests) ... ok
+test_constant_r_only_applies_to_matching_sensor_one (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.FailClosedTests) ... ok
+test_fail_closed_output_always_contains_json_and_csv (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.FailClosedTests) ... ok
+test_formal_parameters_require_custom_blockage_disabled (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.FailClosedTests) ... ok
+test_missing_topics_and_fields_fail_closed (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.FailClosedTests) ... ok
+test_mode_truth_table_baseline (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.FailClosedTests) ... ok
+test_stale_variance_only_adaptive_r_is_rejected (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.FailClosedTests) ... ok
+test_stale_variance_only_uses_nominal_r (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.FailClosedTests) ... ok
+test_variance_only_requires_observed_q_and_r_variation (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.FailClosedTests) ... ok
+test_r_join_rejects_aid_matching_original_instead_of_buffer_timestamp (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.JoinTests) ... ok
+test_r_join_reports_error_statistics_and_unmatched (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.JoinTests) ... ok
+test_r_join_uses_buffer_not_original_or_publication_timestamp (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.JoinTests) ... ok
+test_selector_join_is_exact_publication_timestamp (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.JoinTests) ... ok
+test_future_quality_is_rejected (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.ObservationAlignmentTests) ... ok
+test_quality_age_uses_original_observation_timestamp (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.ObservationAlignmentTests) ... ok
+test_stale_adaptive_sample_fails_closed (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.ObservationAlignmentTests) ... ok
+test_all_final_sources_map_to_required_fallback_outcome (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.TraceabilityTests) ... ok
+test_fallback_mismatch_is_rejected (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.TraceabilityTests) ... ok
+test_formal_baseline_rejects_blockage_state_or_trigger (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.TraceabilityTests) ... ok
+test_quality_and_blockage_concurrency_keeps_final_source_outcome (artifacts.ral_revision_phase4_2.tests.test_phase4_2_evidence.TraceabilityTests) ... ok
+
+----------------------------------------------------------------------
+Ran 25 tests in 0.002s
+
+OK
+
+Script done on 2026-08-05 23:07:51+08:00 [COMMAND_EXIT_CODE="0"]

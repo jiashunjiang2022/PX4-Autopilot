@@ -1,0 +1,12 @@
+{
+  "board": "px4_fmu-v6c_default",
+  "build_result": "PASS",
+  "flash_bytes": 1832016,
+  "flash_region_bytes": 1966080,
+  "flash_percent": 93.18,
+  "axi_sram_bytes": 61892,
+  "axi_sram_region_bytes": 524288,
+  "axi_sram_percent": 11.80,
+  "uorb_untokenized_fields_max_length": 1638,
+  "ulog_format_buffer_bytes": 1800
+}

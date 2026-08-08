@@ -15,4 +15,4 @@ parameters:
         max: 1000.0
         decimal: 2
         increment: 0.01
-        default: 7.5
+        default: 8.0

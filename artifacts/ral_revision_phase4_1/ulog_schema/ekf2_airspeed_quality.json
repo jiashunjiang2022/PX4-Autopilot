@@ -1,0 +1,10 @@
+
+
+{
+		"fields": "\u0089 timestamp;\u0089 timestamp_sample;\u0089 quality_timestamp_sample;\u0088 quality_age_us;\u008a airspeed_q;\u008a q_raw;\u0088 quality_device_id;\u0088 airspeed_device_id;\u008a eas2tas;\u008a input_rate_hz;\u0088 spectral_update_counter;\u008a spectral_reference_lower_hz;\u008a spectral_reference_upper_hz;\u008a spectral_flap_center_hz;\u008a temporal_raw;\u008a temporal_filtered;\u008a temporal_normalized;\u008a nominal_r_as;\u008a r_as_used;\u008a effective_flap_ratio;\u008a flap_frequency_hz;\u008a spectral_ratio;\u008a spectral_input_m_s;\u0088 spectral_age_ms;\u0088 flap_active_streak_ms;\u0088 flap_recent_true_age_ms;\u008a gate_q_used;\u0088 gate_off_streak_ms;\u0088 gate_on_streak_ms;\u0088 quality_input_missed_count;\u0088 estimator_update_time_us;\u0088 spectral_evaluation_time_us;\u0087 spectral_window_count;\u0087 spectral_min_samples;\u0086 input_source;\u0086 quality_source_instance;\u0082 airspeed_source;\u008c quality_input_valid;\u008c source_identity_match;\u008c spectral_updated;\u0086 spectral_invalid_reason;\u008c temporal_valid;\u0086 experiment_mode;\u008c adaptive_r_enabled;\u008c quality_fusion_gate_enabled;\u008c selector_quality_enabled;\u008c fuse_enabled;\u008c flap_active;\u008c spectral_ratio_valid;\u008c flap_freq_timed_out;\u008c q_is_dv_only;\u0086 spectral_reset_reason;\u008c gate_off_condition;\u008c gate_on_condition;\u0086 gate_reason;\u0086[3] _padding0;",
+		"fields_total_length": 1418,
+		"orb_ids": [46],
+		"main_orb_id": 46,
+		"dependencies": [],
+		"name": "px4/Ekf2AirspeedQuality"
+}

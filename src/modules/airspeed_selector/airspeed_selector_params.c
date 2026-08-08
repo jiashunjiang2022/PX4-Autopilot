@@ -170,6 +170,18 @@ PARAM_DEFINE_INT32(ASPD_DO_CHECKS, 7);
 PARAM_DEFINE_INT32(ASPD_FALLBACK, 0);
 
 /**
+ * Enable custom airspeed blockage heuristic
+ *
+ * This heuristic is experimental and is disabled for formal RA-L modes. The
+ * original PX4 AirspeedValidator checks and selector fallback remain active.
+ *
+ * @boolean
+ * @reboot_required true
+ * @group Airspeed Validator
+ */
+PARAM_DEFINE_INT32(ASPD_QBLK_EN, 0);
+
+/**
  * Airspeed failure innovation threshold
  *
  * This specifies the minimum airspeed innovation required to trigger a failsafe. Larger values make the check less sensitive,

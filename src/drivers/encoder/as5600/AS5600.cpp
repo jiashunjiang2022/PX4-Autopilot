@@ -32,6 +32,7 @@
  ****************************************************************************/
 
 #include "AS5600.hpp"
+#include "AS5600Math.hpp"
 
 #include <px4_platform_common/module.h>
 
@@ -116,6 +117,7 @@ int AS5600::init()
 	_param_flap_ratio_handle = param_find("FLAP_RATIO");
 
 	update_flap_ratio_param();
+	PX4_INFO("effective FLAP_RATIO: %.2f", static_cast<double>(_flap_ratio));
 
 	ScheduleOnInterval(10_ms); // 100 Hz
 	return PX4_OK;
@@ -207,7 +209,7 @@ void AS5600::RunImpl()
 
 	if (PX4_ISFINITE(_rpm_estimate) && PX4_ISFINITE(_flap_ratio) && (_flap_ratio > FLT_EPSILON)) {
 		// Flap-frequency consumers only care about magnitude, not rotation direction.
-		flap_frequency_hz = fabsf(_rpm_estimate) / (60.f * _flap_ratio);
+		flap_frequency_hz = as5600::flap_frequency_from_rpm(_rpm_estimate, _flap_ratio);
 		flap_frequency_hz = (flap_frequency_hz >= kMinValidFlapFrequencyHz) ? flap_frequency_hz : 0.f;
 	}
 
@@ -244,5 +246,5 @@ void AS5600::print_status()
 	I2CSPIDriverBase::print_status();
 	PX4_INFO("last angle: %.3f rad", static_cast<double>(_last_angle_rad));
 	PX4_INFO("rpm est=%.1f flap_hz=%.2f", static_cast<double>(_rpm_estimate),
-		 static_cast<double>((PX4_ISFINITE(_rpm_estimate) && (_flap_ratio > FLT_EPSILON)) ? fabsf(_rpm_estimate) / (60.f * _flap_ratio) : NAN));
+		 static_cast<double>(as5600::flap_frequency_from_rpm(_rpm_estimate, _flap_ratio)));
 }

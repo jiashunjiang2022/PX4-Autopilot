@@ -135,6 +135,39 @@ TEST_F(EkfAirspeedTest, testWindVelocityEstimation)
 
 }
 
+TEST_F(EkfAirspeedTest, sampleNoiseVarianceReachesAidSourceExactly)
+{
+	_ekf->set_in_air_status(true);
+	_ekf->set_vehicle_at_rest(false);
+	_ekf->set_is_fixed_wing(true);
+	_sensor_simulator._airspeed.setData(15.f, 12.f);
+	_sensor_simulator.startAirspeedSensor();
+
+	for (float noise_variance : {1.96f, 7.25f, 20.f}) {
+		_sensor_simulator._airspeed.setNoiseVariance(noise_variance);
+		_sensor_simulator.runSeconds(0.2f);
+		EXPECT_FLOAT_EQ(_ekf->aid_src_airspeed().observation_variance, noise_variance);
+	}
+}
+
+TEST_F(EkfAirspeedTest, nonzeroDelayReturnsActualBufferTimestamp)
+{
+	parameters *params = _ekf->getParamHandle();
+	params->ekf2_asp_delay = 120.f;
+
+	estimator::airspeedSample sample{};
+	sample.time_us = 10000000;
+	sample.true_airspeed = 15.f;
+	sample.eas2tas = 1.1f;
+	sample.noise_var = 4.f;
+
+	uint64_t ekf_buffer_timestamp_sample = 0;
+	ASSERT_TRUE(_ekf->setAirspeedData(sample, ekf_buffer_timestamp_sample));
+	EXPECT_GT(ekf_buffer_timestamp_sample, 0U);
+	EXPECT_LT(ekf_buffer_timestamp_sample, sample.time_us);
+	EXPECT_GE(sample.time_us - ekf_buffer_timestamp_sample, 120000U);
+}
+
 TEST_F(EkfAirspeedTest, testResetWindUsingAirspeed)
 {
 	const Vector3f simulated_velocity_earth(-3.6f, 8.f, 0.0f);

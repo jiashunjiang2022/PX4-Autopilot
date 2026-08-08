@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "audit_type": "RA-L revision flight-code readiness static audit",
+  "branch": "air",
+  "commit": "650836c48937f654a0a81fa894b381ff5b130cc2",
+  "dirty": false,
+  "source_modified": false,
+  "constraints": {
+    "build_run": false,
+    "simulation_run": false,
+    "replay_run": false,
+    "network_used": false,
+    "runtime_results": "UNKNOWN"
+  },
+  "spectral_input_rate": {
+    "status": "NEEDS RUNTIME VERIFICATION",
+    "configured_expected_hz": 10.0,
+    "validated_producer_hz": 10.0,
+    "raw_airspeed_producer_hz": 20.0,
+    "static_mixed_event_estimate_hz": "20-30",
+    "is_fixed_rate": false,
+    "notes": "Raw TAS sample timestamps and validated TAS publication timestamps can enter one estimator; EKF2_ASP_SFS controls minimum sample count, not decimation."
+  },
+  "spectral_nyquist": {
+    "at_configured_10_hz": 5.0,
+    "runtime_estimated": "computed from first/last timestamps and sample count",
+    "reliable_search_upper_limit_hz": 4.0,
+    "anti_aliasing": "NOT_IMPLEMENTED",
+    "resampling": "NOT_IMPLEMENTED"
+  },
+  "supported_flap_frequency": {
+    "status": "FAIL",
+    "current_reliable_max_hz": 4.0,
+    "required_operational_range_hz": "4.0-5.5",
+    "required_platform_max_hz": 6.8,
+    "behavior_above_limit": "center frequency is clamped to 4 Hz; result may use the wrong frequency and may alias"
+  },
+  "ms4525do_rate": {
+    "producer_hz": 83.0,
+    "cycle_ms": 12.0,
+    "status": "PARTIAL",
+    "logger_default_hz": 1.0,
+    "flight_profile": "NOT_CONFIGURED"
+  },
+  "airspeed_rate": {
+    "producer_hz": 20.0,
+    "validated_producer_hz": 10.0,
+    "status": "PARTIAL"
+  },
+  "encoder_rate": {
+    "producer_hz": 100.0,
+    "status": "FAIL",
+    "reason": "rate meets target but FLAP_RATIO defaults/fallback/tests remain 7.5 instead of confirmed 8.0"
+  },
+  "hall_path": {
+    "status": "FAIL",
+    "event_driven": true,
+    "default_enabled": false,
+    "logged": false,
+    "edge_loss_risk": true
+  },
+  "logger_topics": {
+    "status": "FAIL",
+    "full_rate_in_flapping_profile": [
+      "encoder_count",
+      "flap_frequency",
+      "wing_phase",
+      "airspeed_validated",
+      "ekf2_airspeed_quality",
+      "wind",
+      "airspeed_wind",
+      "vehicle_attitude",
+      "vehicle_angular_velocity",
+      "actuator_motors",
+      "actuator_servos"
+    ],
+    "missing_or_insufficient": [
+      "differential_pressure",
+      "airspeed",
+      "hall_event",
+      "estimator_aid_src_airspeed",
+      "airspeed_selector_status",
+      "tecs_status",
+      "fixed_wing_lateral_guidance_status",
+      "fixed_wing_lateral_status",
+      "estimator_status_flags"
+    ],
+    "producer_rate_warning": "logger intervals only cap recording rate and do not raise producer rate"
+  },
+  "experiment_modes": {
+    "status": "NOT_IMPLEMENTED",
+    "BASELINE": "PARTIAL",
+    "CONSTANT_R": "NOT_IMPLEMENTED",
+    "VARIANCE_ONLY": "NOT_IMPLEMENTED",
+    "FULL_PROPOSED": "PARTIAL",
+    "current_control": "EKF2_ASP_QLTY boolean couples adaptive R, EKF quality gate, and selector safeguard"
+  },
+  "covariance_path": {
+    "status": "PASS",
+    "q_reaches_ekf_observation_variance": true,
+    "r_as_used_is_actual_variance": true,
+    "unit": "(m/s)^2",
+    "base_parameter": "EKF2_EAS_NOISE",
+    "default_fusion_enabled": false,
+    "runtime_parameter_to_verify": "EKF2_ARSP_THR > 0"
+  },
+  "selector_path": {
+    "status": "FAIL",
+    "independent_enable": false,
+    "original_validity_published": false,
+    "rejection_reason_published": false,
+    "fallback_after_quality_rejection": false
+  },
+  "p0_gaps": [
+    "Set and verify FLAP_RATIO=8.0 in defaults, fallbacks, tests, and flight configuration",
+    "Remove the 4 Hz spectral ceiling and reliably cover at least 0-6.8 Hz",
+    "Define one uniform 50 Hz spectral input with sample timestamps, anti-aliasing, and gap handling",
+    "Implement and log isolated BASELINE, CONSTANT_R, VARIANCE_ONLY, and FULL_PROPOSED modes",
+    "Decouple selector safeguard and log original/final source, rejection reason, and fallback outcome",
+    "Complete the RA-L ULog profile and meet producer as well as logger rate requirements",
+    "Enable, queue, validate, and log every Hall edge with phase-correction evidence"
+  ],
+  "p1_gaps": [
+    "Add quality estimator and mode truth-table tests plus reconstruction fields",
+    "Resolve 256-sample window capacity, early-boot unsigned underflow, and unused EKF2_ASP_TW",
+    "Fix MS4525DO probe and double-read consistency comparisons",
+    "Measure target-board EKF WCET, stack high-water, producer rates, and SD dropout bandwidth"
+  ],
+  "files_to_modify": [
+    "src/drivers/encoder/as5600/module.yaml",
+    "src/drivers/encoder/as5600/AS5600.hpp",
+    "src/modules/wing_phase/WingPhase.cpp",
+    "src/modules/wing_phase/WingPhaseMathTest.cpp",
+    "src/modules/ekf2/EKF2.cpp",
+    "src/modules/ekf2/EKF2.hpp",
+    "src/modules/ekf2/params_airspeed.yaml",
+    "src/modules/airspeed_selector/airspeed_selector_main.cpp",
+    "src/drivers/rpm_capture/RPMCapture.cpp",
+    "src/drivers/rpm_capture/rpm_capture_params.c",
+    "src/modules/logger/logged_topics.cpp",
+    "src/drivers/differential_pressure/ms4525do/MS4525DO.cpp",
+    "msg/Ekf2AirspeedQuality.msg",
+    "msg/HallEvent.msg",
+    "msg/WingPhase.msg",
+    "msg/CMakeLists.txt",
+    "target board and airframe RPM-input configuration",
+    "new or existing EKF2/selector/Hall/MS4525 unit tests"
+  ],
+  "files_not_requiring_algorithm_rewrite": [
+    "src/modules/ekf2/EKF/aid_sources/airspeed/airspeed_fusion.cpp",
+    "src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp",
+    "src/modules/fw_mode_manager/FixedWingModeManager.cpp",
+    "src/modules/fw_att_control/FixedwingAttitudeControl.cpp",
+    "src/modules/fw_rate_control/FixedwingRateControl.cpp",
+    "src/modules/control_allocator/ControlAllocator.cpp"
+  ],
+  "p0_count": 7,
+  "flight_readiness": {
+    "READY_TO_PATCH": true,
+    "READY_TO_BUILD": false,
+    "READY_FOR_BENCH": false,
+    "READY_FOR_FLIGHT": false
+  }
+}

@@ -60,9 +60,12 @@
 # include <drivers/drv_sensor.h>
 # include <drivers/drv_adc.h>
 # include <lib/airspeed/airspeed.h>
+# include <lib/mathlib/math/filter/LowPassFilter2p.hpp>
 # include <uORB/topics/airspeed.h>
+# include <uORB/topics/airspeed_quality_input.h>
 # include <uORB/topics/differential_pressure.h>
 # include <uORB/topics/vehicle_air_data.h>
+# include "AirspeedQualityInput.hpp"
 #endif // CONFIG_SENSORS_VEHICLE_AIRSPEED
 
 #if defined(CONFIG_SENSORS_VEHICLE_AIR_DATA)
@@ -166,6 +169,11 @@ private:
 	 *		data should be returned.
 	 */
 	void diff_pres_poll();
+	void reset_airspeed_quality_input(uint8_t reason);
+	void reset_airspeed_quality_filter(uint8_t reason);
+	void publish_invalid_airspeed_quality_input(const differential_pressure_s &diff_pres, uint8_t reason);
+	void update_airspeed_quality_input(const differential_pressure_s &diff_pres,
+					   const vehicle_air_data_s &air_data, float temperature);
 
 	/**
 	 * Poll the ADC and update readings to suit.
@@ -179,6 +187,7 @@ private:
 	uORB::Subscription _vehicle_air_data_sub{ORB_ID(vehicle_air_data)};
 
 	uORB::Publication<airspeed_s>             _airspeed_pub{ORB_ID(airspeed)};
+	uORB::Publication<airspeed_quality_input_s> _airspeed_quality_input_pub{ORB_ID(airspeed_quality_input)};
 
 	DataValidator	_airspeed_validator;		/**< data validator to monitor airspeed */
 
@@ -190,6 +199,29 @@ private:
 
 	uint64_t _airspeed_last_publish{0};
 	uint64_t _diff_pres_timestamp_sum{0};
+
+	static constexpr uint64_t kQualityOutputIntervalUs{20000};
+	static constexpr uint64_t kQualityMaxSourceGapUs{40000};
+	static constexpr float kQualityMinSourceRateHz{70.f};
+	static constexpr float kQualityMaxSourceRateHz{100.f};
+	static constexpr float kQualityRateReconfigureFraction{0.05f};
+	static constexpr uint8_t kQualityRateStableSamples{10};
+	math::LowPassFilter2p<float> _quality_pressure_lpf{};
+	uint64_t _quality_rate_prev_timestamp{0};
+	uint64_t _quality_prev_source_timestamp{0};
+	uint64_t _quality_next_output_timestamp{0};
+	float _quality_prev_filtered_pressure_pa{NAN};
+	float _quality_measured_source_rate_hz{NAN};
+	float _quality_filter_source_rate_hz{NAN};
+	uint32_t _quality_gap_count{0};
+	uint32_t _quality_rate_reset_counter{0};
+	uint32_t _quality_device_id{0};
+	uint32_t _quality_device_error_count{0};
+	uint8_t _quality_source_instance{0};
+	uint8_t _quality_rate_sample_count{0};
+	uint8_t _quality_reset_reason{airspeed_quality_input_s::RESET_REASON_INITIALIZATION};
+	bool _quality_filter_initialized{false};
+	bool _quality_rate_valid{false};
 
 # ifdef ADC_AIRSPEED_VOLTAGE_CHANNEL
 	uORB::Subscription _adc_report_sub {ORB_ID(adc_report)};
@@ -205,6 +237,8 @@ private:
 		int32_t air_cmodel;
 		float air_tube_length;
 		float air_tube_diameter_mm;
+		float quality_cutoff_hz;
+		float quality_pressure_max_pa;
 	} _parameters{}; /**< local copies of interesting parameters */
 
 	struct ParameterHandles {
@@ -216,6 +250,8 @@ private:
 		param_t air_cmodel;
 		param_t air_tube_length;
 		param_t air_tube_diameter_mm;
+		param_t quality_cutoff_hz;
+		param_t quality_pressure_max_pa;
 	} _parameter_handles{};		/**< handles for interesting parameters */
 #endif // CONFIG_SENSORS_VEHICLE_AIRSPEED
 

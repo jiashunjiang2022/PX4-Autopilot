@@ -26,7 +26,9 @@ void Airspeed::send(uint64_t time)
 	airspeed_sample.time_us = time;
 	airspeed_sample.eas2tas = ias2tas;
 	airspeed_sample.true_airspeed = _true_airspeed_data;
-	_ekf->setAirspeedData(airspeed_sample);
+	airspeed_sample.noise_var = _noise_variance;
+	uint64_t ekf_buffer_timestamp_sample = 0;
+	_ekf->setAirspeedData(airspeed_sample, ekf_buffer_timestamp_sample);
 }
 
 void Airspeed::setData(float true_airspeed, float indicated_airspeed)

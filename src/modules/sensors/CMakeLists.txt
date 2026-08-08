@@ -91,6 +91,7 @@ endif()
 
 if(CONFIG_SENSORS_VEHICLE_AIRSPEED)
 	target_link_libraries(modules__sensors PRIVATE airspeed)
+	px4_add_unit_gtest(SRC AirspeedQualityInputTest.cpp LINKLIBS airspeed)
 endif()
 
 if(CONFIG_SENSORS_VEHICLE_ANGULAR_VELOCITY)

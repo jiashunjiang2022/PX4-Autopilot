@@ -1,0 +1,26 @@
+[OUTPUT] 
+Internal ctest changing into directory: /home/jjs/PX4/PX4-Autopilot/build/px4_sitl_test
+
+[HANDLER_OUTPUT] 
+Test project /home/jjs/PX4/PX4-Autopilot/build/px4_sitl_test
+
+    Start   1: unit-AS5600Math
+1/8 Test   #1: unit-AS5600Math ..................   Passed    0.00 sec
+    Start   2: unit-WingPhaseMath
+2/8 Test   #2: unit-WingPhaseMath ...............   Passed    0.00 sec
+    Start   5: unit-AirspeedQualityMode
+3/8 Test   #5: unit-AirspeedQualityMode .........   Passed    0.00 sec
+    Start  76: functional-uORBMessageFields
+4/8 Test  #76: functional-uORBMessageFields .....   Passed    0.01 sec
+    Start  80: unit-AirspeedSelectorQuality
+5/8 Test  #80: unit-AirspeedSelectorQuality .....   Passed    0.00 sec
+    Start  88: unit-test_EKF_airspeed
+6/8 Test  #88: unit-test_EKF_airspeed ...........   Passed    0.11 sec
+    Start 113: unit-test_AirspeedQuality
+7/8 Test #113: unit-test_AirspeedQuality ........   Passed    0.00 sec
+    Start 127: unit-AirspeedQualityInput
+8/8 Test #127: unit-AirspeedQualityInput ........   Passed    0.00 sec
+
+100% tests passed, 0 tests failed out of 8
+
+Total Test time (real) =   0.15 sec

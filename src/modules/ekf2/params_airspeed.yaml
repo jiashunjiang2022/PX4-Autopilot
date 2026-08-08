@@ -43,36 +43,33 @@ parameters:
       max: 5.0
       unit: m/s
       decimal: 1
-    EKF2_ASP_QLTY:
+    EKF2_ASP_MODE:
       description:
-        short: Enable airspeed quality estimation
-        long: If enabled, evaluate airspeed quality using flap-frequency spectral content and
-          airspeed rate of change, then gate fusion and adapt measurement noise.
+        short: Airspeed quality experiment mode
+        long: 0 runs diagnostics with nominal PX4 variance and selector behavior. 1 uses a frozen
+          constant variance multiplier. 2 adapts variance only. 3 adapts variance and enables the
+          persistent quality fusion gate and selector safeguard. Unknown values fail closed to mode 0.
       type: int32
       default: 0
       min: 0
-      max: 1
-      decimal: 0
-    EKF2_ASP_TW:
+      max: 3
+      reboot_required: true
+      values:
+        0: Baseline
+        1: Constant R
+        2: Variance only
+        3: Full proposed
+    EKF2_ASP_RCST:
       description:
-        short: Airspeed quality spectral window length
+        short: Constant airspeed variance multiplier
+        long: Dimensionless variance multiplier used only in CONSTANT_R mode. This is not a
+          standard-deviation multiplier and must be frozen from bench results before formal flights.
       type: float
-      default: 2.0
-      min: 0.5
-      max: 5.0
-      unit: s
-      decimal: 1
-    EKF2_ASP_SFS:
-      description:
-        short: Airspeed quality spectral sampling rate
-        long: Expected sampling rate of the spectral input signal for airspeed quality estimation.
-          The flap center frequency is clamped below Nyquist to reduce aliasing.
-      type: float
-      default: 10.0
-      min: 2.0
-      max: 50.0
-      unit: Hz
-      decimal: 1
+      default: 1.0
+      min: 1.0
+      max: 20.0
+      reboot_required: true
+      decimal: 2
     EKF2_ASP_SWIN:
       description:
         short: Airspeed quality spectral window (new)
@@ -80,7 +77,7 @@ parameters:
       type: float
       default: 4.0
       min: 1.0
-      max: 10.0
+      max: 5.0
       unit: s
       decimal: 1
     EKF2_ASP_DF:
@@ -92,6 +89,42 @@ parameters:
       max: 2.0
       unit: Hz
       decimal: 1
+    EKF2_ASP_RL:
+      description:
+        short: Airspeed spectral reference lower bound
+      type: float
+      default: 0.5
+      min: 0.1
+      max: 5.0
+      unit: Hz
+      decimal: 2
+    EKF2_ASP_RU:
+      description:
+        short: Airspeed spectral reference upper bound
+      type: float
+      default: 8.0
+      min: 7.3
+      max: 20.0
+      unit: Hz
+      decimal: 2
+    EKF2_ASP_SEVL:
+      description:
+        short: Airspeed spectral evaluation interval
+      type: float
+      default: 0.5
+      min: 0.5
+      max: 2.0
+      unit: s
+      decimal: 2
+    EKF2_ASP_DTAU:
+      description:
+        short: Temporal variation filter time constant
+      type: float
+      default: 0.08
+      min: 0.0
+      max: 2.0
+      unit: s
+      decimal: 2
     EKF2_ASP_QA:
       description:
         short: Airspeed quality spectral weight

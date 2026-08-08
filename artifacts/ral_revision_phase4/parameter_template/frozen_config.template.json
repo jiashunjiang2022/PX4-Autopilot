@@ -1,0 +1,38 @@
+{
+  "parameters_exact": {
+    "FLAP_RATIO": 8.0,
+    "EKF2_LOG_VERBOSE": 1,
+    "EKF2_ASP_SFS": 50.0,
+    "EKF2_ASP_SWIN": 4.0,
+    "EKF2_ASP_DF": 0.5,
+    "EKF2_ASP_RL": 0.5,
+    "EKF2_ASP_RU": 8.0,
+    "EKF2_ASP_SEVL": 0.5,
+    "EKF2_ASP_DTAU": 0.08,
+    "EKF2_ASP_QA": 0.7,
+    "EKF2_ASP_QB": 0.3,
+    "EKF2_ASP_DV0": 5.0,
+    "EKF2_ASP_RMAX": 5.0,
+    "EKF2_ASP_QON": 0.6,
+    "EKF2_ASP_QOFF": 0.4,
+    "EKF2_ASP_QTAU": 0.25,
+    "EKF2_ASP_TOFF": 0.2,
+    "EKF2_ASP_TON": 0.3,
+    "EKF2_ASP_THLD": 0.25,
+    "EKF2_FLAP_F_ON": 1.0,
+    "EKF2_FLAP_F_OFF": 0.6,
+    "EKF2_FLAP_T_ON": 0.4,
+    "EKF2_FLAP_T_OFF": 1.5,
+    "EKF2_FLAP_T_TO": 0.8,
+    "SENS_DP_QCUT": 10.0
+  },
+  "parameters_exact_freeze_before_bench": {
+    "ASPD_PRIMARY": null,
+    "ASPD_FALLBACK": null,
+    "ASPD_DO_CHECKS": null
+  },
+  "parameters_positive": [
+    "EKF2_ARSP_THR"
+  ],
+  "required_sdlog_profile_bits": 4096
+}

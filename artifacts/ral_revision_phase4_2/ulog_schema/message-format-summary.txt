@@ -1,0 +1,3 @@
+Generated orb_untokenized_fields_max_length: 1418 bytes
+AirspeedSelectorQualityStatus fields_total_length: 759 bytes
+px4_fmu-v6c_default logger static assertion: PASS

@@ -13,5 +13,3 @@ px4_add_module(
 		px4_work_queue
 		wing_phase_math
 )
-
-px4_add_unit_gtest(SRC WingPhaseMathTest.cpp LINKLIBS wing_phase_math)

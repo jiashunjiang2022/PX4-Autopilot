@@ -90,7 +90,7 @@ private:
 	hrt_abstime _last_encoder_timestamp{0};
 	hrt_abstime _pending_hall_timestamp{0};
 	float _last_flap_frequency_hz{NAN};
-	float _counts_per_cycle{kCountsPerRevolution * 7.5f};
+	float _counts_per_cycle{kCountsPerRevolution * 8.0f};
 	bool _encoder_valid{false};
 	bool _hall_locked{false};
 	bool _hall_pending{false};

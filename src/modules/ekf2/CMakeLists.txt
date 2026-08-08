@@ -256,6 +256,8 @@ px4_add_module(
 
 		EKF2.cpp
 		EKF2.hpp
+		AirspeedQualityMath.cpp
+		AirspeedQualityMath.hpp
 		EKF2Selector.cpp
 		EKF2Selector.hpp
 

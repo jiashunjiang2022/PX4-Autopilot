@@ -382,31 +382,44 @@ void LoggedTopics::add_high_rate_sensors_topics()
 
 void LoggedTopics::add_flapping_dataset_topics()
 {
-	add_topic("sensor_combined");
-	add_topic("vehicle_acceleration");
-	add_topic("vehicle_angular_velocity");
-	add_topic("vehicle_attitude");
-	add_topic("vehicle_local_position");
-	add_topic("vehicle_odometry");
-
-	add_topic("actuator_motors");
-	add_topic("actuator_servos");
-	add_topic_multi("vehicle_thrust_setpoint", 0, 2);
-	add_topic_multi("vehicle_torque_setpoint", 0, 2);
-
-	add_topic("flap_frequency");
-	add_optional_topic_multi("rpm");
-	add_topic("encoder_count");
-	add_topic("wing_phase");
-	add_topic("debug_vect");
-
+	// Raw and derived air-data chain. Intervals are logger upper bounds, not producer-rate changes.
+	add_topic_multi("differential_pressure", 0, 2);
+	add_topic("airspeed_quality_input");
+	add_topic("airspeed");
 	add_optional_topic("airspeed_validated");
 	add_topic_multi("ekf2_airspeed_quality");
-	add_topic("vehicle_air_data");
-	add_topic("wind");
-	add_optional_topic_multi("airspeed_wind");
-	add_topic_multi("sensor_gps", 0, 4);
-	add_topic_multi("sensor_gnss_relative", 0, 1);
+	add_optional_topic_multi("estimator_aid_src_airspeed", 0, 2);
+	add_optional_topic_multi("estimator_status_flags", 50, 2);
+	add_topic("airspeed_selector_quality_status");
+	add_topic("vehicle_air_data", 50);
+	add_topic("wind", 50);
+	add_optional_topic_multi("estimator_wind", 50, 2);
+	add_optional_topic_multi("airspeed_wind", 50, 4);
+
+	// Flapping kinematics. Hall remains event-driven.
+	add_topic("encoder_count");
+	add_optional_topic_multi("rpm", 0, 2);
+	add_topic("flap_frequency");
+	add_topic("wing_phase");
+	add_optional_topic("hall_event");
+
+	// Reviewer-facing controller evidence without enabling every high-rate profile topic.
+	add_optional_topic("tecs_status", 50);
+	add_optional_topic("fixed_wing_lateral_guidance_status", 50);
+	add_optional_topic("fixed_wing_lateral_status", 50);
+	add_topic("fixed_wing_lateral_setpoint", 20);
+	add_topic("fixed_wing_longitudinal_setpoint", 20);
+	add_topic("vehicle_attitude_setpoint", 20);
+	add_topic("vehicle_rates_setpoint", 20);
+	add_topic("vehicle_attitude", 20);
+	add_topic("vehicle_angular_velocity", 20);
+	add_topic_multi("vehicle_thrust_setpoint", 10, 2);
+	add_topic_multi("vehicle_torque_setpoint", 10, 2);
+	add_topic("actuator_motors", 10);
+	add_topic("actuator_servos", 10);
+
+	add_topic_multi("sensor_gps", 100, 4);
+	add_topic_multi("sensor_gnss_relative", 100, 1);
 }
 
 void LoggedTopics::add_mavlink_tunnel()

@@ -37,6 +37,7 @@ px4_add_module(
 	SRCS
 		AS5600.cpp
 		AS5600.hpp
+		AS5600Math.hpp
 		as5600_main.cpp
 	MODULE_CONFIG
 		module.yaml

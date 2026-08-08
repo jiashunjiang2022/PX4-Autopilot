@@ -89,7 +89,12 @@
 #include <uORB/topics/yaw_estimator_status.h>
 
 #if defined(CONFIG_EKF2_AIRSPEED)
+# include "AirspeedQualityMath.hpp"
+# include "AirspeedQualitySnapshot.hpp"
+# include <lib/airspeed/AirspeedQualityMode.hpp>
 # include <uORB/topics/airspeed.h>
+# include <uORB/topics/airspeed_quality_input.h>
+# include <uORB/topics/airspeed_selector_quality_status.h>
 # include <uORB/topics/airspeed_validated.h>
 # include <uORB/topics/ekf2_airspeed_quality.h>
 # include <uORB/topics/flap_frequency.h>
@@ -168,17 +173,13 @@ private:
 	struct AirspeedQualityState {
 		float airspeed_q{1.f};
 		float q_raw{1.f};
-		float q_smoothed{1.f};
 		float R_as_used{0.f};
 		bool fuse_enabled{true};
 		bool flap_active{false};
 		float flap_frequency_hz{NAN};
 		float spectral_ratio{NAN};
 		float spectral_input_m_s{NAN};
-		float dv{0.f};
 		bool spectral_ratio_valid{false};
-		bool enough_window{false};
-		bool do_eval{false};
 		bool flap_freq_timed_out{false};
 		bool q_is_dv_only{false};
 		uint16_t spectral_window_count{0};
@@ -194,19 +195,44 @@ private:
 		uint32_t gate_on_streak_ms{0};
 		uint8_t gate_reason{ekf2_airspeed_quality_s::GATE_REASON_NONE};
 		uint64_t timestamp_us{0};
+		uint64_t timestamp_sample{0};
+		uint8_t input_source{airspeed_quality_input_s::INPUT_SOURCE_UNKNOWN};
+		float input_rate_hz{NAN};
+		bool spectral_updated{false};
+		uint32_t spectral_update_counter{0};
+		uint8_t spectral_invalid_reason{ekf2_airspeed_quality_s::SPECTRAL_INVALID_REASON_INSUFFICIENT_SAMPLES};
+		float spectral_reference_lower_hz{NAN};
+		float spectral_reference_upper_hz{NAN};
+		float spectral_flap_center_hz{NAN};
+		float temporal_raw{NAN};
+		float temporal_filtered{NAN};
+		float temporal_normalized{NAN};
+		bool temporal_valid{false};
+		float nominal_R_as{NAN};
+		uint8_t experiment_mode{ekf2_airspeed_quality_s::EXPERIMENT_MODE_BASELINE};
+		bool adaptive_r_enabled{false};
+		bool quality_fusion_gate_enabled{false};
+		bool selector_quality_enabled{false};
+			float effective_flap_ratio{NAN};
+			uint32_t quality_device_id{0};
+			uint8_t quality_source_instance{0};
+			bool quality_input_valid{false};
+			uint32_t quality_input_missed_count{0};
+			uint32_t estimator_update_time_us{0};
+			uint32_t spectral_evaluation_time_us{0};
 	};
 
 	class AirspeedQualityEstimator
 	{
 	public:
 		void reset();
-		bool update(uint64_t time_us, float true_airspeed, float flap_freq_hz, float eas2tas,
+		bool update(uint64_t time_us, float indicated_airspeed, float flap_freq_hz, float eas2tas,
 			    bool flap_freq_timed_out, float flap_f_on_hz, float flap_f_off_hz,
 			    float flap_t_on_s, float flap_t_off_s,
-			    float spec_fs_hz, float spec_win_s, float df_hz, float a, float b, float dv0, float rmax_factor,
+			    float spec_fs_hz, float spec_win_s, float reference_lower_hz, float reference_upper_hz,
+			    float df_hz, float eval_interval_s, float temporal_tau_s, float a, float b, float dv0, float rmax_factor,
 			    float base_noise_std, float q_on, float q_off, float q_tau_s,
 			    float t_off_s, float t_on_s, float t_hold_s, AirspeedQualityState &out);
-
 	private:
 		static constexpr int kMaxSamples = 256;
 		enum class SpectralResetReason : uint8_t {
@@ -218,7 +244,6 @@ private:
 		};
 
 		void resetSpectralWindow(SpectralResetReason reason);
-		void pruneSpectralWindow(uint64_t oldest_keep_time_us);
 		uint32_t flapActiveStreakMs(uint64_t time_us) const;
 		uint32_t flapRecentTrueAgeMs(uint64_t time_us) const;
 		uint32_t gateOffStreakMs(uint64_t time_us) const;
@@ -231,6 +256,8 @@ private:
 		float _last_airspeed{NAN};
 		uint64_t _last_time{0};
 		float _dv_filtered{0.f};
+		float _dv_raw{NAN};
+		bool _temporal_valid{false};
 		float _spectral_ratio{NAN};
 		bool _spectral_ratio_valid{false};
 		float _spectral_ratio_last_valid{NAN};
@@ -253,9 +280,12 @@ private:
 		bool _q_is_dv_only{false};
 		SpectralResetReason _spectral_reset_reason{SpectralResetReason::None};
 		int _last_window_count{0};
-		int _last_min_samples{0};
-		float _samples[kMaxSamples]{};
-		uint64_t _times[kMaxSamples]{};
+			int _last_min_samples{0};
+			int _configured_window_samples{0};
+			uint32_t _spectral_update_counter{0};
+		airspeed_quality::SpectralInvalidReason _spectral_invalid_reason{airspeed_quality::SpectralInvalidReason::InsufficientSamples};
+			float _samples[kMaxSamples]{};
+			float _spectral_scratch[kMaxSamples]{};
 	};
 #endif // CONFIG_EKF2_AIRSPEED
 
@@ -465,8 +495,10 @@ private:
 
 #if defined(CONFIG_EKF2_AIRSPEED)
 	uORB::Subscription _flap_frequency_sub{ORB_ID(flap_frequency)};
+	uORB::Subscription _airspeed_quality_input_sub{ORB_ID(airspeed_quality_input)};
 	uORB::Subscription _airspeed_sub {ORB_ID(airspeed)};
 	uORB::Subscription _airspeed_validated_sub{ORB_ID(airspeed_validated)};
+	uORB::Subscription _airspeed_selector_quality_status_sub{ORB_ID(airspeed_selector_quality_status)};
 
 	float _airspeed_scale_factor{1.0f}; ///< scale factor correction applied to airspeed measurements
 	hrt_abstime _airspeed_validated_timestamp_last{0};
@@ -477,10 +509,22 @@ private:
 	hrt_abstime _status_airspeed_pub_last{0};
 
 	uORB::PublicationMulti<ekf2_airspeed_quality_s> _ekf2_airspeed_quality_pub{ORB_ID(ekf2_airspeed_quality)};
-	hrt_abstime _airspeed_quality_pub_last{0};
+	hrt_abstime _airspeed_quality_input_timestamp{0};
+	float _airspeed_quality_eas2tas{1.f};
+	int32_t _airspeed_quality_mode{0};
+	float _airspeed_quality_rcst{1.f};
+	param_t _flap_ratio_handle{PARAM_INVALID};
+	float _effective_flap_ratio{8.f};
+	bool _airspeed_quality_mode_error_reported{false};
+	uint64_t _airspeed_quality_last_sample_timestamp{0};
+	uint32_t _airspeed_quality_input_missed_count{0};
+	perf_counter_t _airspeed_quality_update_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": airspeed quality update")};
+	perf_counter_t _airspeed_quality_spectral_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": airspeed spectral evaluation")};
+	perf_counter_t _airspeed_quality_missed_perf{perf_alloc(PC_COUNT, MODULE_NAME": airspeed quality input missed")};
 
 	AirspeedQualityEstimator _airspeed_quality_estimator{};
 	AirspeedQualityState _airspeed_quality_state{};
+	airspeed_quality::SnapshotRing<AirspeedQualityState, 16> _airspeed_quality_snapshots{};
 
 #endif // CONFIG_EKF2_AIRSPEED
 
@@ -679,18 +723,24 @@ private:
 		// control of airspeed fusion
 		(ParamExtFloat<px4::params::EKF2_ARSP_THR>)
 		_param_ekf2_arsp_thr, ///< A value of zero will disabled airspeed fusion. Any positive value sets the minimum airspeed which will be used (m/sec)
-		(ParamExtInt<px4::params::EKF2_ASP_QLTY>)
-		_param_ekf2_asp_qlty, ///< enable airspeed quality estimation
-		(ParamExtFloat<px4::params::EKF2_ASP_TW>)
-		_param_ekf2_asp_tw, ///< airspeed quality spectral window length (s)
+		(ParamExtInt<px4::params::EKF2_ASP_MODE>)
+		_param_ekf2_asp_mode, ///< mutually exclusive experiment mode
+		(ParamExtFloat<px4::params::EKF2_ASP_RCST>)
+		_param_ekf2_asp_rcst, ///< constant-R variance multiplier
 		(ParamExtFloat<px4::params::EKF2_ASP_DF>)
 		_param_ekf2_asp_df, ///< airspeed quality spectral band half-width (Hz)
+		(ParamExtFloat<px4::params::EKF2_ASP_RL>)
+		_param_ekf2_asp_rl, ///< spectral reference lower bound (Hz)
+		(ParamExtFloat<px4::params::EKF2_ASP_RU>)
+		_param_ekf2_asp_ru, ///< spectral reference upper bound (Hz)
+		(ParamExtFloat<px4::params::EKF2_ASP_SEVL>)
+		_param_ekf2_asp_sevl, ///< spectral evaluation interval (s)
+		(ParamExtFloat<px4::params::EKF2_ASP_DTAU>)
+		_param_ekf2_asp_dtau, ///< temporal variation filter time constant (s)
 		(ParamExtFloat<px4::params::EKF2_ASP_QA>)
 		_param_ekf2_asp_qa, ///< airspeed quality spectral weight
 		(ParamExtFloat<px4::params::EKF2_ASP_QB>)
 		_param_ekf2_asp_qb, ///< airspeed quality rate weight
-		(ParamExtFloat<px4::params::EKF2_ASP_SFS>)
-		_param_ekf2_asp_sfs, ///< expected spectral input sample rate (Hz)
 		(ParamExtFloat<px4::params::EKF2_ASP_SWIN>)
 		_param_ekf2_asp_swin, ///< spectral window length (s), must fill before valid ratio
 		(ParamExtFloat<px4::params::EKF2_ASP_DV0>)

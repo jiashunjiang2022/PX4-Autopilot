@@ -1,0 +1,10 @@
+[1/2] Building CXX object src/modules/airspeed_selector/CMakeFiles/unit-AirspeedSelectorQuality.dir/AirspeedSelectorQualityTest.cpp.o
+[2/2] Linking CXX executable unit-AirspeedSelectorQuality
+Internal ctest changing into directory: /home/jjs/PX4/PX4-Autopilot/build/px4_sitl_test
+Test project /home/jjs/PX4/PX4-Autopilot/build/px4_sitl_test
+    Start 80: unit-AirspeedSelectorQuality
+1/1 Test #80: unit-AirspeedSelectorQuality .....   Passed    0.00 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.02 sec

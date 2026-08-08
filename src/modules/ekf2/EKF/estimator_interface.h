@@ -108,7 +108,7 @@ public:
 #endif // CONFIG_EKF2_BAROMETER
 
 #if defined(CONFIG_EKF2_AIRSPEED)
-	void setAirspeedData(const airspeedSample &airspeed_sample);
+	bool setAirspeedData(const airspeedSample &airspeed_sample, uint64_t &ekf_buffer_timestamp_sample);
 	void setSyntheticAirspeed(const bool synthetic_airspeed) { _synthetic_airspeed = synthetic_airspeed; }
 #endif // CONFIG_EKF2_AIRSPEED
 

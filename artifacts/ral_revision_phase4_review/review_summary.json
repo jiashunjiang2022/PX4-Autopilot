@@ -1,0 +1,41 @@
+{
+  "branch": "air",
+  "head": "650836c48937f654a0a81fa894b381ff5b130cc2",
+  "changed_files": 36,
+  "changed_files_detail": {
+    "tracked_modified": 25,
+    "new_core_files": 11,
+    "core_total": 36
+  },
+  "source_modified_by_review": false,
+  "blockers": 0,
+  "p0": 2,
+  "p1": 7,
+  "p2": 1,
+  "mode_isolation": "PASS_FUNCTIONAL_PATHS_INTEGRATION_TEST_MISSING",
+  "quality_input_valid": false,
+  "quality_input_assessment": "UNIFORM_BRACKETED_50HZ_GRID_BUT_SOURCE_IDENTITY_AND_RATE_QUALIFICATION_REQUIRED",
+  "spectral_valid": true,
+  "spectral_assessment": "6_8_HZ_VALID; FULL_WINDOW_POLICY_MISMATCH_REQUIRES_FIX",
+  "ekf_variance_connected": true,
+  "ekf_variance_logging_sample_aligned": false,
+  "selector_safe": false,
+  "selector_assessment": "EXPLICIT_FALLBACK_EXISTS_BUT_Q_SOURCE_IDENTITY_AND_STATUS_TRACEABILITY_ARE_NOT_RELEASE_SAFE",
+  "logging_bandwidth_bps": {
+    "payload": 71272,
+    "conservative_profile_only": 101768,
+    "payload_mb_per_min": 4.276,
+    "conservative_mb_per_min": 6.106,
+    "payload_mb_20_min": 85.526,
+    "conservative_mb_20_min": 122.122
+  },
+  "flash_percent": 93.00,
+  "flash_assessment": "TOO_CLOSE_FOR_SAFE_ITERATION",
+  "axi_sram_bytes": 61892,
+  "axi_sram_percent": 11.80,
+  "memory_risk": "NEEDS_BENCH_VERIFICATION_STACK_HIGH_WATER_AND_EKF2_WCET",
+  "test_coverage": "5_OF_5_TARGETS_PASS; 27_TESTS; HELPER_DOMINANT; INTEGRATION_HARDWARE_AND_LOGGER_GAPS",
+  "bench_readiness": "CONDITIONAL_NON_ACTUATING_DIAGNOSTIC_ONLY; NOT_FORMAL_BENCH_DATA_READY",
+  "flight_readiness": "NOT_READY_FOR_FLIGHT",
+  "review_decision": "APPROVE_WITH_REQUIRED_FIXES"
+}

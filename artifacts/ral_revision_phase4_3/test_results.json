@@ -1,0 +1,24 @@
+{
+  "ctest": {
+    "passed": 8,
+    "failed": 0,
+    "tests": [
+      "unit-AS5600Math",
+      "unit-WingPhaseMath",
+      "unit-AirspeedQualityMode",
+      "functional-uORBMessageFields",
+      "unit-AirspeedSelectorQuality",
+      "unit-test_EKF_airspeed",
+      "unit-test_AirspeedQuality",
+      "unit-AirspeedQualityInput"
+    ]
+  },
+  "python_evidence": {
+    "passed": 25,
+    "failed": 0,
+    "suite": "artifacts/ral_revision_phase4_2/tests/test_phase4_2_evidence.py"
+  },
+  "git_diff_check": "PASS",
+  "hardware_connected": false,
+  "flight_test_performed": false
+}

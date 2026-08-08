@@ -52,10 +52,12 @@ public:
 	~Airspeed();
 
 	void setData(float true_airspeed, float eas2tas);
+	void setNoiseVariance(float noise_variance) { _noise_variance = noise_variance; }
 
 private:
 	float _true_airspeed_data{0.0f};
 	float _indicated_airspeed_data{0.0f};
+	float _noise_variance{NAN};
 
 	void send(uint64_t time) override;
 

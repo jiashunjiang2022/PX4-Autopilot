@@ -14,18 +14,29 @@
 
 TEST(WingPhaseMath, invalid_without_hall_lock)
 {
-	const auto result = wing_phase::compute_phase(1200, 1000, 4096.f * 7.5f, false);
+	const auto result = wing_phase::compute_phase(1200, 1000, 4096.f * 8.0f, false);
 
 	EXPECT_FALSE(result.valid);
 }
 
 TEST(WingPhaseMath, wraps_phase_with_hall_zero)
 {
-	const auto result = wing_phase::compute_phase(4096 * 8, 4096 * 7, 4096.f * 7.5f, true);
+	const auto result = wing_phase::compute_phase(4096 * 9, 4096 * 7, 4096.f * 8.0f, true);
 
 	EXPECT_TRUE(result.valid);
 	EXPECT_GT(result.phase_rad, 0.f);
 	EXPECT_LT(result.phase_rad, static_cast<float>(2.0 * 3.14159265358979323846));
+}
+
+TEST(WingPhaseMath, wraps_exactly_at_eight_encoder_revolutions)
+{
+	constexpr float counts_per_cycle = 4096.f * 8.f;
+	const auto result = wing_phase::compute_phase(1000 + static_cast<int>(counts_per_cycle), 1000,
+			counts_per_cycle, true);
+
+	EXPECT_TRUE(result.valid);
+	EXPECT_NEAR(result.phase_unwrapped_rad, static_cast<float>(2.0 * 3.14159265358979323846), 1e-5f);
+	EXPECT_NEAR(result.phase_rad, 0.f, 1e-5f);
 }
 
 TEST(WingPhaseMath, keeps_unwrapped_phase_since_last_hall)

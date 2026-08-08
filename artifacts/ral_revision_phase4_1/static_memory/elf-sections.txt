@@ -1,0 +1,21 @@
+build/px4_fmu-v6c_default/px4_fmu-v6c_default.elf  :
+section               size        addr
+.text              1824960   134348800
+.init_section          336   136173760
+.ARM.exidx               8   136174096
+.data                 4048   603979776
+.bss                 57796   603983872
+.sram4_reserve           0   939524096
+.comment                51           0
+.ARM.attributes         53           0
+.debug_abbrev      1647615           0
+.debug_info       24443679           0
+.debug_line        4251005           0
+.debug_aranges      146080           0
+.debug_str         3348823           0
+.debug_loc         5021073           0
+.debug_ranges      1139112           0
+.debug_frame        429092           0
+Total             42313731
+
+

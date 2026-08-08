@@ -66,6 +66,8 @@ Sensors::Sensors(bool hil_enabled) :
 	_parameter_handles.air_cmodel = param_find("CAL_AIR_CMODEL");
 	_parameter_handles.air_tube_length = param_find("CAL_AIR_TUBELEN");
 	_parameter_handles.air_tube_diameter_mm = param_find("CAL_AIR_TUBED_MM");
+	_parameter_handles.quality_cutoff_hz = param_find("SENS_DP_QCUT");
+	_parameter_handles.quality_pressure_max_pa = param_find("SENS_DP_QMAX");
 
 	_airspeed_validator.set_timeout(300000);
 	_airspeed_validator.set_equal_value_threshold(100);
@@ -164,7 +166,7 @@ int Sensors::parameters_update()
 	}
 
 #if defined(CONFIG_SENSORS_VEHICLE_AIRSPEED)
-	/* Airspeed offset */
+	const Parameters previous_parameters = _parameters;
 	param_get(_parameter_handles.diff_pres_offset_pa, &(_parameters.diff_pres_offset_pa));
 #ifdef ADC_AIRSPEED_VOLTAGE_CHANNEL
 	param_get(_parameter_handles.diff_pres_analog_scale, &(_parameters.diff_pres_analog_scale));
@@ -173,6 +175,21 @@ int Sensors::parameters_update()
 	param_get(_parameter_handles.air_cmodel, &_parameters.air_cmodel);
 	param_get(_parameter_handles.air_tube_length, &_parameters.air_tube_length);
 	param_get(_parameter_handles.air_tube_diameter_mm, &_parameters.air_tube_diameter_mm);
+	float quality_cutoff_hz = _parameters.quality_cutoff_hz;
+	param_get(_parameter_handles.quality_cutoff_hz, &quality_cutoff_hz);
+	quality_cutoff_hz = math::constrain(quality_cutoff_hz, 7.f, 15.f);
+	param_get(_parameter_handles.quality_pressure_max_pa, &_parameters.quality_pressure_max_pa);
+	_parameters.quality_pressure_max_pa = math::constrain(_parameters.quality_pressure_max_pa, 100.f, 20000.f);
+	_parameters.quality_cutoff_hz = quality_cutoff_hz;
+
+	if ((fabsf(previous_parameters.diff_pres_offset_pa - _parameters.diff_pres_offset_pa) > FLT_EPSILON)
+	    || (previous_parameters.air_cmodel != _parameters.air_cmodel)
+	    || (fabsf(previous_parameters.air_tube_length - _parameters.air_tube_length) > FLT_EPSILON)
+	    || (fabsf(previous_parameters.air_tube_diameter_mm - _parameters.air_tube_diameter_mm) > FLT_EPSILON)
+	    || (fabsf(previous_parameters.quality_cutoff_hz - _parameters.quality_cutoff_hz) > FLT_EPSILON)
+	    || (fabsf(previous_parameters.quality_pressure_max_pa - _parameters.quality_pressure_max_pa) > FLT_EPSILON)) {
+		reset_airspeed_quality_input(airspeed_quality_input_s::RESET_REASON_PARAMETER_UPDATE);
+	}
 #endif // CONFIG_SENSORS_VEHICLE_AIRSPEED
 
 	_voted_sensors_update.parametersUpdate();
@@ -258,6 +275,238 @@ int Sensors::parameters_update()
 }
 
 #if defined(CONFIG_SENSORS_VEHICLE_AIRSPEED)
+void Sensors::reset_airspeed_quality_input(uint8_t reason)
+{
+	_quality_rate_prev_timestamp = 0;
+	_quality_measured_source_rate_hz = NAN;
+	_quality_rate_sample_count = 0;
+	_quality_rate_valid = false;
+	reset_airspeed_quality_filter(reason);
+}
+
+void Sensors::reset_airspeed_quality_filter(uint8_t reason)
+{
+	_quality_prev_source_timestamp = 0;
+	_quality_next_output_timestamp = 0;
+	_quality_prev_filtered_pressure_pa = NAN;
+	_quality_filter_source_rate_hz = NAN;
+	_quality_filter_initialized = false;
+	_quality_reset_reason = reason;
+}
+
+void Sensors::publish_invalid_airspeed_quality_input(const differential_pressure_s &diff_pres, uint8_t reason)
+{
+	airspeed_quality_input_s output{};
+	output.timestamp = hrt_absolute_time();
+	output.timestamp_sample = diff_pres.timestamp_sample;
+	output.device_id = diff_pres.device_id;
+	output.source_instance = _diff_pres_sub.get_instance();
+	output.input_source = airspeed_quality_input_s::INPUT_SOURCE_DIFFERENTIAL_PRESSURE;
+	output.valid = false;
+	output.measured_source_rate_hz = _quality_measured_source_rate_hz;
+	output.rate_valid = false;
+	output.filter_source_rate_hz = _quality_filter_source_rate_hz;
+	output.filter_cutoff_hz = _parameters.quality_cutoff_hz;
+	output.output_rate_hz = 50.f;
+	output.gap_count = _quality_gap_count;
+	output.rate_reset_counter = _quality_rate_reset_counter;
+	output.reset_reason = reason;
+	_airspeed_quality_input_pub.publish(output);
+}
+
+void Sensors::update_airspeed_quality_input(const differential_pressure_s &diff_pres,
+		const vehicle_air_data_s &air_data, float temperature)
+{
+	const uint64_t timestamp_sample = diff_pres.timestamp_sample;
+	const float calibrated_pressure_pa = diff_pres.differential_pressure_pa - _parameters.diff_pres_offset_pa;
+	const uint8_t source_instance = _diff_pres_sub.get_instance();
+
+	if ((timestamp_sample == 0) || !PX4_ISFINITE(calibrated_pressure_pa)) {
+		_quality_gap_count++;
+		reset_airspeed_quality_input(airspeed_quality_input_s::RESET_REASON_INVALID_PRESSURE);
+		publish_invalid_airspeed_quality_input(diff_pres, airspeed_quality_input_s::RESET_REASON_INVALID_PRESSURE);
+		return;
+	}
+
+	if (!airspeed_quality_input::source_device_valid(diff_pres.device_id)) {
+		_quality_gap_count++;
+		reset_airspeed_quality_input(airspeed_quality_input_s::RESET_REASON_DEVICE_ID_INVALID);
+		publish_invalid_airspeed_quality_input(diff_pres, airspeed_quality_input_s::RESET_REASON_DEVICE_ID_INVALID);
+		return;
+	}
+
+	if (!airspeed_quality_input::pressure_in_range(calibrated_pressure_pa, _parameters.quality_pressure_max_pa)) {
+		_quality_gap_count++;
+		reset_airspeed_quality_input(airspeed_quality_input_s::RESET_REASON_PRESSURE_RANGE);
+		publish_invalid_airspeed_quality_input(diff_pres, airspeed_quality_input_s::RESET_REASON_PRESSURE_RANGE);
+		return;
+	}
+
+	if (!PX4_ISFINITE(air_data.baro_pressure_pa) || (air_data.baro_pressure_pa <= 0.f) || !PX4_ISFINITE(temperature)) {
+		_quality_gap_count++;
+		reset_airspeed_quality_input(airspeed_quality_input_s::RESET_REASON_INVALID_AIR_DATA);
+		publish_invalid_airspeed_quality_input(diff_pres, airspeed_quality_input_s::RESET_REASON_INVALID_AIR_DATA);
+		return;
+	}
+
+	const bool identity_changed = airspeed_quality_input::source_identity_changed(_quality_device_id,
+				      _quality_source_instance, diff_pres.device_id, source_instance);
+
+	if (identity_changed) {
+		const uint8_t reset_reason = source_instance != _quality_source_instance
+					     ? airspeed_quality_input_s::RESET_REASON_INSTANCE_CHANGE
+					     : airspeed_quality_input_s::RESET_REASON_DEVICE_CHANGE;
+		_quality_gap_count++;
+		reset_airspeed_quality_input(reset_reason);
+		publish_invalid_airspeed_quality_input(diff_pres, reset_reason);
+	}
+
+	if (!identity_changed && (_quality_device_id != 0) && (diff_pres.error_count != _quality_device_error_count)) {
+		_quality_gap_count++;
+		reset_airspeed_quality_input(airspeed_quality_input_s::RESET_REASON_DEVICE_ERROR);
+		publish_invalid_airspeed_quality_input(diff_pres, airspeed_quality_input_s::RESET_REASON_DEVICE_ERROR);
+	}
+
+	_quality_device_id = diff_pres.device_id;
+	_quality_source_instance = source_instance;
+	_quality_device_error_count = diff_pres.error_count;
+
+	if (_quality_rate_prev_timestamp != 0) {
+		if (timestamp_sample == _quality_rate_prev_timestamp) {
+			_quality_gap_count++;
+			reset_airspeed_quality_input(airspeed_quality_input_s::RESET_REASON_DUPLICATE);
+			publish_invalid_airspeed_quality_input(diff_pres, airspeed_quality_input_s::RESET_REASON_DUPLICATE);
+			return;
+
+		} else if (timestamp_sample < _quality_rate_prev_timestamp) {
+			_quality_gap_count++;
+			reset_airspeed_quality_input(airspeed_quality_input_s::RESET_REASON_NON_MONOTONIC);
+			publish_invalid_airspeed_quality_input(diff_pres, airspeed_quality_input_s::RESET_REASON_NON_MONOTONIC);
+			return;
+		}
+
+		const uint64_t source_dt_us = timestamp_sample - _quality_rate_prev_timestamp;
+
+		if (source_dt_us > kQualityMaxSourceGapUs) {
+			_quality_gap_count++;
+			reset_airspeed_quality_input(airspeed_quality_input_s::RESET_REASON_LONG_GAP);
+			_quality_device_id = diff_pres.device_id;
+			_quality_source_instance = source_instance;
+			_quality_device_error_count = diff_pres.error_count;
+			_quality_rate_prev_timestamp = timestamp_sample;
+			publish_invalid_airspeed_quality_input(diff_pres, airspeed_quality_input_s::RESET_REASON_LONG_GAP);
+			return;
+
+		} else {
+			const float source_dt_s = source_dt_us * 1e-6f;
+			const float instantaneous_rate_hz = 1.f / source_dt_s;
+			const float alpha = math::constrain(source_dt_s / (1.f + source_dt_s), 0.f, 1.f);
+			_quality_measured_source_rate_hz = PX4_ISFINITE(_quality_measured_source_rate_hz)
+						   ? _quality_measured_source_rate_hz + alpha * (instantaneous_rate_hz - _quality_measured_source_rate_hz)
+							   : instantaneous_rate_hz;
+			_quality_rate_sample_count = math::min(static_cast<int>(_quality_rate_sample_count) + 1, 255);
+		}
+	}
+
+	_quality_rate_prev_timestamp = timestamp_sample;
+
+	if (_quality_rate_sample_count < kQualityRateStableSamples) {
+		return;
+	}
+
+	const bool rate_valid = airspeed_quality_input::source_rate_valid(_quality_measured_source_rate_hz,
+				_quality_rate_sample_count, kQualityMinSourceRateHz, kQualityMaxSourceRateHz,
+				kQualityRateStableSamples);
+
+	if (!rate_valid) {
+		if (_quality_rate_valid || _quality_filter_initialized) {
+			_quality_rate_reset_counter++;
+			reset_airspeed_quality_filter(airspeed_quality_input_s::RESET_REASON_RATE_INVALID);
+		}
+
+		_quality_rate_valid = false;
+		publish_invalid_airspeed_quality_input(diff_pres, airspeed_quality_input_s::RESET_REASON_RATE_INVALID);
+		return;
+	}
+
+	_quality_rate_valid = true;
+	const bool rate_reconfigure = airspeed_quality_input::source_rate_requires_reconfigure(
+				      _quality_measured_source_rate_hz, _quality_filter_source_rate_hz,
+				      kQualityRateReconfigureFraction);
+
+	if (rate_reconfigure) {
+		_quality_rate_reset_counter++;
+		reset_airspeed_quality_filter(airspeed_quality_input_s::RESET_REASON_RATE_CHANGE);
+		publish_invalid_airspeed_quality_input(diff_pres, airspeed_quality_input_s::RESET_REASON_RATE_CHANGE);
+	}
+
+	if (!_quality_filter_initialized) {
+		_quality_filter_source_rate_hz = _quality_measured_source_rate_hz;
+		_quality_pressure_lpf.set_cutoff_frequency(_quality_filter_source_rate_hz, _parameters.quality_cutoff_hz);
+		_quality_prev_filtered_pressure_pa = _quality_pressure_lpf.reset(calibrated_pressure_pa);
+		_quality_prev_source_timestamp = timestamp_sample;
+		_quality_next_output_timestamp = ((timestamp_sample / kQualityOutputIntervalUs) + 1) * kQualityOutputIntervalUs;
+		_quality_filter_initialized = true;
+		return;
+	}
+
+	const float filtered_pressure_pa = _quality_pressure_lpf.apply(calibrated_pressure_pa);
+	const uint64_t interval_us = timestamp_sample - _quality_prev_source_timestamp;
+
+	while (airspeed_quality_input::bracketed(_quality_prev_source_timestamp, timestamp_sample,
+			_quality_next_output_timestamp) && (interval_us > 0)) {
+		const float output_pressure_pa = airspeed_quality_input::interpolate(_quality_prev_filtered_pressure_pa,
+					 filtered_pressure_pa, _quality_prev_source_timestamp, timestamp_sample,
+					 _quality_next_output_timestamp);
+
+		enum AIRSPEED_SENSOR_MODEL sensor_model = AIRSPEED_SENSOR_MODEL_MEMBRANE;
+
+		switch ((diff_pres.device_id >> 16) & 0xFF) {
+		case DRV_DIFF_PRESS_DEVTYPE_SDP31:
+		case DRV_DIFF_PRESS_DEVTYPE_SDP32:
+		case DRV_DIFF_PRESS_DEVTYPE_SDP33:
+			sensor_model = AIRSPEED_SENSOR_MODEL_SDP3X;
+			break;
+
+		default:
+			break;
+		}
+
+		const float indicated_airspeed_m_s = calc_IAS_corrected(
+				(enum AIRSPEED_COMPENSATION_MODEL)_parameters.air_cmodel, sensor_model,
+				_parameters.air_tube_length, _parameters.air_tube_diameter_mm,
+				output_pressure_pa, air_data.baro_pressure_pa, temperature);
+
+		if (PX4_ISFINITE(indicated_airspeed_m_s)) {
+			airspeed_quality_input_s output{};
+			output.timestamp = hrt_absolute_time();
+				output.timestamp_sample = _quality_next_output_timestamp;
+				output.device_id = diff_pres.device_id;
+				output.source_instance = source_instance;
+			output.differential_pressure_pa = output_pressure_pa;
+			output.indicated_airspeed_m_s = indicated_airspeed_m_s;
+			output.input_source = airspeed_quality_input_s::INPUT_SOURCE_DIFFERENTIAL_PRESSURE;
+			output.valid = true;
+			output.resampled = (_quality_next_output_timestamp != timestamp_sample);
+				output.measured_source_rate_hz = _quality_measured_source_rate_hz;
+				output.rate_valid = _quality_rate_valid;
+				output.filter_source_rate_hz = _quality_filter_source_rate_hz;
+				output.filter_cutoff_hz = _parameters.quality_cutoff_hz;
+				output.output_rate_hz = 50.f;
+				output.gap_count = _quality_gap_count;
+				output.rate_reset_counter = _quality_rate_reset_counter;
+			output.reset_reason = _quality_reset_reason;
+			_airspeed_quality_input_pub.publish(output);
+			_quality_reset_reason = airspeed_quality_input_s::RESET_REASON_NONE;
+		}
+
+		_quality_next_output_timestamp += kQualityOutputIntervalUs;
+	}
+
+	_quality_prev_source_timestamp = timestamp_sample;
+	_quality_prev_filtered_pressure_pa = filtered_pressure_pa;
+}
+
 void Sensors::diff_pres_poll()
 {
 	differential_pressure_s diff_pres{};
@@ -265,6 +514,10 @@ void Sensors::diff_pres_poll()
 	if (_diff_pres_sub.update(&diff_pres)) {
 
 		if (!PX4_ISFINITE(diff_pres.differential_pressure_pa)) {
+			_quality_gap_count++;
+			reset_airspeed_quality_input(airspeed_quality_input_s::RESET_REASON_INVALID_PRESSURE);
+			publish_invalid_airspeed_quality_input(diff_pres, airspeed_quality_input_s::RESET_REASON_INVALID_PRESSURE);
+
 			// ignore invalid data and reset accumulated
 
 			// reset
@@ -279,6 +532,7 @@ void Sensors::diff_pres_poll()
 		vehicle_air_data_s air_data{};
 		_vehicle_air_data_sub.copy(&air_data);
 		const float temperature = air_data.ambient_temperature;
+		update_airspeed_quality_input(diff_pres, air_data, temperature);
 
 		// push raw data into validator
 		float airspeed_input[3] { diff_pres.differential_pressure_pa, 0.0f, 0.0f };
@@ -331,8 +585,9 @@ void Sensors::diff_pres_poll()
 
 			if (PX4_ISFINITE(indicated_airspeed_m_s) && PX4_ISFINITE(true_airspeed_m_s)) {
 
-				airspeed_s airspeed;
+				airspeed_s airspeed{};
 				airspeed.timestamp_sample = timestamp_sample;
+				airspeed.device_id = diff_pres.device_id;
 				airspeed.indicated_airspeed_m_s = indicated_airspeed_m_s;
 				airspeed.true_airspeed_m_s = true_airspeed_m_s;
 				airspeed.confidence = _airspeed_validator.confidence(hrt_absolute_time());

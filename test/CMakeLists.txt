@@ -21,3 +21,13 @@ add_custom_target(test_results
         COMMENT "Running tests"
         WORKING_DIRECTORY ${PX4_BINARY_DIR})
 set_target_properties(test_results PROPERTIES EXCLUDE_FROM_ALL TRUE)
+
+# These platform-specific modules are not enabled by the SITL test board, so
+# register their standalone math tests from the common test entry point.
+px4_add_unit_gtest(
+	SRC ${PX4_SOURCE_DIR}/src/drivers/encoder/as5600/AS5600MathTest.cpp
+)
+px4_add_unit_gtest(
+	SRC ${PX4_SOURCE_DIR}/src/modules/wing_phase/WingPhaseMathTest.cpp
+	EXTRA_SRCS ${PX4_SOURCE_DIR}/src/modules/wing_phase/WingPhaseMath.cpp
+)

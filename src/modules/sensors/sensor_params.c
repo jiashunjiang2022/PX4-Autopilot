@@ -100,6 +100,36 @@ PARAM_DEFINE_FLOAT(SENS_DPRES_OFF, 0.0f);
 PARAM_DEFINE_INT32(SENS_DPRES_REV, 0);
 
 /**
+ * Airspeed quality input anti-alias filter cutoff
+ *
+ * Cutoff frequency of the second-order low-pass filter applied to calibrated
+ * differential pressure before uniform 50 Hz resampling. The default preserves
+ * the 6.8 Hz flapping band while attenuating content near the 25 Hz output
+ * Nyquist frequency. Freeze this value using bench data before formal flights.
+ *
+ * @min 7.0
+ * @max 15.0
+ * @unit Hz
+ * @decimal 1
+ * @group Sensors
+ */
+PARAM_DEFINE_FLOAT(SENS_DP_QCUT, 10.0f);
+
+/**
+ * Airspeed quality input absolute pressure limit
+ *
+ * Finite signed differential pressure beyond this absolute limit invalidates and
+ * resets the quality input. The default covers the MS4525DO +/-1 PSI range with
+ * a small conversion margin.
+ *
+ * @min 100
+ * @max 20000
+ * @decimal 0
+ * @group Sensors
+ */
+PARAM_DEFINE_FLOAT(SENS_DP_QMAX, 7000.0f);
+
+/**
  * Differential pressure sensor analog scaling
  *
  * Pick the appropriate scaling from the datasheet.

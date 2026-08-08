@@ -7,7 +7,7 @@ namespace wing_phase
 {
 
 CountInterpolationResult interpolate_count_at_timestamp(const EncoderSample &previous, const EncoderSample &current,
-		hrt_abstime target_timestamp)
+		uint64_t target_timestamp)
 {
 	if (previous.timestamp == 0 || current.timestamp == 0 || current.timestamp <= previous.timestamp) {
 		return {};

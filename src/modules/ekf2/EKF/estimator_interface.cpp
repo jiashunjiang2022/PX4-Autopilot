@@ -247,10 +247,12 @@ void EstimatorInterface::setBaroData(const baroSample &baro_sample)
 #endif // CONFIG_EKF2_BAROMETER
 
 #if defined(CONFIG_EKF2_AIRSPEED)
-void EstimatorInterface::setAirspeedData(const airspeedSample &airspeed_sample)
+bool EstimatorInterface::setAirspeedData(const airspeedSample &airspeed_sample, uint64_t &ekf_buffer_timestamp_sample)
 {
+	ekf_buffer_timestamp_sample = 0;
+
 	if (!_initialised) {
-		return;
+		return false;
 	}
 
 	// Allocate the required buffer size if not previously done
@@ -261,7 +263,7 @@ void EstimatorInterface::setAirspeedData(const airspeedSample &airspeed_sample)
 			delete _airspeed_buffer;
 			_airspeed_buffer = nullptr;
 			printBufferAllocationFailed("airspeed");
-			return;
+			return false;
 		}
 	}
 
@@ -276,11 +278,15 @@ void EstimatorInterface::setAirspeedData(const airspeedSample &airspeed_sample)
 		airspeed_sample_new.time_us = time_us;
 
 		_airspeed_buffer->push(airspeed_sample_new);
+		ekf_buffer_timestamp_sample = airspeed_sample_new.time_us;
+		return true;
 
 	} else {
 		ECL_WARN("airspeed data too fast %" PRIi64 " < %" PRIu64 " + %d", time_us, _airspeed_buffer->get_newest().time_us,
 			 _min_obs_interval_us);
 	}
+
+	return false;
 }
 #endif // CONFIG_EKF2_AIRSPEED
 

@@ -45,6 +45,8 @@ set(msg_files
 	ActuatorTest.msg
 	AdcReport.msg
 	Airspeed.msg
+	AirspeedQualityInput.msg
+	AirspeedSelectorQualityStatus.msg
 	AirspeedWind.msg
 	AutotuneAttitudeControlStatus.msg
 	BatteryInfo.msg

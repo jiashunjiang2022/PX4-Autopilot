@@ -396,11 +396,15 @@ struct parameters {
 	float ekf2_tas_gate{5.0f};              ///< True Airspeed innovation consistency gate size (STD)
 	float ekf2_eas_noise{1.4f};             ///< EAS measurement noise standard deviation used for airspeed fusion (m/s)
 	float ekf2_arsp_thr{2.0f};              ///< Airspeed fusion threshold. A value of zero will deactivate airspeed fusion
-	int32_t ekf2_asp_qlty{0};               ///< enable airspeed quality estimation
-	float ekf2_asp_tw{2.0f};                ///< airspeed quality spectral window length (s)
-	float ekf2_asp_sfs{10.0f};              ///< expected spectral input sample rate (Hz)
+	int32_t ekf2_asp_mode{0};               ///< mutually exclusive airspeed quality experiment mode
+	float ekf2_asp_rcst{1.0f};              ///< constant-R observation variance multiplier
+	float ekf2_asp_sfs{50.0f};              ///< uniform spectral input sample rate (Hz)
 	float ekf2_asp_swin{4.0f};              ///< spectral window length required before ratio valid (s)
 	float ekf2_asp_df{0.5f};                ///< airspeed quality spectral band half-width (Hz)
+	float ekf2_asp_rl{0.5f};                ///< spectral reference lower bound (Hz)
+	float ekf2_asp_ru{8.0f};                ///< spectral reference upper bound (Hz)
+	float ekf2_asp_sevl{0.5f};              ///< spectral evaluation interval (s)
+	float ekf2_asp_dtau{0.08f};             ///< temporal variation filter time constant (s)
 	float ekf2_asp_qa{0.7f};                ///< airspeed quality spectral weight
 	float ekf2_asp_qb{0.3f};                ///< airspeed quality rate weight
 	float ekf2_asp_dv0{5.0f};               ///< airspeed rate normalization (m/s/s)

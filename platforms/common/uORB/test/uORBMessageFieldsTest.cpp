@@ -53,7 +53,7 @@ public:
 
 TEST_F(uORBMessageFieldsTest, decompressed_formats_match)
 {
-	char buffer[1600];
+	char buffer[1800];
 	static_assert(uORB::orb_untokenized_fields_max_length < sizeof(buffer) - HEATSHRINK_DECODER_INPUT_BUFFER_SIZE(_),
 		      "msg definition too long / buffer too short");
 

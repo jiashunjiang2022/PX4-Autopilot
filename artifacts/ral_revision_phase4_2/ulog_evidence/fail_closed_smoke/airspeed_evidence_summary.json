@@ -1,0 +1,8 @@
+{
+  "checks": [],
+  "error": "FileNotFoundError: [Errno 2] No such file or directory: '/nonexistent/phase4_2.ulg'",
+  "failures": [
+    "unhandled_error"
+  ],
+  "result": "FAIL"
+}
