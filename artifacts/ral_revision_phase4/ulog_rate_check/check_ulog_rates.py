@@ -15,7 +15,7 @@ except ImportError as exc:
 
 # name: (minimum median rate Hz, maximum gap seconds)
 REQUIRED_TOPICS = {
-    "differential_pressure": (70.0, 0.10),
+    "differential_pressure": (52.0, 0.10),
     "airspeed_quality_input": (49.0, 0.06),
     "airspeed": (15.0, 0.15),
     "airspeed_validated": (8.0, 0.30),

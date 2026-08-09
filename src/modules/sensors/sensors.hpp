@@ -202,7 +202,7 @@ private:
 
 	static constexpr uint64_t kQualityOutputIntervalUs{20000};
 	static constexpr uint64_t kQualityMaxSourceGapUs{40000};
-	static constexpr float kQualityMinSourceRateHz{70.f};
+	static constexpr float kQualityMinSourceRateHz{52.f};
 	static constexpr float kQualityMaxSourceRateHz{100.f};
 	static constexpr float kQualityRateReconfigureFraction{0.05f};
 	static constexpr uint8_t kQualityRateStableSamples{10};

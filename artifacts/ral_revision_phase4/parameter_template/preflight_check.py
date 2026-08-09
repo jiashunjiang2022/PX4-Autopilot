@@ -82,8 +82,8 @@ def main():
         rates = [float(value) for value in data.get("output_rate_hz", []) if math.isfinite(float(value))]
         source_rates = [float(value) for value in data.get("measured_source_rate_hz", []) if math.isfinite(float(value))]
         quality_ok = bool(rates and source_rates and all(close_enough(value, 50.0) for value in rates)
-                          and sorted(source_rates)[len(source_rates) // 2] >= 70.0)
-    passed &= report(quality_ok, "quality input producer", "50 Hz grid and median physical source rate >= 70 Hz")
+                          and sorted(source_rates)[len(source_rates) // 2] >= 52.0)
+    passed &= report(quality_ok, "quality input producer", "50 Hz grid and median physical source rate >= 52 Hz")
 
     aid_present = bool(topic_instances(ulog, "estimator_aid_src_airspeed"))
     passed &= report(aid_present, "airspeed aid source", "estimator_aid_src_airspeed published")

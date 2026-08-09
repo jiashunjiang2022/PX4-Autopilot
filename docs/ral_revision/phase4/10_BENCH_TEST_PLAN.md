@@ -9,7 +9,7 @@
 ## 2. Producer and spectral validation
 
 1. Drive pressure signals at 2, 3, 4, 5, 5.5, 6.8, and 8 Hz plus broadband noise and slow trend.
-2. Verify physical source rate >=70 Hz, quality grid 50 Hz, no duplicates/non-monotonic times, and the documented gap resets.
+2. Verify physical source rate >=52 Hz, quality grid 50 Hz, no duplicates/non-monotonic times, and the documented gap resets.
 3. Compare online spectral ratio, invalid reason, temporal terms, q, nominal R, and used R with offline reconstruction.
 4. Confirm 6.8 Hz is valid and the default 8 Hz edge case is explicitly invalid.
 
