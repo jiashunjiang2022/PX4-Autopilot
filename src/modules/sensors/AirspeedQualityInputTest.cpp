@@ -16,9 +16,9 @@ namespace
 
 constexpr uint64_t kOutputIntervalUs{20000};
 constexpr uint64_t kMaxSourceGapUs{40000};
-constexpr float kMinSourceRateHz{52.f};
+constexpr float kMinSourceRateHz{48.f};
 constexpr float kMaxSourceRateHz{100.f};
-constexpr float kRateReconfigureFraction{0.05f};
+constexpr float kRateReconfigureFraction{0.20f};
 constexpr uint8_t kRateStableSamples{10};
 
 class QualityInputResamplerHarness
@@ -206,16 +206,16 @@ TEST(AirspeedQualityInput, signed_pressure_is_continuous_and_range_checked)
 
 TEST(AirspeedQualityInput, rate_contract_requires_stability_and_reconfigures_sparingly)
 {
-	EXPECT_FALSE(airspeed_quality_input::source_rate_valid(59.f, 9, 52.f, 100.f, 10));
-	EXPECT_TRUE(airspeed_quality_input::source_rate_valid(52.f, 10, 52.f, 100.f, 10));
-	EXPECT_TRUE(airspeed_quality_input::source_rate_valid(55.f, 10, 52.f, 100.f, 10));
-	EXPECT_TRUE(airspeed_quality_input::source_rate_valid(59.f, 10, 52.f, 100.f, 10));
-	EXPECT_TRUE(airspeed_quality_input::source_rate_valid(60.f, 10, 52.f, 100.f, 10));
-	EXPECT_TRUE(airspeed_quality_input::source_rate_valid(100.f, 10, 52.f, 100.f, 10));
-	EXPECT_FALSE(airspeed_quality_input::source_rate_valid(45.f, 10, 52.f, 100.f, 10));
-	EXPECT_FALSE(airspeed_quality_input::source_rate_valid(101.f, 10, 52.f, 100.f, 10));
-	EXPECT_FALSE(airspeed_quality_input::source_rate_requires_reconfigure(85.f, 83.333f, 0.05f));
-	EXPECT_TRUE(airspeed_quality_input::source_rate_requires_reconfigure(75.f, 83.333f, 0.05f));
+	EXPECT_FALSE(airspeed_quality_input::source_rate_valid(50.1f, 9, kMinSourceRateHz, kMaxSourceRateHz, 10));
+	EXPECT_TRUE(airspeed_quality_input::source_rate_valid(48.f, 10, kMinSourceRateHz, kMaxSourceRateHz, 10));
+	EXPECT_TRUE(airspeed_quality_input::source_rate_valid(50.1f, 10, kMinSourceRateHz, kMaxSourceRateHz, 10));
+	EXPECT_TRUE(airspeed_quality_input::source_rate_valid(52.f, 10, kMinSourceRateHz, kMaxSourceRateHz, 10));
+	EXPECT_TRUE(airspeed_quality_input::source_rate_valid(59.f, 10, kMinSourceRateHz, kMaxSourceRateHz, 10));
+	EXPECT_TRUE(airspeed_quality_input::source_rate_valid(100.f, 10, kMinSourceRateHz, kMaxSourceRateHz, 10));
+	EXPECT_FALSE(airspeed_quality_input::source_rate_valid(45.f, 10, kMinSourceRateHz, kMaxSourceRateHz, 10));
+	EXPECT_FALSE(airspeed_quality_input::source_rate_valid(101.f, 10, kMinSourceRateHz, kMaxSourceRateHz, 10));
+	EXPECT_FALSE(airspeed_quality_input::source_rate_requires_reconfigure(72.f, 60.f, kRateReconfigureFraction));
+	EXPECT_TRUE(airspeed_quality_input::source_rate_requires_reconfigure(72.1f, 60.f, kRateReconfigureFraction));
 }
 
 TEST(AirspeedQualityInput, timestamp_failures_reset_and_invalidate)
@@ -267,7 +267,7 @@ TEST(AirspeedQualityInput, realistic_ms4525do_timing_is_stable_and_bracketed)
 	EXPECT_EQ(resampler.gap_count(), 0u);
 	EXPECT_EQ(resampler.rate_invalid_count(), 0u);
 	EXPECT_EQ(resampler.rate_reset_counter(), settled_reset_count);
-	EXPECT_LE(resampler.rate_reset_counter(), 3u);
+	EXPECT_LE(resampler.rate_reset_counter(), 1u);
 
 	const auto &outputs = resampler.outputs();
 	ASSERT_GT(outputs.size(), 500u);
@@ -302,6 +302,98 @@ TEST(AirspeedQualityInput, realistic_ms4525do_timing_is_stable_and_bracketed)
 	const float output_rate_hz = 1e6f * static_cast<float>(std::distance(steady_begin, outputs.end()) - 1)
 				     / static_cast<float>(outputs.back().timestamp - steady_begin->timestamp);
 	EXPECT_FLOAT_EQ(output_rate_hz, 50.f);
+}
+
+TEST(AirspeedQualityInput, realistic_skye_timing_is_valid_and_bracketed)
+{
+	// Normal SKYE jitter is 19.3-21.0 ms; one measured 39.729 ms interval remains below the hard gap limit.
+	constexpr std::array<uint64_t, 16> source_intervals_us {
+		19320, 20110, 19880, 20379, 19560, 20981, 19917, 19740,
+		20060, 19680, 20420, 19830, 20190, 19490, 21000, 19990
+	};
+	QualityInputResamplerHarness resampler;
+	uint64_t source_timestamp = 1000000;
+	uint32_t settled_reset_count = 0;
+	size_t outputs_before_long_interval = 0;
+	size_t outputs_after_long_interval = 0;
+
+	for (int index = 0; index < 1200; ++index) {
+		const uint64_t source_interval_us = (index == 602) ? 39729 :
+						    source_intervals_us[index % source_intervals_us.size()];
+
+		if (index == 602) {
+			outputs_before_long_interval = resampler.outputs().size();
+		}
+
+		source_timestamp += source_interval_us;
+		resampler.push(source_timestamp, source_timestamp * 1e-6f);
+
+		if (index == 602) {
+			outputs_after_long_interval = resampler.outputs().size();
+		}
+
+		if (index == 900) {
+			settled_reset_count = resampler.rate_reset_counter();
+		}
+	}
+
+	EXPECT_TRUE(resampler.valid());
+	EXPECT_NEAR(resampler.measured_source_rate_hz(), 50.1f, 0.5f);
+	EXPECT_EQ(resampler.gap_count(), 0u);
+	EXPECT_EQ(resampler.rate_invalid_count(), 0u);
+	EXPECT_EQ(resampler.rate_reset_counter(), settled_reset_count);
+	EXPECT_LE(resampler.rate_reset_counter(), 1u);
+	EXPECT_EQ(outputs_after_long_interval - outputs_before_long_interval, 2u);
+
+	const auto &outputs = resampler.outputs();
+	ASSERT_GT(outputs.size(), 1000u);
+	uint32_t quality_input_missed_count = 0;
+
+	for (size_t index = 0; index < outputs.size(); ++index) {
+		const auto &output = outputs[index];
+		EXPECT_GE(output.timestamp, output.previous_source_timestamp);
+		EXPECT_LE(output.timestamp, output.current_source_timestamp);
+		EXPECT_NEAR(output.value, output.timestamp * 1e-6f, 1e-5f);
+
+		if (output.timestamp > output.previous_source_timestamp
+		    && output.timestamp < output.current_source_timestamp) {
+			EXPECT_GT(output.value, output.previous_value);
+			EXPECT_LT(output.value, output.current_value);
+		}
+
+		if (index > 0) {
+			const uint64_t output_interval_us = output.timestamp - outputs[index - 1].timestamp;
+			EXPECT_EQ(output_interval_us, kOutputIntervalUs);
+			quality_input_missed_count += output_interval_us == kOutputIntervalUs ? 0 : 1;
+		}
+	}
+
+	EXPECT_EQ(quality_input_missed_count, 0u);
+}
+
+TEST(AirspeedQualityInput, genuine_source_rate_change_reconfigures)
+{
+	QualityInputResamplerHarness resampler;
+	uint64_t source_timestamp = 1000000;
+
+	for (int index = 0; index < 160; ++index) {
+		source_timestamp += 16835;
+		resampler.push(source_timestamp, source_timestamp * 1e-6f);
+	}
+
+	ASSERT_TRUE(resampler.valid());
+	const uint32_t stable_reset_count = resampler.rate_reset_counter();
+
+	// A sustained approximately 83 Hz producer is a genuine >20% source-rate change from 59 Hz.
+	for (int index = 0; index < 1000; ++index) {
+		source_timestamp += 12000;
+		resampler.push(source_timestamp, source_timestamp * 1e-6f);
+	}
+
+	EXPECT_TRUE(resampler.valid());
+	EXPECT_GT(resampler.measured_source_rate_hz(), 70.f);
+	EXPECT_GT(resampler.rate_reset_counter(), stable_reset_count);
+	EXPECT_EQ(resampler.rate_invalid_count(), 0u);
 }
 
 TEST(AirspeedQualityInput, interpolation_requires_two_real_bracketing_samples)

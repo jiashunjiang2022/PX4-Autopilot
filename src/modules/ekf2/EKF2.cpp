@@ -2698,9 +2698,9 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 	const float flap_t_to_s = _param_ekf2_flap_t_to.get();
 
 	const uint64_t flap_timeout_us = static_cast<uint64_t>(math::constrain(flap_t_to_s, 0.1f, 5.f) * 1e6f);
-	const bool flap_frequency_timed_out = (_flap_frequency_timestamp == 0)
-					      || (ekf2_timestamps.timestamp < _flap_frequency_timestamp)
-					      || ((ekf2_timestamps.timestamp - _flap_frequency_timestamp) > flap_timeout_us);
+	const uint64_t flap_freshness_reference = _replay_mode ? ekf2_timestamps.timestamp : hrt_absolute_time();
+	const bool flap_frequency_timed_out = airspeed_quality::flap_frequency_timed_out(
+						flap_freshness_reference, _flap_frequency_timestamp, flap_timeout_us);
 
 	if (flap_frequency_timed_out) {
 		_flap_frequency_hz = NAN;
@@ -2783,7 +2783,11 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 
 	airspeed_quality_input_s quality_input{};
 
-	if (_airspeed_quality_input_sub.update(&quality_input)) {
+	const int quality_input_queue_size = orb_get_queue_size(ORB_ID(airspeed_quality_input));
+	int quality_input_updates = 0;
+
+	while ((quality_input_updates++ < quality_input_queue_size)
+	       && _airspeed_quality_input_sub.update(&quality_input)) {
 		const bool quality_input_valid = quality_input.valid
 						 && quality_input.rate_valid
 						 && (quality_input.device_id != 0)

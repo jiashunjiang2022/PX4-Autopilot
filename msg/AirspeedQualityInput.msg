@@ -37,3 +37,5 @@ float32 output_rate_hz                   # [Hz] Fixed output-grid rate
 uint32 gap_count                         # Source discontinuities since startup
 uint32 rate_reset_counter                # Filter resets caused by rate invalidity/change
 uint8 reset_reason                       # [@enum RESET_REASON] Most recent producer reset
+
+uint8 ORB_QUEUE_LENGTH = 4

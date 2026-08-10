@@ -30,6 +30,16 @@ TimestampStatus validate_timestamp(uint64_t previous_timestamp, uint64_t timesta
 	return TimestampStatus::Accepted;
 }
 
+bool flap_frequency_timed_out(uint64_t reference_timestamp, uint64_t sample_timestamp, uint64_t timeout_us)
+{
+	if (sample_timestamp == 0) {
+		return true;
+	}
+
+	const uint64_t age_us = reference_timestamp > sample_timestamp ? reference_timestamp - sample_timestamp : 0;
+	return age_us > timeout_us;
+}
+
 int required_window_samples(float sample_rate_hz, float window_seconds, int capacity)
 {
 	if (!PX4_ISFINITE(sample_rate_hz) || !PX4_ISFINITE(window_seconds) || sample_rate_hz <= 0.f

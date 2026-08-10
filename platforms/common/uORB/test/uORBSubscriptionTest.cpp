@@ -38,6 +38,7 @@
 #include <gtest/gtest.h>
 #include <uORB/Subscription.hpp>
 #include <uORB/uORB.h>
+#include <uORB/topics/airspeed_quality_input.h>
 #include <uORB/topics/orb_test.h>
 
 namespace uORB
@@ -109,6 +110,59 @@ TEST_F(uORBSubscriptionTest, updateWhenNotSubscribedThenSubscribed)
 	testable.updated();
 
 	ASSERT_NE(testable.getNodeValue(), nullptr) << "Node value after 'updated' have to be initialized";
+}
+
+TEST_F(uORBSubscriptionTest, queuedAirspeedQualitySamplesAreDeliveredInOrder)
+{
+	ASSERT_EQ(orb_get_queue_size(ORB_ID(airspeed_quality_input)), 4);
+
+	airspeed_quality_input_s initial{};
+	const orb_advert_t publisher = orb_advertise(ORB_ID(airspeed_quality_input), &initial);
+	ASSERT_NE(publisher, nullptr);
+
+	uORB::Subscription quality_sub{ORB_ID(airspeed_quality_input)};
+	airspeed_quality_input_s received{};
+	ASSERT_TRUE(quality_sub.update(&received));
+	EXPECT_EQ(received.timestamp_sample, 0u);
+
+	airspeed_quality_input_s first{};
+	airspeed_quality_input_s second{};
+	first.timestamp_sample = 20000;
+	second.timestamp_sample = 40000;
+	orb_publish(ORB_ID(airspeed_quality_input), publisher, &first);
+	orb_publish(ORB_ID(airspeed_quality_input), publisher, &second);
+
+	ASSERT_TRUE(quality_sub.update(&received));
+	EXPECT_EQ(received.timestamp_sample, first.timestamp_sample);
+	ASSERT_TRUE(quality_sub.update(&received));
+	EXPECT_EQ(received.timestamp_sample, second.timestamp_sample);
+	EXPECT_FALSE(quality_sub.update(&received));
+
+	airspeed_quality_input_s old_identity{};
+	airspeed_quality_input_s reset_marker{};
+	airspeed_quality_input_s new_identity{};
+	old_identity.timestamp_sample = 60000;
+	old_identity.device_id = 1;
+	reset_marker.timestamp_sample = 80000;
+	reset_marker.device_id = 2;
+	reset_marker.reset_reason = airspeed_quality_input_s::RESET_REASON_DEVICE_CHANGE;
+	new_identity.timestamp_sample = 100000;
+	new_identity.device_id = 2;
+	new_identity.valid = true;
+	orb_publish(ORB_ID(airspeed_quality_input), publisher, &old_identity);
+	orb_publish(ORB_ID(airspeed_quality_input), publisher, &reset_marker);
+	orb_publish(ORB_ID(airspeed_quality_input), publisher, &new_identity);
+
+	ASSERT_TRUE(quality_sub.update(&received));
+	EXPECT_EQ(received.device_id, old_identity.device_id);
+	ASSERT_TRUE(quality_sub.update(&received));
+	EXPECT_EQ(received.reset_reason, reset_marker.reset_reason);
+	ASSERT_TRUE(quality_sub.update(&received));
+	EXPECT_EQ(received.device_id, new_identity.device_id);
+	EXPECT_EQ(received.timestamp_sample, new_identity.timestamp_sample);
+	EXPECT_FALSE(quality_sub.update(&received));
+
+	orb_unadvertise(publisher);
 }
 }
 }

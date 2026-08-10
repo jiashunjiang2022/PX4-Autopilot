@@ -35,6 +35,7 @@ enum class TimestampStatus : uint8_t {
 };
 
 TimestampStatus validate_timestamp(uint64_t previous_timestamp, uint64_t timestamp, uint64_t maximum_gap_us);
+bool flap_frequency_timed_out(uint64_t reference_timestamp, uint64_t sample_timestamp, uint64_t timeout_us);
 
 int required_window_samples(float sample_rate_hz, float window_seconds, int capacity);
 bool window_ready(int sample_count, int required_samples);

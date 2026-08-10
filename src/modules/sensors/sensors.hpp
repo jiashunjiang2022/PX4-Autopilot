@@ -202,9 +202,9 @@ private:
 
 	static constexpr uint64_t kQualityOutputIntervalUs{20000};
 	static constexpr uint64_t kQualityMaxSourceGapUs{40000};
-	static constexpr float kQualityMinSourceRateHz{52.f};
+	static constexpr float kQualityMinSourceRateHz{48.f};
 	static constexpr float kQualityMaxSourceRateHz{100.f};
-	static constexpr float kQualityRateReconfigureFraction{0.05f};
+	static constexpr float kQualityRateReconfigureFraction{0.20f};
 	static constexpr uint8_t kQualityRateStableSamples{10};
 	math::LowPassFilter2p<float> _quality_pressure_lpf{};
 	uint64_t _quality_rate_prev_timestamp{0};
