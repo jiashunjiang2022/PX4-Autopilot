@@ -1,0 +1,41 @@
+ M msg/CMakeLists.txt
+ M msg/Ekf2AirspeedQuality.msg
+ M src/drivers/encoder/as5600/AS5600.cpp
+ M src/drivers/encoder/as5600/AS5600.hpp
+ M src/drivers/encoder/as5600/CMakeLists.txt
+ M src/drivers/encoder/as5600/module.yaml
+ M src/lib/airspeed/CMakeLists.txt
+ M src/modules/airspeed_selector/CMakeLists.txt
+ M src/modules/airspeed_selector/airspeed_selector_main.cpp
+ M src/modules/ekf2/CMakeLists.txt
+ M src/modules/ekf2/EKF/common.h
+ M src/modules/ekf2/EKF2.cpp
+ M src/modules/ekf2/EKF2.hpp
+ M src/modules/ekf2/params_airspeed.yaml
+ M src/modules/ekf2/test/CMakeLists.txt
+ M src/modules/logger/logged_topics.cpp
+ M src/modules/sensors/sensor_params.c
+ M src/modules/sensors/sensors.cpp
+ M src/modules/sensors/sensors.hpp
+ M src/modules/wing_phase/CMakeLists.txt
+ M src/modules/wing_phase/WingPhase.cpp
+ M src/modules/wing_phase/WingPhaseMath.cpp
+ M src/modules/wing_phase/WingPhaseMath.hpp
+ M src/modules/wing_phase/WingPhaseMathTest.cpp
+ M test/CMakeLists.txt
+?? artifacts/
+?? docs/ral_revision/
+?? git_diff.patch
+?? git_diff_stat.txt
+?? git_status.txt
+?? msg/AirspeedQualityInput.msg
+?? msg/AirspeedSelectorQualityStatus.msg
+?? src/drivers/encoder/as5600/AS5600Math.hpp
+?? src/drivers/encoder/as5600/AS5600MathTest.cpp
+?? src/lib/airspeed/AirspeedQualityMode.hpp
+?? src/lib/airspeed/AirspeedQualityModeTest.cpp
+?? src/modules/airspeed_selector/AirspeedSelectorQuality.hpp
+?? src/modules/airspeed_selector/AirspeedSelectorQualityTest.cpp
+?? src/modules/ekf2/AirspeedQualityMath.cpp
+?? src/modules/ekf2/AirspeedQualityMath.hpp
+?? src/modules/ekf2/test/test_AirspeedQuality.cpp

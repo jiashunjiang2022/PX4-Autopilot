@@ -1,0 +1,20 @@
+Internal ctest changing into directory: /home/jjs/PX4/PX4-Autopilot/build/px4_sitl_test
+Test project /home/jjs/PX4/PX4-Autopilot/build/px4_sitl_test
+    Start   1: unit-AS5600Math
+1/7 Test   #1: unit-AS5600Math ..................   Passed    0.00 sec
+    Start   2: unit-WingPhaseMath
+2/7 Test   #2: unit-WingPhaseMath ...............   Passed    0.00 sec
+    Start   5: unit-AirspeedQualityMode
+3/7 Test   #5: unit-AirspeedQualityMode .........   Passed    0.00 sec
+    Start  80: unit-AirspeedSelectorQuality
+4/7 Test  #80: unit-AirspeedSelectorQuality .....   Passed    0.00 sec
+    Start  88: unit-test_EKF_airspeed
+5/7 Test  #88: unit-test_EKF_airspeed ...........   Passed    0.13 sec
+    Start 113: unit-test_AirspeedQuality
+6/7 Test #113: unit-test_AirspeedQuality ........   Passed    0.00 sec
+    Start 127: unit-AirspeedQualityInput
+7/7 Test #127: unit-AirspeedQualityInput ........   Passed    0.00 sec
+
+100% tests passed, 0 tests failed out of 7
+
+Total Test time (real) =   0.16 sec

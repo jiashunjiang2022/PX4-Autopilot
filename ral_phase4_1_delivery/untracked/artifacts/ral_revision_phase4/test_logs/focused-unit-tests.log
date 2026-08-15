@@ -1,0 +1,10 @@
+/bin/sh: 1: AirspeedQualityMode: not found
+/bin/sh: 1: AirspeedSelectorQuality: not found
+/bin/sh: 1: AS5600Math: not found
+/bin/sh: 1: WingPhaseMath: not found
+/bin/sh: 1: AirspeedQualityMode: not found
+/bin/sh: 1: AirspeedSelectorQuality: not found
+/bin/sh: 1: AS5600Math: not found
+/bin/sh: 1: WingPhaseMath: not found
+Error: /home/jjs/PX4/PX4-Autopilot/build/px4_sitl_test is not a directory
+make: *** [Makefile:412：tests] 错误 1

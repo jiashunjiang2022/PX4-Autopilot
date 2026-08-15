@@ -1,0 +1,3 @@
+   text	   data	    bss	    dec	    hex	filename
+    856	      0	      0	    856	    358	build/px4_fmu-v6c_default/src/modules/ekf2/CMakeFiles/modules__ekf2_original.dir/AirspeedQualityMath.cpp.obj
+  51001	     24	     40	  51065	   c779	build/px4_fmu-v6c_default/src/modules/ekf2/CMakeFiles/modules__ekf2_original.dir/EKF2.cpp.obj

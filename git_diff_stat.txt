@@ -1,0 +1,26 @@
+ msg/CMakeLists.txt                                 |   2 +
+ msg/Ekf2AirspeedQuality.msg                        |  37 ++
+ src/drivers/encoder/as5600/AS5600.cpp              |   6 +-
+ src/drivers/encoder/as5600/AS5600.hpp              |   2 +-
+ src/drivers/encoder/as5600/CMakeLists.txt          |   1 +
+ src/drivers/encoder/as5600/module.yaml             |   2 +-
+ src/lib/airspeed/CMakeLists.txt                    |   2 +
+ src/modules/airspeed_selector/CMakeLists.txt       |   3 +
+ .../airspeed_selector/airspeed_selector_main.cpp   | 144 ++++--
+ src/modules/ekf2/CMakeLists.txt                    |   2 +
+ src/modules/ekf2/EKF/common.h                      |  10 +-
+ src/modules/ekf2/EKF2.cpp                          | 567 +++++++++------------
+ src/modules/ekf2/EKF2.hpp                          |  58 ++-
+ src/modules/ekf2/params_airspeed.yaml              |  76 ++-
+ src/modules/ekf2/test/CMakeLists.txt               |   1 +
+ src/modules/logger/logged_topics.cpp               |  57 ++-
+ src/modules/sensors/sensor_params.c                |  16 +
+ src/modules/sensors/sensors.cpp                    | 132 +++++
+ src/modules/sensors/sensors.hpp                    |  20 +
+ src/modules/wing_phase/CMakeLists.txt              |   2 -
+ src/modules/wing_phase/WingPhase.cpp               |   2 +-
+ src/modules/wing_phase/WingPhaseMath.cpp           |   2 +-
+ src/modules/wing_phase/WingPhaseMath.hpp           |   6 +-
+ src/modules/wing_phase/WingPhaseMathTest.cpp       |  15 +-
+ test/CMakeLists.txt                                |  10 +
+ 25 files changed, 744 insertions(+), 431 deletions(-)

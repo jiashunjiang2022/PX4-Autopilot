@@ -1,0 +1,10 @@
+
+
+{
+		"fields": "\u0089 timestamp;\u0089 decision_timestamp_sample;\u0089 quality_timestamp_sample;\u0088 quality_age_us;\u0088 pre_quality_device_id;\u0088 quality_device_id;\u0088 final_device_id;\u0086 experiment_mode;\u008c selector_quality_enabled;\u0082 pre_quality_source;\u0086 quality_source_instance;\u008c source_identity_match;\u008c original_valid;\u008c concurrent_original_invalid;\u008c concurrent_blockage;\u008c quality_rejected;\u0086 rejection_reason;\u0086 trigger_reason;\u0086 fallback_outcome;\u008c fallback_attempted;\u008c fallback_available;\u0082 fallback_source;\u0082 final_selected_source;\u008c final_valid;\u0086[7] _padding0;",
+		"fields_total_length": 645,
+		"orb_ids": [14],
+		"main_orb_id": 14,
+		"dependencies": [],
+		"name": "px4/AirspeedSelectorQualityStatus"
+}

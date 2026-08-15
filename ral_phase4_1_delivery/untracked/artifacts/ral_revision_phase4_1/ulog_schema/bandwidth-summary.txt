@@ -1,0 +1,3 @@
+payload=67.1 KiB/s
+conservative=96.9 KiB/s
+Bench SD throughput, 30-minute soak, and zero-dropout checks remain mandatory.

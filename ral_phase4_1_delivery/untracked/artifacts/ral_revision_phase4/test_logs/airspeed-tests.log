@@ -1,0 +1,57 @@
+-- PX4_GIT_TAG: v1.17.0-alpha1-579-g650836c489
+-- Found PythonInterp: /usr/bin/python3 (found suitable version "3.10.12", minimum required is "3") 
+-- PX4 config file: /home/jjs/PX4/PX4-Autopilot/boards/px4/sitl/test.px4board
+-- PLATFORM posix
+-- NOLOCKSTEP y
+-- ROMFSROOT px4fmu_common
+-- TESTING y
+-- ETHERNET y
+-- ROOT_PATH .
+-- PARAM_FILE /fs/mtd_params
+-- PX4 config: px4_sitl_test
+-- PX4 platform: posix
+-- PX4 lockstep: disabled
+-- The CXX compiler identification is GNU 11.4.0
+-- The C compiler identification is GNU 11.4.0
+-- The ASM compiler identification is GNU
+-- Found assembler: /usr/bin/cc
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- cmake build type: RelWithDebInfo
+-- ccache enabled (export CCACHE_DISABLE=1 to disable)
+-- Adding fuzztest
+-- Performing Test ABSL_INTERNAL_AT_LEAST_CXX17
+-- Performing Test ABSL_INTERNAL_AT_LEAST_CXX17 - Success
+-- Performing Test ABSL_INTERNAL_AT_LEAST_CXX20
+-- Performing Test ABSL_INTERNAL_AT_LEAST_CXX20 - Failed
+-- Looking for pthread.h
+-- Looking for pthread.h - found
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE  
+CMake Warning at build/px4_sitl_test/_deps/abseil-cpp-src/CMakeLists.txt:177 (message):
+    The default and system-level install directories are unsupported except in LTS   releases of Abseil.  Please set CMAKE_INSTALL_PREFIX to install Abseil in your   source or build tree directly.    
+
+
+-- Building without demo. To enable demo build use: -DWITH_DEMO=True
+-- ADDING TEST STUBS
+CMake Error at cmake/px4_parse_function_args.cmake:93 (message):
+  px4_add_unit_gtest: unparsed ../AirspeedQualityMath.cpp
+Call Stack (most recent call first):
+  cmake/px4_add_gtest.cmake:44 (px4_parse_function_args)
+  src/modules/ekf2/test/CMakeLists.txt:65 (px4_add_unit_gtest)
+
+
+-- Configuring incomplete, errors occurred!
+See also "/home/jjs/PX4/PX4-Autopilot/build/px4_sitl_test/CMakeFiles/CMakeOutput.log".
+See also "/home/jjs/PX4/PX4-Autopilot/build/px4_sitl_test/CMakeFiles/CMakeError.log".
+Error: /home/jjs/PX4/PX4-Autopilot/build/px4_sitl_test is not a directory
+make: *** [Makefile:412：tests] 错误 1

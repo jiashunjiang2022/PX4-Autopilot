@@ -1,0 +1,10 @@
+Internal ctest changing into directory: /home/jjs/PX4/PX4-Autopilot/build/px4_sitl_test
+Test project /home/jjs/PX4/PX4-Autopilot/build/px4_sitl_test
+    Start 1: unit-AS5600Math
+1/2 Test #1: unit-AS5600Math ..................   Passed    0.00 sec
+    Start 2: unit-WingPhaseMath
+2/2 Test #2: unit-WingPhaseMath ...............   Passed    0.00 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   0.01 sec
