@@ -382,6 +382,12 @@ void LoggedTopics::add_high_rate_sensors_topics()
 
 void LoggedTopics::add_flapping_dataset_topics()
 {
+	// Primary raw IMU for offline TCN alignment. Keep the selected, integrated sensor_combined at health rate only.
+	add_optional_topic("sensor_accel", 10, 0);
+	add_optional_topic("sensor_gyro", 10, 0);
+	add_topic("sensor_combined", 1000);
+	add_topic("vehicle_acceleration", 1000);
+
 	// Raw and derived air-data chain. Intervals are logger upper bounds, not producer-rate changes.
 	add_topic_multi("differential_pressure", 0, 2);
 	add_topic("airspeed_quality_input");
@@ -389,7 +395,8 @@ void LoggedTopics::add_flapping_dataset_topics()
 	add_optional_topic("airspeed_validated");
 	add_topic_multi("ekf2_airspeed_quality");
 	add_optional_topic_multi("estimator_aid_src_airspeed", 0, 2);
-	add_optional_topic_multi("estimator_status_flags", 50, 2);
+	add_optional_topic_multi("estimator_status", 100, 2);
+	add_optional_topic_multi("estimator_status_flags", 100, 2);
 	add_topic("airspeed_selector_quality_status");
 	add_topic("vehicle_air_data", 50);
 	add_topic("wind", 50);
@@ -405,20 +412,18 @@ void LoggedTopics::add_flapping_dataset_topics()
 
 	// Reviewer-facing controller evidence without enabling every high-rate profile topic.
 	add_optional_topic("tecs_status", 50);
-	add_optional_topic("fixed_wing_lateral_guidance_status", 50);
-	add_optional_topic("fixed_wing_lateral_status", 50);
+	add_optional_topic("fixed_wing_lateral_guidance_status", 20);
+	add_optional_topic("fixed_wing_lateral_status", 20);
 	add_topic("fixed_wing_lateral_setpoint", 20);
 	add_topic("fixed_wing_longitudinal_setpoint", 20);
 	add_topic("vehicle_attitude_setpoint", 20);
-	add_topic("vehicle_rates_setpoint", 20);
 	add_topic("vehicle_attitude", 20);
-	add_topic("vehicle_angular_velocity", 20);
-	add_topic_multi("vehicle_thrust_setpoint", 10, 2);
-	add_topic_multi("vehicle_torque_setpoint", 10, 2);
-	add_topic("actuator_motors", 10);
-	add_topic("actuator_servos", 10);
+	add_topic("vehicle_angular_velocity", 10);
+	add_topic("vehicle_local_position", 20);
+	add_topic("actuator_motors", 20);
+	add_topic("actuator_servos", 20);
 
-	add_topic_multi("sensor_gps", 100, 4);
+	add_topic_multi("battery_status", 100, 3);
 	add_topic_multi("sensor_gnss_relative", 100, 1);
 }
 
