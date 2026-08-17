@@ -40,6 +40,8 @@
 #include <dataman/dataman.h>
 #include <lib/perf/perf_counter.h>
 
+#include "DatamanTrace.hpp"
+
 using namespace time_literals;
 
 class DatamanClient
@@ -173,10 +175,12 @@ private:
 	/* Synchronous response/request handler */
 	bool syncHandler(const dataman_request_s &request, dataman_response_s &response,
 			 const hrt_abstime &start_time, hrt_abstime timeout);
+	void clearPendingResponse();
 
 	State _state{State::Idle};
 	Request _active_request{};
 	uint8_t _response_status{};
+	uint16_t _active_request_attempt{};
 
 	int32_t _dataman_response_sub{};
 	uORB::Publication<dataman_request_s> _dataman_request_pub{ORB_ID(dataman_request)};
@@ -184,6 +188,7 @@ private:
 	px4_pollfd_struct_t _fds;
 
 	uint8_t _client_id{0};
+	uint16_t _trace_instance_id{};
 
 	perf_counter_t _sync_perf{nullptr};
 

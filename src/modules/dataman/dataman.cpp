@@ -50,6 +50,7 @@
 #include <drivers/drv_hrt.h>
 #include <lib/parameters/param.h>
 #include <lib/perf/perf_counter.h>
+#include <dataman_client/DatamanTrace.hpp>
 #include <stdlib.h>
 
 #include <uORB/Publication.hpp>
@@ -740,6 +741,7 @@ task_main(int argc, char *argv[])
 
 				dataman_request_s request;
 				orb_copy(ORB_ID(dataman_request), dataman_request_sub, &request);
+				dataman_trace::recordServer(dataman_trace::EventType::ServerRequestReceived, request);
 
 				dataman_response_s response{};
 				response.client_id = request.client_id;
@@ -819,8 +821,11 @@ task_main(int argc, char *argv[])
 
 				}
 
+				dataman_trace::recordServer(dataman_trace::EventType::ServerOperationComplete, request, &response);
 				response.timestamp = hrt_absolute_time();
-				dataman_response_pub.publish(response);
+				const bool publish_success = dataman_response_pub.publish(response);
+				dataman_trace::recordServer(dataman_trace::EventType::ServerResponsePublish, request, &response,
+							    publish_success);
 			}
 		}
 
@@ -878,6 +883,7 @@ status()
 	PX4_INFO("Writes   %u", g_func_counts[DM_WRITE]);
 	PX4_INFO("Reads    %u", g_func_counts[DM_READ]);
 	PX4_INFO("Clears   %u", g_func_counts[DM_CLEAR]);
+	dataman_trace::printCounters();
 
 	perf_print_counter(_dm_read_perf);
 	perf_print_counter(_dm_write_perf);
@@ -919,6 +925,7 @@ Reading and writing a single item is always atomic.
 	PRINT_MODULE_USAGE_PARAM_COMMENT("The options -f and -r are mutually exclusive. If nothing is specified, a file 'dataman' is used");
 #endif
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
+	PRINT_MODULE_USAGE_COMMAND_DESCR("trace [status|dump]", "Inspect or dump the one-shot Dataman near-miss trace");
 }
 
 static int backend_check()
@@ -1024,6 +1031,19 @@ dataman_main(int argc, char *argv[])
 
 	} else if (!strcmp(argv[1], "status")) {
 		status();
+
+	} else if (!strcmp(argv[1], "trace")) {
+
+		if ((argc == 2) || !strcmp(argv[2], "status")) {
+			dataman_trace::printNearMissStatus();
+
+		} else if (!strcmp(argv[2], "dump")) {
+			dataman_trace::dump();
+
+		} else {
+			usage();
+			return -1;
+		}
 
 	} else {
 		usage();

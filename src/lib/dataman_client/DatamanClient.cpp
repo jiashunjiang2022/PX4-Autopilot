@@ -37,8 +37,68 @@
 
 #include <dataman_client/DatamanClient.hpp>
 
+namespace
+{
+
+static constexpr uint8_t ResponseDrainLimit{dataman_response_s::ORB_QUEUE_LENGTH};
+static constexpr uint32_t SyncRetryIntervalMs{500};
+
+uint8_t syncRejectReason(const dataman_request_s &request, const dataman_response_s &response)
+{
+	if (response.client_id == request.client_id) {
+		uint8_t reason = dataman_trace::RejectNone;
+
+		if (response.request_type != request.request_type) {
+			reason |= dataman_trace::RejectWrongRequestType;
+		}
+
+		if (response.item != request.item) {
+			reason |= dataman_trace::RejectWrongItem;
+		}
+
+		if (response.index != request.index) {
+			reason |= dataman_trace::RejectWrongIndex;
+		}
+
+		return reason;
+	}
+
+	if (request.client_id == 0) {
+		return memcmp(&(request.timestamp), &(response.data), sizeof(hrt_abstime)) == 0 ?
+		       dataman_trace::RejectNone : dataman_trace::RejectGetIdTimestamp;
+	}
+
+	return dataman_trace::RejectWrongClientId;
+}
+
+uint8_t asyncRejectReason(const dataman_request_s &request, const dataman_response_s &response)
+{
+	uint8_t reason = dataman_trace::RejectNone;
+
+	if (response.client_id != request.client_id) {
+		reason |= dataman_trace::RejectWrongClientId;
+	}
+
+	if (response.request_type != request.request_type) {
+		reason |= dataman_trace::RejectWrongRequestType;
+	}
+
+	if (response.item != request.item) {
+		reason |= dataman_trace::RejectWrongItem;
+	}
+
+	if (response.index != request.index) {
+		reason |= dataman_trace::RejectWrongIndex;
+	}
+
+	return reason;
+}
+
+} // namespace
+
 DatamanClient::DatamanClient()
 {
+	_trace_instance_id = dataman_trace::allocateClientInstance();
 	_sync_perf = perf_alloc(PC_ELAPSED, "DatamanClient: sync");
 
 	_dataman_request_pub.advertise();
@@ -88,13 +148,18 @@ bool DatamanClient::syncHandler(const dataman_request_s &request, dataman_respon
 {
 	bool response_received = false;
 	int32_t ret = 0;
+	uint16_t attempt = 0;
 	hrt_abstime time_elapsed = hrt_elapsed_time(&start_time);
 	perf_begin(_sync_perf);
-	_dataman_request_pub.publish(request);
+	clearPendingResponse();
+
+	const bool initial_publish_success = _dataman_request_pub.publish(request);
+	dataman_trace::recordClientRequest(dataman_trace::EventType::ClientRequestPublish, _trace_instance_id, request,
+					 attempt, initial_publish_success);
 
 	while (!response_received && (time_elapsed < timeout)) {
 
-		uint32_t timeout_ms = 100;
+		uint32_t timeout_ms = SyncRetryIntervalMs;
 		ret = px4_poll(&_fds, 1, timeout_ms);
 
 		if (ret < 0) {
@@ -104,21 +169,33 @@ bool DatamanClient::syncHandler(const dataman_request_s &request, dataman_respon
 		} else if (ret == 0) {
 
 			// No response received, send new request
-			_dataman_request_pub.publish(request);
+			attempt++;
+			const bool retry_publish_success = _dataman_request_pub.publish(request);
+			dataman_trace::recordClientRequest(dataman_trace::EventType::ClientRequestRetry, _trace_instance_id, request,
+						 attempt, retry_publish_success, true);
 
 		} else {
 
-			bool updated = false;
-			orb_check(_dataman_response_sub, &updated);
+			for (uint8_t drain_copy_index = 1; drain_copy_index <= ResponseDrainLimit; drain_copy_index++) {
+				bool updated = false;
+				orb_check(_dataman_response_sub, &updated);
 
-			if (updated) {
-				orb_copy(ORB_ID(dataman_response), _dataman_response_sub, &response);
+				if (!updated || (orb_copy(ORB_ID(dataman_response), _dataman_response_sub, &response) != PX4_OK)) {
+					break;
+				}
+
+				dataman_trace::recordClientResponse(dataman_trace::EventType::ClientResponseSeen, _trace_instance_id,
+						request, response, attempt, dataman_trace::RejectNone, drain_copy_index);
+				const uint8_t reject_reason = syncRejectReason(request, response);
 
 				if (response.client_id == request.client_id) {
 
 					if ((response.request_type == request.request_type) &&
 					    (response.item == request.item) &&
 					    (response.index == request.index)) {
+						dataman_trace::recordClientResponse(dataman_trace::EventType::ClientResponseAccepted,
+								_trace_instance_id, request, response, attempt, dataman_trace::RejectNone,
+								drain_copy_index);
 						response_received = true;
 						break;
 					}
@@ -127,9 +204,17 @@ bool DatamanClient::syncHandler(const dataman_request_s &request, dataman_respon
 
 					// validate timestamp from response.data
 					if (0 == memcmp(&(request.timestamp), &(response.data), sizeof(hrt_abstime))) {
+						dataman_trace::recordClientResponse(dataman_trace::EventType::ClientResponseAccepted,
+								_trace_instance_id, request, response, attempt, dataman_trace::RejectNone,
+								drain_copy_index);
 						response_received = true;
 						break;
 					}
+				}
+
+				if (!response_received) {
+					dataman_trace::recordClientResponse(dataman_trace::EventType::ClientResponseRejected,
+							_trace_instance_id, request, response, attempt, reject_reason, drain_copy_index);
 				}
 			}
 		}
@@ -140,10 +225,37 @@ bool DatamanClient::syncHandler(const dataman_request_s &request, dataman_respon
 	perf_end(_sync_perf);
 
 	if (!response_received && ret >= 0) {
+		dataman_trace::recordClientTimeout(_trace_instance_id, request, attempt);
 		PX4_ERR("timeout after %" PRIu32 " ms!", static_cast<uint32_t>(timeout / 1000));
+
+		if (timeout == 5000_ms) {
+			dataman_trace::dump();
+		}
 	}
 
 	return response_received;
+}
+
+void DatamanClient::clearPendingResponse()
+{
+	if (_dataman_response_sub < 0) {
+		return;
+	}
+
+	for (uint8_t drain_copy_index = 0; drain_copy_index < ResponseDrainLimit; drain_copy_index++) {
+		bool updated = false;
+		orb_check(_dataman_response_sub, &updated);
+
+		if (!updated) {
+			break;
+		}
+
+		dataman_response_s response{};
+
+		if (orb_copy(ORB_ID(dataman_response), _dataman_response_sub, &response) != PX4_OK) {
+			break;
+		}
+	}
 }
 
 bool DatamanClient::readSync(dm_item_t item, uint32_t index, uint8_t *buffer, uint32_t length, hrt_abstime timeout)
@@ -253,6 +365,7 @@ bool DatamanClient::readAsync(dm_item_t item, uint32_t index, uint8_t *buffer, u
 	bool success = false;
 
 	if (_state == State::Idle) {
+		clearPendingResponse();
 
 		hrt_abstime timestamp = hrt_absolute_time();
 
@@ -273,7 +386,10 @@ bool DatamanClient::readAsync(dm_item_t item, uint32_t index, uint8_t *buffer, u
 
 		_state = State::RequestSent;
 
-		_dataman_request_pub.publish(request);
+		_active_request_attempt = 0;
+		const bool publish_success = _dataman_request_pub.publish(request);
+		dataman_trace::recordClientRequest(dataman_trace::EventType::ClientRequestPublish, _trace_instance_id, request,
+					 _active_request_attempt, publish_success);
 
 		success = true;
 	}
@@ -291,6 +407,7 @@ bool DatamanClient::writeAsync(dm_item_t item, uint32_t index, uint8_t *buffer, 
 	bool success = false;
 
 	if (_state == State::Idle) {
+		clearPendingResponse();
 
 		hrt_abstime timestamp = hrt_absolute_time();
 
@@ -313,7 +430,10 @@ bool DatamanClient::writeAsync(dm_item_t item, uint32_t index, uint8_t *buffer, 
 
 		_state = State::RequestSent;
 
-		_dataman_request_pub.publish(request);
+		_active_request_attempt = 0;
+		const bool publish_success = _dataman_request_pub.publish(request);
+		dataman_trace::recordClientRequest(dataman_trace::EventType::ClientRequestPublish, _trace_instance_id, request,
+					 _active_request_attempt, publish_success);
 
 		success = true;
 	}
@@ -326,6 +446,7 @@ bool DatamanClient::clearAsync(dm_item_t item)
 	bool success = false;
 
 	if (_state == State::Idle) {
+		clearPendingResponse();
 
 		hrt_abstime timestamp = hrt_absolute_time();
 
@@ -342,7 +463,10 @@ bool DatamanClient::clearAsync(dm_item_t item)
 		_active_request.index = request.index;
 		_state = State::RequestSent;
 
-		_dataman_request_pub.publish(request);
+		_active_request_attempt = 0;
+		const bool publish_success = _dataman_request_pub.publish(request);
+		dataman_trace::recordClientRequest(dataman_trace::EventType::ClientRequestPublish, _trace_instance_id, request,
+					 _active_request_attempt, publish_success);
 
 		success = true;
 	}
@@ -353,19 +477,38 @@ bool DatamanClient::clearAsync(dm_item_t item)
 void DatamanClient::update()
 {
 	if (_state == State::RequestSent) {
+		dataman_request_s expected_request{};
+		expected_request.timestamp = _active_request.timestamp;
+		expected_request.client_id = _client_id;
+		expected_request.request_type = static_cast<uint8_t>(_active_request.request_type);
+		expected_request.item = static_cast<uint8_t>(_active_request.item);
+		expected_request.index = _active_request.index;
 
-		bool updated = false;
-		orb_check(_dataman_response_sub, &updated);
+		for (uint8_t drain_copy_index = 1; drain_copy_index <= ResponseDrainLimit; drain_copy_index++) {
+			bool updated = false;
+			orb_check(_dataman_response_sub, &updated);
 
-		dataman_response_s response;
+			if (!updated) {
+				break;
+			}
 
-		if (updated) {
-			orb_copy(ORB_ID(dataman_response), _dataman_response_sub, &response);
+			dataman_response_s response{};
+
+			if (orb_copy(ORB_ID(dataman_response), _dataman_response_sub, &response) != PX4_OK) {
+				break;
+			}
+
+			dataman_trace::recordClientResponse(dataman_trace::EventType::ClientResponseSeen, _trace_instance_id,
+					expected_request, response, _active_request_attempt, dataman_trace::RejectNone, drain_copy_index);
+			const uint8_t reject_reason = asyncRejectReason(expected_request, response);
 
 			if ((response.client_id == _client_id) &&
 			    (response.request_type == _active_request.request_type) &&
 			    (response.item == _active_request.item) &&
 			    (response.index == _active_request.index)) {
+				dataman_trace::recordClientResponse(dataman_trace::EventType::ClientResponseAccepted, _trace_instance_id,
+						expected_request, response, _active_request_attempt, dataman_trace::RejectNone,
+						drain_copy_index);
 
 				if (response.request_type == DM_READ) {
 					memcpy(_active_request.buffer, response.data, _active_request.length);
@@ -380,6 +523,11 @@ void DatamanClient::update()
 				}
 
 				_state = State::ResponseReceived;
+				break;
+
+			} else {
+				dataman_trace::recordClientResponse(dataman_trace::EventType::ClientResponseRejected, _trace_instance_id,
+						expected_request, response, _active_request_attempt, reject_reason, drain_copy_index);
 			}
 		}
 
@@ -406,7 +554,10 @@ void DatamanClient::update()
 					memcpy(request.data, _active_request.buffer, _active_request.length);
 				}
 
-				_dataman_request_pub.publish(request);
+				_active_request_attempt++;
+				const bool publish_success = _dataman_request_pub.publish(request);
+				dataman_trace::recordClientRequest(dataman_trace::EventType::ClientRequestRetry, _trace_instance_id, request,
+							 _active_request_attempt, publish_success);
 
 				_state = State::RequestSent;
 			}

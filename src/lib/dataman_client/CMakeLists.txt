@@ -31,4 +31,7 @@
 #
 ############################################################################
 
-px4_add_library(dataman_client DatamanClient.cpp)
+px4_add_library(dataman_client
+	DatamanClient.cpp
+	DatamanTrace.cpp
+)
