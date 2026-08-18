@@ -58,7 +58,7 @@ REQUIRED_FIELDS = {
     "airspeed_validated": {"timestamp", "airspeed_source"},
     "ekf2_airspeed_quality": {
         "timestamp", "timestamp_sample", "ekf_buffer_timestamp_sample", "quality_timestamp_sample",
-        "quality_age_us", "airspeed_q", "quality_input_valid",
+        "quality_age_us", "qmon", "airspeed_q", "q_raw", "quality_input_valid",
         "quality_source_instance", "quality_device_id", "airspeed_source",
         "airspeed_device_id", "source_identity_match", "nominal_r_as",
         "r_as_used", "experiment_mode", "adaptive_r_enabled", "adaptive_r_requested",
@@ -109,6 +109,18 @@ def json_value(value):
 
 def sorted_rows(rows, key="timestamp"):
     return sorted(rows, key=lambda row: (int(row.get(key, 0)), int(row.get("_multi_id", 0))))
+
+
+def is_quality_only_monitoring(row):
+    return bool(row.get("qmon", False))
+
+
+def observation_records(rows):
+    return [row for row in rows if not is_quality_only_monitoring(row)]
+
+
+def monitoring_records(rows):
+    return [row for row in rows if is_quality_only_monitoring(row)]
 
 
 def topic_rate(rows, sample_field="timestamp"):
@@ -334,7 +346,7 @@ def analyze_selector_join(summary, selector_rows, validated_rows, bootstrap_time
 
 
 def analyze_ekf_join(summary, diagnostic_rows, quality_rows, selector_rows, bootstrap_timestamp, csv_tables):
-    diagnostics = [row for row in sorted_rows(diagnostic_rows, "timestamp_sample")
+    diagnostics = [row for row in sorted_rows(observation_records(diagnostic_rows), "timestamp_sample")
                    if bootstrap_timestamp is not None and int(row.get("timestamp", 0)) >= bootstrap_timestamp]
     quality_by_sample = {int(row.get("timestamp_sample", 0)): row for row in quality_rows}
     selector_by_sample = defaultdict(list)
@@ -430,8 +442,160 @@ def analyze_ekf_join(summary, diagnostic_rows, quality_rows, selector_rows, boot
     csv_tables["ekf_diagnostic_join"] = evidence_rows
 
 
+def analyze_monitoring_records(summary, diagnostic_rows, quality_rows, expected_mode, csv_tables):
+    rows = sorted_rows(monitoring_records(diagnostic_rows))
+    quality_timestamps = {int(row.get("timestamp_sample", 0)) for row in quality_rows}
+    scope_errors = []
+    contract_errors = []
+    freshness_errors = []
+    evidence_rows = []
+
+    for row in rows:
+        publication_timestamp = int(row.get("timestamp", 0))
+        quality_timestamp = int(row.get("quality_timestamp_sample", 0))
+        quality_age_us = publication_timestamp - quality_timestamp if publication_timestamp >= quality_timestamp else None
+        scope_ok = expected_mode == 3 and int(row.get("experiment_mode", -1)) == 3
+        contract_ok = (int(row.get("timestamp_sample", -1)) == 0
+                       and int(row.get("ekf_buffer_timestamp_sample", -1)) == 0
+                       and int(row.get("airspeed_source", 0)) == SOURCE_DISABLED
+                       and int(row.get("airspeed_device_id", -1)) == 0
+                       and not finite(row.get("r_as_used"))
+                       and not bool(row.get("adaptive_r_applied", False)))
+        freshness_ok = (quality_timestamp > 0
+                        and quality_timestamp in quality_timestamps
+                        and quality_age_us is not None
+                        and quality_age_us < 1_000_000)
+
+        if not scope_ok:
+            scope_errors.append(publication_timestamp)
+        if not contract_ok:
+            contract_errors.append(publication_timestamp)
+        if not freshness_ok:
+            freshness_errors.append(publication_timestamp)
+
+        evidence_rows.append({
+            "publication_timestamp": publication_timestamp,
+            "quality_timestamp_sample": quality_timestamp,
+            "quality_age_us": quality_age_us,
+            "quality_input_valid": bool(row.get("quality_input_valid", False)),
+            "airspeed_q": row.get("airspeed_q"),
+            "q_raw": row.get("q_raw"),
+            "fuse_enabled": bool(row.get("fuse_enabled", False)),
+            "adaptive_r_enabled": bool(row.get("adaptive_r_enabled", False)),
+            "adaptive_r_applied": bool(row.get("adaptive_r_applied", False)),
+            "scope_ok": scope_ok,
+            "contract_ok": contract_ok,
+            "freshness_ok": freshness_ok,
+        })
+
+    summary["ekf_monitoring"] = {
+        "record_count": len(rows),
+        "scope_error_count": len(scope_errors),
+        "contract_error_count": len(contract_errors),
+        "freshness_error_count": len(freshness_errors),
+    }
+    add_check(summary, "ekf_monitoring.full_mode_scope", not scope_errors,
+              {"error_count": len(scope_errors), "timestamps": scope_errors[:20]})
+    add_check(summary, "ekf_monitoring.record_contract", not contract_errors,
+              {"error_count": len(contract_errors), "timestamps": contract_errors[:20]})
+    add_check(summary, "ekf_monitoring.quality_freshness", not freshness_errors,
+              {"error_count": len(freshness_errors), "timestamps": freshness_errors[:20]})
+    csv_tables["ekf_monitoring"] = evidence_rows
+
+
+def analyze_selector_unified_gate(summary, selector_rows, diagnostic_rows, expected_mode,
+                                  bootstrap_timestamp, csv_tables):
+    diagnostics_by_quality_sample = defaultdict(list)
+    for row in diagnostic_rows:
+        if int(row.get("_multi_id", 0)) == 0:
+            diagnostics_by_quality_sample[int(row.get("quality_timestamp_sample", 0))].append(row)
+
+    for rows in diagnostics_by_quality_sample.values():
+        rows.sort(key=lambda row: int(row.get("timestamp", 0)))
+
+    checked_rows = []
+    unmatched = []
+    contract_errors = []
+    state_errors = []
+
+    for selector in sorted_rows(selector_rows):
+        selector_timestamp = int(selector.get("timestamp", 0))
+        quality_timestamp = int(selector.get("quality_timestamp_sample", 0))
+        selector_scope = (expected_mode == 3
+                          and int(selector.get("experiment_mode", -1)) == 3
+                          and bool(selector.get("selector_quality_enabled", False))
+                          and int(selector.get("pre_quality_source", SOURCE_DISABLED)) in PHYSICAL_SOURCES
+                          and bool(selector.get("original_sensor_valid", False))
+                          and bool(selector.get("pre_quality_output_finite", False))
+                          and not bool(selector.get("original_selection_was_fallback", False))
+                          and not bool(selector.get("concurrent_original_sensor_invalid", False))
+                          and not bool(selector.get("concurrent_blockage", False))
+                          and bool(selector.get("source_identity_match", False))
+                          and quality_timestamp > 0
+                          and int(selector.get("quality_age_us", 0xFFFFFFFF)) < 1_000_000
+                          and bootstrap_timestamp is not None
+                          and selector_timestamp >= bootstrap_timestamp)
+        if not selector_scope:
+            continue
+
+        candidates = [row for row in diagnostics_by_quality_sample.get(quality_timestamp, [])
+                      if int(row.get("timestamp", 0)) <= selector_timestamp]
+        diagnostic = candidates[-1] if candidates else None
+        if diagnostic is None:
+            unmatched.append(selector_timestamp)
+            continue
+
+        quality_valid = bool(diagnostic.get("quality_input_valid", False))
+        if not quality_valid:
+            continue
+
+        gate_contract_ok = (int(diagnostic.get("experiment_mode", -1)) == 3
+                            and bool(diagnostic.get("selector_quality_enabled", False))
+                            and bool(diagnostic.get("quality_fusion_gate_enabled", False)))
+        quality_rejected = bool(selector.get("quality_rejected", False))
+        fuse_enabled = bool(diagnostic.get("fuse_enabled", False))
+        state_ok = quality_rejected == (not fuse_enabled)
+
+        if not gate_contract_ok:
+            contract_errors.append(selector_timestamp)
+        if not state_ok:
+            state_errors.append(selector_timestamp)
+
+        checked_rows.append({
+            "selector_timestamp": selector_timestamp,
+            "quality_timestamp_sample": quality_timestamp,
+            "diagnostic_timestamp": int(diagnostic.get("timestamp", 0)),
+            "diagnostic_qmon": is_quality_only_monitoring(diagnostic),
+            "airspeed_q": diagnostic.get("airspeed_q"),
+            "q_raw": diagnostic.get("q_raw"),
+            "fuse_enabled": fuse_enabled,
+            "quality_rejected": quality_rejected,
+            "gate_contract_ok": gate_contract_ok,
+            "state_matches_unified_gate": state_ok,
+        })
+
+    summary["selector_unified_gate"] = {
+        "checked_count": len(checked_rows),
+        "qmon_join_count": sum(row["diagnostic_qmon"] for row in checked_rows),
+        "unmatched_count": len(unmatched),
+        "contract_error_count": len(contract_errors),
+        "state_error_count": len(state_errors),
+    }
+    required = expected_mode == 3
+    add_check(summary, "selector.unified_gate_join",
+              not required or (bool(checked_rows) and not unmatched),
+              {"required": required, "checked_count": len(checked_rows),
+               "unmatched_timestamps": unmatched[:20]})
+    add_check(summary, "selector.unified_gate_contract", not contract_errors,
+              {"error_count": len(contract_errors), "timestamps": contract_errors[:20]})
+    add_check(summary, "selector.mirrors_unified_gate", not state_errors,
+              {"error_count": len(state_errors), "timestamps": state_errors[:20],
+               "semantics": "quality_rejected == !fuse_enabled for eligible Full-mode physical sources"})
+    csv_tables["selector_unified_gate"] = checked_rows
+
+
 def analyze_r_join(summary, diagnostic_rows, aid_rows, minimum_rate, abs_tol, rel_tol, csv_tables):
-    diagnostics = sorted_rows(diagnostic_rows, "ekf_buffer_timestamp_sample")
+    diagnostics = sorted_rows(observation_records(diagnostic_rows), "ekf_buffer_timestamp_sample")
     joined, unmatched = exact_join(diagnostics, aid_rows, "ekf_buffer_timestamp_sample", "timestamp_sample",
                                    include_multi_id=True)
     result_rows = []
@@ -536,6 +700,7 @@ def adaptive_r_sample_usable(row):
 
 
 def analyze_mode(summary, rows, expected_mode, parameters, abs_tol, rel_tol):
+    rows = observation_records(rows)
     modes = {int(row.get("experiment_mode", -1)) for row in rows}
     adaptive_rows = [row for row in rows if bool(row.get("adaptive_r_applied", False))]
     variation = ratio_variation(adaptive_rows)
@@ -787,7 +952,7 @@ def validate_parameters(summary, parameters, config, expected_mode):
 
 def analyze_evidence(tables, parameters, expected_mode, config, ulog_dropout_count=0):
     summary = {
-        "schema_version": 2,
+        "schema_version": 3,
         "expected_mode": MODE_NAMES[expected_mode],
         "checks": [],
         "failures": [],
@@ -831,6 +996,9 @@ def analyze_evidence(tables, parameters, expected_mode, config, ulog_dropout_cou
     rel_tol = float(config.get("r_relative_tolerance", 1e-5))
     post_diagnostics = [row for row in tables["ekf2_airspeed_quality"]
                         if bootstrap_timestamp is not None and int(row.get("timestamp", 0)) >= bootstrap_timestamp]
+    analyze_monitoring_records(summary, post_diagnostics, tables["airspeed_quality_input"], expected_mode, csv_tables)
+    analyze_selector_unified_gate(summary, tables["airspeed_selector_quality_status"], post_diagnostics,
+                                  expected_mode, bootstrap_timestamp, csv_tables)
     analyze_r_join(summary, post_diagnostics, tables["estimator_aid_src_airspeed"],
                    r_rate, abs_tol, rel_tol, csv_tables)
     analyze_mode(summary, post_diagnostics, expected_mode, parameters, abs_tol, rel_tol)

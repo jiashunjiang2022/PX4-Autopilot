@@ -1,8 +1,9 @@
 uint64 timestamp
-uint64 timestamp_sample                  # [us] Original airspeed observation timestamp
-uint64 ekf_buffer_timestamp_sample       # [us] Actual delayed timestamp written to the EKF ring buffer
+uint64 timestamp_sample                  # [us] Original airspeed observation timestamp; 0 for quality-only monitoring
+uint64 ekf_buffer_timestamp_sample       # [us] Delayed EKF buffer timestamp; 0 for quality-only monitoring
 uint64 quality_timestamp_sample          # [us] Causal quality-input snapshot used
-uint32 quality_age_us                    # [us] Age of quality sample at observation time
+uint32 quality_age_us                    # [us] Quality age at observation; UINT32_MAX for quality-only monitoring
+bool qmon                                # Quality-only monitoring record without an EKF airspeed observation
 
 uint8 QUALITY_OBSERVATION_INVALID_REASON_NONE = 0
 uint8 QUALITY_OBSERVATION_INVALID_REASON_NO_HISTORY = 1
@@ -52,7 +53,7 @@ float32 q_raw
 uint8 input_source
 uint8 quality_source_instance
 uint32 quality_device_id
-int8 airspeed_source
+int8 airspeed_source                     # Selected observation source; -1 for quality-only monitoring
 uint32 airspeed_device_id
 float32 eas2tas
 bool quality_input_valid

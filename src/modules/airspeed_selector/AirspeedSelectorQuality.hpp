@@ -18,8 +18,6 @@ struct QualityDecision {
 
 struct QualityLatchState {
 	bool latched{false};
-	uint64_t hold_until{0};
-	uint64_t reenable_since{0};
 };
 
 enum class FallbackOutcome : uint8_t {
@@ -89,41 +87,22 @@ constexpr FallbackStatus fallback_status_for_source(int8_t source)
 	return {source, source != -1, fallback_outcome_for_source(source)};
 }
 
-constexpr QualityDecision evaluate_quality(bool fresh, bool q_valid, float q, bool fuse_enabled,
-		bool spectral_driven, float reject_threshold, float hysteresis)
+constexpr QualityDecision evaluate_quality(bool fresh, bool fuse_enabled)
 {
 	if (!fresh) {
-		return {true, false, true};
+		// Stale or invalid quality cannot change an existing gate-derived decision.
+		return {false, false, true};
 	}
 
-	const bool q_too_low = q_valid && (q < reject_threshold);
-	return {
-		!q_valid || !fuse_enabled || (q_too_low && spectral_driven),
-		q_valid && fuse_enabled && (q > reject_threshold + hysteresis),
-		false
-	};
+	return {!fuse_enabled, fuse_enabled, false};
 }
 
-inline void update_latch(uint64_t now, uint64_t hold_duration, uint64_t reenable_dwell,
-		const QualityDecision &decision, QualityLatchState &state)
+inline void update_latch(const QualityDecision &decision, QualityLatchState &state)
 {
 	if (decision.reject) {
 		state.latched = true;
-		state.hold_until = now + hold_duration;
-		state.reenable_since = 0;
-	}
 
-	if (!state.latched) {
-		return;
-	}
-
-	if ((now < state.hold_until) || !decision.reopen) {
-		state.reenable_since = 0;
-
-	} else if (state.reenable_since == 0) {
-		state.reenable_since = now;
-
-	} else if ((now - state.reenable_since) >= reenable_dwell) {
+	} else if (decision.reopen) {
 		state = {};
 	}
 }

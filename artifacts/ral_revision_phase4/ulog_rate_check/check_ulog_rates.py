@@ -51,7 +51,11 @@ def percentile(sorted_values, fraction):
 
 
 def dataset_stats(dataset, minimum_rate_hz, maximum_gap_s):
-    time_field = "timestamp_sample" if "timestamp_sample" in dataset.data else "timestamp"
+    # This diagnostic is a mixed stream: monitoring records intentionally have timestamp_sample == 0.
+    mixed_quality_stream = (dataset.name == "ekf2_airspeed_quality"
+                            and "qmon" in dataset.data)
+    time_field = "timestamp" if mixed_quality_stream else (
+        "timestamp_sample" if "timestamp_sample" in dataset.data else "timestamp")
     timestamps = [int(value) for value in dataset.data.get(time_field, [])]
     deltas = [(timestamps[index] - timestamps[index - 1]) * 1e-6 for index in range(1, len(timestamps))]
     positive = sorted(delta for delta in deltas if delta > 0.0)

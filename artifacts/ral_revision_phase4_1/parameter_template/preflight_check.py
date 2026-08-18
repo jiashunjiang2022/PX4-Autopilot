@@ -253,6 +253,8 @@ def main():
         for index in range(row_count(dataset)):
             if first_match_timestamp is None or int(value_at(dataset, "timestamp", index, 0)) < first_match_timestamp:
                 continue
+            if bool(value_at(dataset, "qmon", index, False)):
+                continue
             source = int(value_at(dataset, "airspeed_source", index, -1))
             if PHYSICAL_SOURCE_MIN <= source <= PHYSICAL_SOURCE_MAX:
                 diagnostic_identity_ok &= int(value_at(dataset, "airspeed_device_id", index, 0)) == expected_device

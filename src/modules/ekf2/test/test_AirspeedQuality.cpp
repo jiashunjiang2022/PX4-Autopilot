@@ -451,6 +451,7 @@ TEST(AirspeedQuality, observation_diagnostic_uses_exact_queued_sample)
 	ekf2_airspeed_quality_s diagnostic{};
 	airspeed_quality::set_observation_diagnostic(diagnostic, sample, 1000000, 900000, 980000,
 			1, 1234, 0, 1234);
+	EXPECT_FALSE(diagnostic.qmon);
 	EXPECT_EQ(diagnostic.timestamp_sample, 1000000ULL);
 	EXPECT_EQ(diagnostic.ekf_buffer_timestamp_sample, 900000ULL);
 	EXPECT_EQ(diagnostic.quality_timestamp_sample, 980000ULL);
@@ -462,6 +463,39 @@ TEST(AirspeedQuality, observation_diagnostic_uses_exact_queued_sample)
 	EXPECT_FLOAT_EQ(diagnostic.eas2tas, sample.eas2tas);
 	EXPECT_FLOAT_EQ(diagnostic.r_as_used, sample.noise_var);
 	EXPECT_EQ(diagnostic.fuse_enabled, sample.fuse_enabled);
+}
+
+TEST(AirspeedQuality, monitoring_update_is_published_only_without_observation)
+{
+	for (int mode = 0; mode < 3; ++mode) {
+		const auto config = airspeed_quality::mode_config(mode);
+		EXPECT_FALSE(airspeed_quality::monitoring_publication_required(config, true, false));
+	}
+
+	const auto full = airspeed_quality::mode_config(3);
+	EXPECT_TRUE(airspeed_quality::monitoring_publication_required(full, true, false));
+	EXPECT_FALSE(airspeed_quality::monitoring_publication_required(full, false, false));
+	EXPECT_FALSE(airspeed_quality::monitoring_publication_required(full, true, true));
+}
+
+TEST(AirspeedQuality, monitoring_diagnostic_does_not_claim_an_ekf_observation)
+{
+	ekf2_airspeed_quality_s diagnostic{};
+	diagnostic.fuse_enabled = true;
+	airspeed_quality::set_monitoring_diagnostic(diagnostic, 1020000, 0, 1234);
+
+	EXPECT_TRUE(diagnostic.qmon);
+	EXPECT_EQ(diagnostic.timestamp_sample, 0ULL);
+	EXPECT_EQ(diagnostic.ekf_buffer_timestamp_sample, 0ULL);
+	EXPECT_EQ(diagnostic.quality_timestamp_sample, 1020000ULL);
+	EXPECT_EQ(diagnostic.quality_age_us, UINT32_MAX);
+	EXPECT_EQ(diagnostic.airspeed_source, -1);
+	EXPECT_EQ(diagnostic.airspeed_device_id, 0U);
+	EXPECT_EQ(diagnostic.quality_source_instance, 0);
+	EXPECT_EQ(diagnostic.quality_device_id, 1234U);
+	EXPECT_TRUE(std::isnan(diagnostic.eas2tas));
+	EXPECT_TRUE(std::isnan(diagnostic.r_as_used));
+	EXPECT_TRUE(diagnostic.fuse_enabled);
 }
 
 TEST(AirspeedQuality, varying_modes_map_to_exact_per_sample_diagnostics)

@@ -78,9 +78,6 @@ using namespace time_literals;
 
 static constexpr uint32_t SCHEDULE_INTERVAL{100_ms};	/**< The schedule interval in usec (10 Hz) */
 static constexpr float _kThrottleFilterTimeConstant{0.5f};
-// Downstream controllers should stop consuming physical airspeed before severe contamination
-// fully closes the EKF2 gate. This protects TECS against large spikes during partial degradation.
-static constexpr float kAirspeedQualityInvalidThreshold{0.5f};
 // Minimal pitot blockage / stuck-airspeed heuristic based on disagreement with ground-minus-wind TAS.
 static constexpr float kAirspeedBlockagePhysicalDeltaThreshold{0.7f};
 static constexpr float kAirspeedBlockageReferenceDeltaThreshold{4.0f};
@@ -88,9 +85,6 @@ static constexpr float kAirspeedBlockageReferenceErrorThreshold{8.0f};
 static constexpr float kAirspeedBlockageClearErrorThreshold{4.0f};
 static constexpr uint64_t kAirspeedBlockageTriggerTimeUs{2_s};
 static constexpr uint64_t kAirspeedBlockageClearTimeUs{1_s};
-static constexpr uint64_t kQualityDisableHoldUs{2_s};
-static constexpr uint64_t kQualityReenableDwellUs{1_s};
-static constexpr float kQualityQHysteresis{0.05f};
 
 using matrix::Dcmf;
 using matrix::Quatf;
@@ -182,8 +176,6 @@ private:
 	bool _armed_prev{false};
 	bool _ekf2_airspeed_quality_valid{false};
 	bool _quality_disable_latched{false};
-	hrt_abstime _quality_disable_hold_until{0};
-	hrt_abstime _quality_reenable_since{0};
 	uint8_t _quality_latched_trigger_reason{airspeed_selector_quality_status_s::TRIGGER_REASON_NONE};
 	uint8_t _quality_latched_rejection_reason{airspeed_selector_quality_status_s::REJECTION_REASON_NONE};
 	int32_t _airspeed_quality_mode{0};
@@ -909,48 +901,31 @@ void AirspeedModule::select_airspeed_and_publish()
 
 	if (!mode_config.selector_quality_enabled) {
 		_quality_disable_latched = false;
-		_quality_disable_hold_until = 0;
-		_quality_reenable_since = 0;
 		_quality_latched_trigger_reason = airspeed_selector_quality_status_s::TRIGGER_REASON_NONE;
 		_quality_latched_rejection_reason = airspeed_selector_quality_status_s::REJECTION_REASON_NONE;
 
 	} else if (using_physical_airspeed_sensor && !quality_status.source_identity_match) {
 		_quality_disable_latched = false;
-		_quality_disable_hold_until = 0;
-		_quality_reenable_since = 0;
 		_quality_latched_trigger_reason = airspeed_selector_quality_status_s::TRIGGER_REASON_NONE;
 		_quality_latched_rejection_reason = airspeed_selector_quality_status_s::REJECTION_REASON_NONE;
 		quality_status.trigger_reason = airspeed_selector_quality_status_s::TRIGGER_REASON_SOURCE_ID_MISMATCH;
 
 	} else if (using_physical_airspeed_sensor) {
-		const bool q_valid = PX4_ISFINITE(_ekf2_airspeed_quality.airspeed_q);
-		const bool spectral_driven = _ekf2_airspeed_quality.spectral_ratio_valid
-					     || !_ekf2_airspeed_quality.q_is_dv_only;
-		const auto decision = airspeed_selector_quality::evaluate_quality(quality_fresh, q_valid,
-				      _ekf2_airspeed_quality.airspeed_q, _ekf2_airspeed_quality.fuse_enabled,
-				      spectral_driven, kAirspeedQualityInvalidThreshold, kQualityQHysteresis);
+		const auto decision = airspeed_selector_quality::evaluate_quality(
+					      quality_fresh, _ekf2_airspeed_quality.fuse_enabled);
 
 		if (decision.reject) {
 			_quality_latched_trigger_reason = airspeed_selector_quality_status_s::TRIGGER_REASON_QUALITY_REJECTION;
-			_quality_latched_rejection_reason = !quality_fresh
-							    ? airspeed_selector_quality_status_s::REJECTION_REASON_SENSOR_TIMEOUT
-							    : airspeed_selector_quality_status_s::REJECTION_REASON_QUALITY_SAFEGUARD;
+			_quality_latched_rejection_reason = airspeed_selector_quality_status_s::REJECTION_REASON_QUALITY_SAFEGUARD;
 		}
 		airspeed_selector_quality::QualityLatchState latch_state {
 			.latched = _quality_disable_latched,
-			.hold_until = _quality_disable_hold_until,
-			.reenable_since = _quality_reenable_since,
 		};
-		airspeed_selector_quality::update_latch(_time_now_usec, kQualityDisableHoldUs,
-				kQualityReenableDwellUs, decision, latch_state);
+		airspeed_selector_quality::update_latch(decision, latch_state);
 		_quality_disable_latched = latch_state.latched;
-		_quality_disable_hold_until = latch_state.hold_until;
-		_quality_reenable_since = latch_state.reenable_since;
 
 	} else {
 		_quality_disable_latched = false;
-		_quality_disable_hold_until = 0;
-		_quality_reenable_since = 0;
 		_quality_latched_trigger_reason = airspeed_selector_quality_status_s::TRIGGER_REASON_NONE;
 		_quality_latched_rejection_reason = airspeed_selector_quality_status_s::REJECTION_REASON_NONE;
 	}

@@ -2716,23 +2716,15 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 		_airspeed_quality_mode_error_reported = false;
 	}
 
-	auto publish_quality = [&](const airspeedSample &airspeed_sample, const AirspeedQualityState &quality_snapshot,
-				     uint64_t observation_timestamp_sample, uint64_t ekf_buffer_timestamp_sample,
-				     uint64_t quality_timestamp_sample, int8_t airspeed_source, uint32_t airspeed_device_id,
-				     bool source_identity_match, bool quality_causal, bool quality_fresh_for_observation,
-				     uint8_t quality_observation_invalid_reason, bool adaptive_r_requested,
-				     bool adaptive_r_applied, uint8_t fallback_to_nominal_reason,
-				     const airspeed_quality::ModeConfig &sample_mode_config, float nominal_r_as) {
-		ekf2_airspeed_quality_s qmsg{};
+	bool quality_observation_published = false;
+	auto fill_quality_state = [&](ekf2_airspeed_quality_s &qmsg, const AirspeedQualityState &quality_snapshot,
+				      const airspeed_quality::ModeConfig &sample_mode_config, bool adaptive_r_requested,
+				      bool adaptive_r_applied, uint8_t fallback_to_nominal_reason, float nominal_r_as) {
 		qmsg.timestamp = _replay_mode ? ekf2_timestamps.timestamp : hrt_absolute_time();
 		qmsg.airspeed_q = quality_snapshot.airspeed_q;
 		qmsg.q_raw = quality_snapshot.q_raw;
 		qmsg.input_source = quality_snapshot.input_source;
 		qmsg.quality_input_valid = quality_snapshot.quality_input_valid;
-		qmsg.source_identity_match = source_identity_match;
-		qmsg.quality_causal = quality_causal;
-		qmsg.quality_fresh_for_observation = quality_fresh_for_observation;
-		qmsg.quality_observation_invalid_reason = quality_observation_invalid_reason;
 		qmsg.input_rate_hz = quality_snapshot.input_rate_hz;
 		qmsg.spectral_updated = quality_snapshot.spectral_updated;
 		qmsg.spectral_update_counter = quality_snapshot.spectral_update_counter;
@@ -2753,6 +2745,7 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 		qmsg.quality_fusion_gate_enabled = sample_mode_config.quality_fusion_gate_enabled;
 		qmsg.selector_quality_enabled = mode_config.selector_quality_enabled;
 		qmsg.effective_flap_ratio = quality_snapshot.effective_flap_ratio;
+		qmsg.fuse_enabled = quality_snapshot.fuse_enabled;
 		qmsg.flap_active = quality_snapshot.flap_active;
 		qmsg.flap_frequency_hz = quality_snapshot.flap_frequency_hz;
 		qmsg.spectral_ratio = quality_snapshot.spectral_ratio;
@@ -2775,19 +2768,41 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 		qmsg.quality_input_missed_count = quality_snapshot.quality_input_missed_count;
 		qmsg.estimator_update_time_us = quality_snapshot.estimator_update_time_us;
 		qmsg.spectral_evaluation_time_us = quality_snapshot.spectral_evaluation_time_us;
+	};
+
+	auto publish_quality_observation = [&](const airspeedSample &airspeed_sample,
+					       const AirspeedQualityState &quality_snapshot,
+				     uint64_t observation_timestamp_sample, uint64_t ekf_buffer_timestamp_sample,
+				     uint64_t quality_timestamp_sample, int8_t airspeed_source, uint32_t airspeed_device_id,
+				     bool source_identity_match, bool quality_causal, bool quality_fresh_for_observation,
+				     uint8_t quality_observation_invalid_reason, bool adaptive_r_requested,
+				     bool adaptive_r_applied, uint8_t fallback_to_nominal_reason,
+				     const airspeed_quality::ModeConfig &sample_mode_config, float nominal_r_as) {
+		ekf2_airspeed_quality_s qmsg{};
+		fill_quality_state(qmsg, quality_snapshot, sample_mode_config, adaptive_r_requested, adaptive_r_applied,
+				   fallback_to_nominal_reason, nominal_r_as);
+		qmsg.source_identity_match = source_identity_match;
+		qmsg.quality_causal = quality_causal;
+		qmsg.quality_fresh_for_observation = quality_fresh_for_observation;
+		qmsg.quality_observation_invalid_reason = quality_observation_invalid_reason;
 		airspeed_quality::set_observation_diagnostic(qmsg, airspeed_sample, observation_timestamp_sample,
 				ekf_buffer_timestamp_sample, quality_timestamp_sample, airspeed_source, airspeed_device_id,
 				quality_snapshot.quality_source_instance, quality_snapshot.quality_device_id);
 		_ekf2_airspeed_quality_pub.publish(qmsg);
+		quality_observation_published = true;
 	};
 
 	airspeed_quality_input_s quality_input{};
+	bool quality_input_updated = false;
+	uint64_t latest_quality_timestamp_sample = 0;
 
 	const int quality_input_queue_size = orb_get_queue_size(ORB_ID(airspeed_quality_input));
 	int quality_input_updates = 0;
 
 	while ((quality_input_updates++ < quality_input_queue_size)
 	       && _airspeed_quality_input_sub.update(&quality_input)) {
+		quality_input_updated = true;
+		latest_quality_timestamp_sample = quality_input.timestamp_sample;
 		const bool quality_input_valid = quality_input.valid
 						 && quality_input.rate_valid
 						 && (quality_input.device_id != 0)
@@ -2967,7 +2982,7 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 		uint64_t ekf_buffer_timestamp_sample = 0;
 
 		if (_ekf.setAirspeedData(airspeed_sample, ekf_buffer_timestamp_sample)) {
-			publish_quality(airspeed_sample, quality_snapshot, observation_timestamp_sample,
+			publish_quality_observation(airspeed_sample, quality_snapshot, observation_timestamp_sample,
 					ekf_buffer_timestamp_sample, quality_selection.timestamp_sample, airspeed_source,
 					airspeed_device_id, source_identity_match, quality_selection.causal(),
 					quality_selection.fresh(), quality_observation_invalid_reason, adaptive_r_requested,
@@ -3045,6 +3060,24 @@ void EKF2::UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps)
 
 		ekf2_timestamps.airspeed_timestamp_rel = (int16_t)((int64_t)raw_airspeed.timestamp / 100 -
 					(int64_t)ekf2_timestamps.timestamp / 100);
+	}
+
+	if (airspeed_quality::monitoring_publication_required(mode_config, quality_input_updated,
+			quality_observation_published)) {
+		ekf2_airspeed_quality_s qmsg{};
+		const auto monitoring_mode_config = airspeed_quality::source_bound_config(mode_config, true);
+		const bool adaptive_r_requested = mode_config.adaptive_r_enabled;
+		fill_quality_state(qmsg, _airspeed_quality_state, monitoring_mode_config, adaptive_r_requested, false,
+				   ekf2_airspeed_quality_s::FALLBACK_TO_NOMINAL_REASON_NONE, NAN);
+		qmsg.adaptive_r_enabled = mode_config.adaptive_r_enabled;
+		qmsg.source_identity_match = false;
+		qmsg.quality_causal = false;
+		qmsg.quality_fresh_for_observation = false;
+		qmsg.quality_observation_invalid_reason =
+			ekf2_airspeed_quality_s::QUALITY_OBSERVATION_INVALID_REASON_NO_HISTORY;
+		airspeed_quality::set_monitoring_diagnostic(qmsg, latest_quality_timestamp_sample,
+				_airspeed_quality_state.quality_source_instance, _airspeed_quality_state.quality_device_id);
+		_ekf2_airspeed_quality_pub.publish(qmsg);
 	}
 }
 #endif // CONFIG_EKF2_AIRSPEED

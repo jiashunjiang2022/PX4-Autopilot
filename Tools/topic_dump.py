@@ -31,6 +31,9 @@ TOPIC_FIELDS = {
     ],
     "ekf2_airspeed_quality": [
         "timestamp",
+        "timestamp_sample",
+        "quality_timestamp_sample",
+        "qmon",
         "airspeed_q",
         "q_raw",
         "q_smoothed",

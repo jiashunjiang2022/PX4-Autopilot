@@ -2,7 +2,48 @@
 
 #include "AirspeedSelectorQuality.hpp"
 
+#include <lib/airspeed/AirspeedQualityMode.hpp>
 #include <uORB/topics/airspeed_selector_quality_status.h>
+
+namespace
+{
+
+class FullRecoveryHarness
+{
+public:
+	void update(uint64_t now, uint64_t quality_timestamp, bool physical_source_alive, bool identity_match,
+		    bool quality_valid, float quality, bool fuse_enabled)
+	{
+		(void)quality; // q affects the EKF gate, but is not a second selector decision input.
+		_quality_timestamp = quality_timestamp;
+		const bool quality_fresh = quality_valid && quality_timestamp > 0 && now >= quality_timestamp
+					   && (now - quality_timestamp) < 1000000;
+
+		if (!physical_source_alive || !identity_match) {
+			_latch = {};
+
+		} else {
+			const auto decision = airspeed_selector_quality::evaluate_quality(quality_fresh, fuse_enabled);
+			airspeed_selector_quality::update_latch(decision, _latch);
+		}
+
+		_quality_rejected = physical_source_alive && identity_match && _latch.latched;
+		_final_source = physical_source_alive && !_quality_rejected ? 1 : -1;
+	}
+
+	bool quality_rejected() const { return _quality_rejected; }
+	bool latched() const { return _latch.latched; }
+	int8_t final_source() const { return _final_source; }
+	uint64_t quality_timestamp() const { return _quality_timestamp; }
+
+private:
+	airspeed_selector_quality::QualityLatchState _latch{};
+	uint64_t _quality_timestamp{0};
+	int8_t _final_source{-1};
+	bool _quality_rejected{false};
+};
+
+} // namespace
 
 TEST(AirspeedSelectorQuality, separates_output_finiteness_from_validator_validity)
 {
@@ -124,37 +165,40 @@ TEST(AirspeedSelectorQuality, quality_and_blockage_concurrency_uses_actual_final
 	EXPECT_EQ(unavailable_after_blockage.outcome, FallbackOutcome::Unavailable);
 }
 
-TEST(AirspeedSelectorQuality, rejects_stale_or_invalid_quality)
+TEST(AirspeedSelectorQuality, stale_or_invalid_quality_cannot_change_unified_gate_latch)
 {
-	const auto stale = airspeed_selector_quality::evaluate_quality(false, true, 1.f, true, true, 0.5f, 0.05f);
-	EXPECT_TRUE(stale.reject);
+	const auto stale = airspeed_selector_quality::evaluate_quality(false, true);
+	EXPECT_FALSE(stale.reject);
+	EXPECT_FALSE(stale.reopen);
 	EXPECT_TRUE(stale.timed_out);
 
-	const auto invalid = airspeed_selector_quality::evaluate_quality(true, false, 0.f, true, true, 0.5f, 0.05f);
-	EXPECT_TRUE(invalid.reject);
-	EXPECT_FALSE(invalid.timed_out);
+	airspeed_selector_quality::QualityLatchState latched{true};
+	airspeed_selector_quality::update_latch(stale, latched);
+	EXPECT_TRUE(latched.latched);
+
+	airspeed_selector_quality::QualityLatchState open{};
+	airspeed_selector_quality::update_latch(stale, open);
+	EXPECT_FALSE(open.latched);
 }
 
-TEST(AirspeedSelectorQuality, rejects_low_spectral_quality_and_closed_gate)
+TEST(AirspeedSelectorQuality, selector_mirrors_only_the_unified_gate)
 {
-	EXPECT_TRUE(airspeed_selector_quality::evaluate_quality(true, true, 0.4f, true, true, 0.5f, 0.05f).reject);
-	EXPECT_FALSE(airspeed_selector_quality::evaluate_quality(true, true, 0.4f, true, false, 0.5f, 0.05f).reject);
-	EXPECT_TRUE(airspeed_selector_quality::evaluate_quality(true, true, 0.8f, false, true, 0.5f, 0.05f).reject);
+	const auto gate_open = airspeed_selector_quality::evaluate_quality(true, true);
+	EXPECT_FALSE(gate_open.reject);
+	EXPECT_TRUE(gate_open.reopen);
+
+	const auto gate_closed = airspeed_selector_quality::evaluate_quality(true, false);
+	EXPECT_TRUE(gate_closed.reject);
+	EXPECT_FALSE(gate_closed.reopen);
 }
 
-TEST(AirspeedSelectorQuality, holds_then_reenables_after_dwell)
+TEST(AirspeedSelectorQuality, selector_latch_has_no_second_hold_or_dwell)
 {
 	airspeed_selector_quality::QualityLatchState state{};
-	const auto reject = airspeed_selector_quality::evaluate_quality(true, true, 0.2f, true, true, 0.5f, 0.05f);
-	airspeed_selector_quality::update_latch(100, 200, 100, reject, state);
+	airspeed_selector_quality::update_latch(airspeed_selector_quality::evaluate_quality(true, false), state);
 	EXPECT_TRUE(state.latched);
 
-	const auto recover = airspeed_selector_quality::evaluate_quality(true, true, 0.8f, true, true, 0.5f, 0.05f);
-	airspeed_selector_quality::update_latch(299, 200, 100, recover, state);
-	EXPECT_TRUE(state.latched);
-	airspeed_selector_quality::update_latch(300, 200, 100, recover, state);
-	EXPECT_TRUE(state.latched);
-	airspeed_selector_quality::update_latch(400, 200, 100, recover, state);
+	airspeed_selector_quality::update_latch(airspeed_selector_quality::evaluate_quality(true, true), state);
 	EXPECT_FALSE(state.latched);
 }
 
@@ -166,4 +210,108 @@ TEST(AirspeedSelectorQuality, source_identity_requires_one_matching_physical_pit
 	EXPECT_FALSE(airspeed_selector_quality::source_identity_matches(1, 1, 42, 1, 42));
 	EXPECT_FALSE(airspeed_selector_quality::source_identity_matches(1, 1, 42, 0, 43));
 	EXPECT_FALSE(airspeed_selector_quality::source_identity_matches(1, 1, 0, 0, 0));
+}
+
+TEST(AirspeedSelectorQuality, full_mode_q_near_half_with_open_gate_keeps_physical_source_selected)
+{
+	const auto full = airspeed_quality::mode_config(3);
+	ASSERT_TRUE(full.adaptive_r_enabled);
+	ASSERT_TRUE(full.quality_fusion_gate_enabled);
+	ASSERT_TRUE(full.selector_quality_enabled);
+
+	FullRecoveryHarness harness;
+	harness.update(1000000, 1000000, true, true, true, 0.49f, true);
+	EXPECT_FALSE(harness.quality_rejected());
+	EXPECT_EQ(harness.final_source(), 1);
+}
+
+TEST(AirspeedSelectorQuality, full_mode_below_qoff_does_not_reject_before_ekf_gate_closes)
+{
+	FullRecoveryHarness harness;
+	harness.update(1000000, 1000000, true, true, true, 0.39f, true);
+	EXPECT_FALSE(harness.quality_rejected());
+	EXPECT_EQ(harness.final_source(), 1);
+}
+
+TEST(AirspeedSelectorQuality, full_mode_closed_ekf_gate_rejects_physical_source)
+{
+	FullRecoveryHarness harness;
+	harness.update(1000000, 1000000, true, true, true, 0.8f, false);
+	EXPECT_TRUE(harness.quality_rejected());
+	EXPECT_EQ(harness.final_source(), -1);
+}
+
+TEST(AirspeedSelectorQuality, full_mode_rejects_then_monitors_and_reselects_recovered_source)
+{
+	FullRecoveryHarness harness;
+	harness.update(1000000, 1000000, true, true, true, 0.2f, false);
+	ASSERT_TRUE(harness.quality_rejected());
+	ASSERT_EQ(harness.final_source(), -1);
+
+	// Fresh qmon updates cannot recover the source until the EKF gate itself reopens.
+	for (uint64_t now = 1100000; now <= 3000000; now += 100000) {
+		harness.update(now, now, true, true, true, 0.8f, false);
+		EXPECT_TRUE(harness.latched());
+		EXPECT_EQ(harness.quality_timestamp(), now);
+		EXPECT_EQ(harness.final_source(), -1);
+	}
+
+	// QON + TON are complete inside the EKF gate; selector adds no second recovery dwell.
+	harness.update(3100000, 3100000, true, true, true, 0.8f, true);
+	EXPECT_FALSE(harness.latched());
+	EXPECT_FALSE(harness.quality_rejected());
+	EXPECT_EQ(harness.final_source(), 1);
+}
+
+TEST(AirspeedSelectorQuality, stale_open_gate_cannot_recover_rejected_source)
+{
+	FullRecoveryHarness harness;
+	harness.update(1000000, 1000000, true, true, true, 0.2f, false);
+	ASSERT_TRUE(harness.latched());
+
+	for (uint64_t now = 2100000; now <= 6000000; now += 100000) {
+		harness.update(now, 1000000, true, true, true, 0.9f, true);
+	}
+
+	EXPECT_TRUE(harness.latched());
+	EXPECT_TRUE(harness.quality_rejected());
+	EXPECT_EQ(harness.final_source(), -1);
+}
+
+TEST(AirspeedSelectorQuality, invalid_open_gate_cannot_recover_rejected_source)
+{
+	FullRecoveryHarness harness;
+	harness.update(1000000, 1000000, true, true, true, 0.2f, false);
+	ASSERT_TRUE(harness.latched());
+
+	for (uint64_t now = 1100000; now <= 3000000; now += 100000) {
+		harness.update(now, now, true, true, false, 0.9f, true);
+	}
+
+	EXPECT_TRUE(harness.latched());
+	EXPECT_EQ(harness.final_source(), -1);
+}
+
+TEST(AirspeedSelectorQuality, physical_source_timeout_cannot_be_recovered_by_quality_alone)
+{
+	FullRecoveryHarness harness;
+	harness.update(1000000, 1000000, true, true, true, 0.2f, false);
+	ASSERT_TRUE(harness.latched());
+
+	for (uint64_t now = 1100000; now <= 3000000; now += 100000) {
+		harness.update(now, now, false, true, true, 0.9f, true);
+		EXPECT_EQ(harness.final_source(), -1);
+	}
+
+	EXPECT_FALSE(harness.latched());
+	EXPECT_FALSE(harness.quality_rejected());
+}
+
+TEST(AirspeedSelectorQuality, identity_mismatch_disables_quality_gate_authority)
+{
+	FullRecoveryHarness harness;
+	harness.update(1000000, 1000000, true, false, true, 0.9f, false);
+	EXPECT_FALSE(harness.quality_rejected());
+	EXPECT_EQ(harness.final_source(), 1);
+	EXPECT_FALSE(airspeed_selector_quality::source_identity_matches(1, 1, 42, 0, 43));
 }

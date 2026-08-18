@@ -26,11 +26,14 @@ PREFLIGHT = load_module(
 )
 
 
-def selector_row(timestamp, match, source=1, final_source=1):
+def selector_row(timestamp, match, source=1, final_source=1, quality_timestamp=None):
+    if quality_timestamp is None:
+        quality_timestamp = timestamp - 20_000
     return {
         "timestamp": timestamp,
         "decision_timestamp_sample": timestamp - 10_000,
-        "quality_timestamp_sample": timestamp - 20_000,
+        "quality_timestamp_sample": quality_timestamp,
+        "quality_age_us": timestamp - quality_timestamp,
         "pre_quality_device_id": 42 if match else 0,
         "quality_device_id": 42 if match else 0,
         "final_device_id": 42 if final_source in {1, 2, 3} else 0,
@@ -72,7 +75,9 @@ def diagnostic_row(observation_timestamp=1_500_000, buffer_timestamp=1_380_000, 
         "ekf_buffer_timestamp_sample": buffer_timestamp,
         "quality_timestamp_sample": quality_timestamp,
         "quality_age_us": observation_timestamp - quality_timestamp if causal else 0,
+        "qmon": False,
         "airspeed_q": quality,
+        "q_raw": quality,
         "quality_input_valid": quality_valid,
         "quality_source_instance": 0 if identity_match else 255,
         "quality_device_id": device_id if identity_match else 0,
@@ -91,6 +96,39 @@ def diagnostic_row(observation_timestamp=1_500_000, buffer_timestamp=1_380_000, 
         "quality_observation_invalid_reason": 0 if causal and fresh and quality_valid else 3,
         "quality_fusion_gate_enabled": mode == 3 and identity_match,
         "selector_quality_enabled": mode == 3,
+        "fuse_enabled": True,
+    }
+
+
+def monitoring_row(timestamp=2_000_000, quality_timestamp=1_980_000, quality=0.8):
+    return {
+        "_multi_id": 0,
+        "timestamp": timestamp,
+        "timestamp_sample": 0,
+        "ekf_buffer_timestamp_sample": 0,
+        "quality_timestamp_sample": quality_timestamp,
+        "quality_age_us": 0xFFFFFFFF,
+        "qmon": True,
+        "airspeed_q": quality,
+        "q_raw": quality,
+        "quality_input_valid": True,
+        "quality_source_instance": 0,
+        "quality_device_id": 42,
+        "airspeed_source": -1,
+        "airspeed_device_id": 0,
+        "source_identity_match": False,
+        "nominal_r_as": float("nan"),
+        "r_as_used": float("nan"),
+        "experiment_mode": 3,
+        "adaptive_r_enabled": True,
+        "adaptive_r_requested": True,
+        "adaptive_r_applied": False,
+        "fallback_to_nominal_reason": 0,
+        "quality_causal": False,
+        "quality_fresh_for_observation": False,
+        "quality_observation_invalid_reason": 1,
+        "quality_fusion_gate_enabled": True,
+        "selector_quality_enabled": True,
         "fuse_enabled": True,
     }
 
@@ -184,6 +222,97 @@ class JoinTests(unittest.TestCase):
         self.assertAlmostEqual(summary["r_join"]["absolute_error"]["max"], 0.5)
         self.assertIn("r_join.high_match_rate", summary["failures"])
         self.assertIn("r_join.value_equality", summary["failures"])
+
+    def test_monitoring_record_is_excluded_from_observation_and_r_joins(self):
+        summary = {"checks": [], "failures": []}
+        csv_tables = {}
+        diagnostic = diagnostic_row(mode=3)
+        monitoring = monitoring_row()
+        quality = {"timestamp_sample": 1_480_000, "device_id": 42, "source_instance": 0}
+        selector = selector_row(2_000_000, True)
+        selector["decision_timestamp_sample"] = 1_500_000
+        EVIDENCE.analyze_ekf_join(summary, [diagnostic, monitoring], [quality], [selector], 1_000_000, csv_tables)
+        self.assertEqual(summary["ekf_diagnostic_join"]["diagnostic_count"], 1)
+
+        aid = [{"_multi_id": 0, "timestamp": 2_100_000, "timestamp_sample": 1_380_000,
+                "observation_variance": diagnostic["r_as_used"]}]
+        EVIDENCE.analyze_r_join(summary, [diagnostic, monitoring], aid, 1.0, 1e-6, 1e-6, csv_tables)
+        self.assertEqual(summary["r_join"]["diagnostic_count"], 1)
+        self.assertNotIn(monitoring, EVIDENCE.observation_records([diagnostic, monitoring]))
+        self.assertFalse(summary["failures"])
+
+    def test_monitoring_record_contract_accepts_non_applied_adaptive_r(self):
+        summary = {"checks": [], "failures": []}
+        monitoring = monitoring_row()
+        quality = {"timestamp_sample": monitoring["quality_timestamp_sample"]}
+        EVIDENCE.analyze_monitoring_records(summary, [monitoring], [quality], 3, {})
+        self.assertEqual(summary["ekf_monitoring"]["record_count"], 1)
+        self.assertFalse(summary["failures"])
+
+    def test_monitoring_record_is_excluded_from_observation_mode_assertions(self):
+        rows = [
+            diagnostic_row(mode=3, quality=0.8),
+            diagnostic_row(observation_timestamp=1_520_000, buffer_timestamp=1_400_000,
+                           mode=3, quality_timestamp=1_500_000, quality=0.3),
+            monitoring_row(),
+        ]
+        summary = {"checks": [], "failures": []}
+        EVIDENCE.analyze_mode(summary, rows, 3, {"EKF2_ASP_RMAX": 5.0}, 1e-6, 1e-6)
+        self.assertFalse(summary["failures"])
+
+    def test_monitoring_record_outside_full_mode_is_rejected(self):
+        summary = {"checks": [], "failures": []}
+        monitoring = monitoring_row()
+        monitoring["experiment_mode"] = 2
+        quality = {"timestamp_sample": monitoring["quality_timestamp_sample"]}
+        EVIDENCE.analyze_monitoring_records(summary, [monitoring], [quality], 2, {})
+        self.assertIn("ekf_monitoring.full_mode_scope", summary["failures"])
+
+    def test_selector_closed_unified_gate_requires_quality_rejection(self):
+        summary = {"checks": [], "failures": []}
+        diagnostic = diagnostic_row(mode=3, quality_timestamp=1_980_000)
+        diagnostic["fuse_enabled"] = False
+        selector = selector_row(2_000_000, True, final_source=-1, quality_timestamp=1_980_000)
+        selector["quality_rejected"] = True
+        EVIDENCE.analyze_selector_unified_gate(summary, [selector], [diagnostic], 3, 1_000_000, {})
+        self.assertEqual(summary["selector_unified_gate"]["checked_count"], 1)
+        self.assertFalse(summary["failures"])
+
+    def test_selector_rejection_with_open_unified_gate_is_rejected(self):
+        summary = {"checks": [], "failures": []}
+        diagnostic = diagnostic_row(mode=3, quality_timestamp=1_980_000)
+        selector = selector_row(2_000_000, True, final_source=-1, quality_timestamp=1_980_000)
+        selector["quality_rejected"] = True
+        EVIDENCE.analyze_selector_unified_gate(summary, [selector], [diagnostic], 3, 1_000_000, {})
+        self.assertIn("selector.mirrors_unified_gate", summary["failures"])
+
+    def test_selector_open_with_closed_unified_gate_is_rejected(self):
+        summary = {"checks": [], "failures": []}
+        diagnostic = diagnostic_row(mode=3, quality_timestamp=1_980_000)
+        diagnostic["fuse_enabled"] = False
+        selector = selector_row(2_000_000, True, quality_timestamp=1_980_000)
+        EVIDENCE.analyze_selector_unified_gate(summary, [selector], [diagnostic], 3, 1_000_000, {})
+        self.assertIn("selector.mirrors_unified_gate", summary["failures"])
+
+    def test_selector_native_blockage_is_excluded_from_unified_gate_assertion(self):
+        summary = {"checks": [], "failures": []}
+        diagnostic = diagnostic_row(mode=3, quality_timestamp=1_980_000)
+        diagnostic["fuse_enabled"] = False
+        selector = selector_row(2_000_000, True, quality_timestamp=1_980_000)
+        selector["concurrent_blockage"] = True
+        EVIDENCE.analyze_selector_unified_gate(summary, [selector], [diagnostic], 3, 1_000_000, {})
+        self.assertEqual(summary["selector_unified_gate"]["checked_count"], 0)
+        self.assertNotIn("selector.mirrors_unified_gate", summary["failures"])
+
+    def test_selector_gate_state_can_join_to_qmon_by_quality_timestamp(self):
+        summary = {"checks": [], "failures": []}
+        monitoring = monitoring_row(timestamp=1_990_000, quality_timestamp=1_980_000)
+        monitoring["fuse_enabled"] = False
+        selector = selector_row(2_000_000, True, final_source=-1, quality_timestamp=1_980_000)
+        selector["quality_rejected"] = True
+        EVIDENCE.analyze_selector_unified_gate(summary, [selector], [monitoring], 3, 1_000_000, {})
+        self.assertEqual(summary["selector_unified_gate"]["qmon_join_count"], 1)
+        self.assertFalse(summary["failures"])
 
 
 class TraceabilityTests(unittest.TestCase):
