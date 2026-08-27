@@ -65,7 +65,7 @@ parameters:
         long: Dimensionless variance multiplier used only in CONSTANT_R mode. This is not a
           standard-deviation multiplier and must be frozen from bench results before formal flights.
       type: float
-      default: 1.0
+      default: 2.5
       min: 1.0
       max: 20.0
       reboot_required: true
@@ -145,7 +145,7 @@ parameters:
       description:
         short: Airspeed rate normalization
       type: float
-      default: 5.0
+      default: 15.0
       min: 0.1
       max: 20.0
       unit: m/s^2

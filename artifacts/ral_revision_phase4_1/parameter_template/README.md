@@ -22,3 +22,12 @@ Bootstrap may not overlap that interval.
 
 This checker is an offline evidence gate. It does not replace the swept-tone,
 stack high-water, WCET, SD-soak, hardware-in-loop, or flight-readiness gates.
+
+For formal A/B/C/D/E runs, use the complete presets and mode instructions in
+`artifacts/ral_revision_phase4_2/parameter_presets`. The preferred CLI is:
+
+```sh
+python3 artifacts/ral_revision_phase4_2/parameter_template/preflight_check.py run.ulg --experiment-mode <A|B|C|D|E>
+```
+
+The legacy `--expected-mode` and `--expected-rcst` interface remains available.

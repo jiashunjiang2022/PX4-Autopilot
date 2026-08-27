@@ -11,8 +11,9 @@
     "EKF2_ASP_DTAU": 0.08,
     "EKF2_ASP_QA": 0.7,
     "EKF2_ASP_QB": 0.3,
-    "EKF2_ASP_DV0": 5.0,
+    "EKF2_ASP_DV0": 15.0,
     "EKF2_ASP_RMAX": 5.0,
+    "EKF2_ASP_RCST": 2.5,
     "EKF2_ASP_QON": 0.6,
     "EKF2_ASP_QOFF": 0.4,
     "EKF2_ASP_QTAU": 0.25,
@@ -24,14 +25,17 @@
     "EKF2_FLAP_T_ON": 0.4,
     "EKF2_FLAP_T_OFF": 1.5,
     "EKF2_FLAP_T_TO": 0.8,
+    "EKF2_EAS_NOISE": 1.4,
+    "EKF2_ARSP_THR": 8.0,
+    "FW_USE_AIRSPD": 1,
+    "SYS_HAS_NUM_ASPD": 1,
     "SENS_DP_QCUT": 10.0,
     "SENS_DP_QMAX": 7000.0
   },
   "parameters_exact_freeze_before_bench": {
     "ASPD_PRIMARY": null,
     "ASPD_FALLBACK": null,
-    "ASPD_DO_CHECKS": null,
-    "EKF2_ASP_RCST": null
+    "ASPD_DO_CHECKS": null
   },
   "parameters_positive": [
     "EKF2_ARSP_THR"

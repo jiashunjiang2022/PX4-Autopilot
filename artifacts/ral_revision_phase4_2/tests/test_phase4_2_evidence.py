@@ -26,6 +26,18 @@ PREFLIGHT = load_module(
 )
 
 
+def load_qgc_parameters(path):
+    parameters = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line or line.startswith("#"):
+            continue
+        system_id, component_id, name, value, parameter_type = line.split("\t")
+        if system_id != "1" or component_id != "1":
+            raise ValueError(f"unexpected target for {name}")
+        parameters[name] = int(value) if parameter_type == "6" else float(value)
+    return parameters
+
+
 def selector_row(timestamp, match, source=1, final_source=1, quality_timestamp=None):
     if quality_timestamp is None:
         quality_timestamp = timestamp - 20_000
@@ -165,6 +177,60 @@ class BootstrapTests(unittest.TestCase):
         rows = [selector_row(1_000_000, False), selector_row(1_040_000, True)]
         result = EVIDENCE.analyze_bootstrap(rows, 42, 0, 100_000, 1_020_000)
         self.assertTrue(result["bootstrap_overlaps_valid_interval"])
+
+
+class ExperimentParameterTests(unittest.TestCase):
+    PRESET_FILES = {
+        "A": "A_baseline.params",
+        "B": "B_constant_r.params",
+        "C": "C_variance_only.params",
+        "D": "D_full.params",
+        "E": "E_no_pitot.params",
+    }
+
+    def test_all_qgc_presets_exactly_match_preflight_contract(self):
+        preset_directory = ROOT / "artifacts/ral_revision_phase4_2/parameter_presets"
+        for mode, filename in self.PRESET_FILES.items():
+            with self.subTest(mode=mode):
+                actual = load_qgc_parameters(preset_directory / filename)
+                expected = PREFLIGHT.experiment_mode_expectations(mode)
+                self.assertEqual(set(actual), set(expected))
+                for name, value in expected.items():
+                    self.assertTrue(PREFLIGHT.close_enough(actual[name], value), name)
+
+    def test_a_through_d_restore_pitot_use(self):
+        for mode in "ABCD":
+            with self.subTest(mode=mode):
+                expected = PREFLIGHT.experiment_mode_expectations(mode)
+                self.assertEqual(expected["EKF2_ARSP_THR"], 8.0)
+                self.assertEqual(expected["FW_USE_AIRSPD"], 1)
+                self.assertEqual(expected["SYS_HAS_NUM_ASPD"], 1)
+
+    def test_e_disables_use_but_keeps_physical_pitot_required(self):
+        expected = PREFLIGHT.experiment_mode_expectations("E")
+        self.assertEqual(expected["EKF2_ASP_MODE"], 0)
+        self.assertEqual(expected["EKF2_ARSP_THR"], 0.0)
+        self.assertEqual(expected["FW_USE_AIRSPD"], 0)
+        self.assertEqual(expected["SYS_HAS_NUM_ASPD"], 1)
+
+    def test_changing_only_mode_after_e_fails_full_contract(self):
+        actual = PREFLIGHT.experiment_mode_expectations("E")
+        actual["EKF2_ASP_MODE"] = 3
+        expected = PREFLIGHT.experiment_mode_expectations("D")
+        mismatches = {name for name, value in expected.items()
+                      if not PREFLIGHT.close_enough(actual[name], value)}
+        self.assertEqual(mismatches, {"EKF2_ARSP_THR", "FW_USE_AIRSPD"})
+
+    def test_required_evidence_topics_are_mode_aware(self):
+        for mode in "ABCD":
+            with self.subTest(mode=mode):
+                self.assertIn("estimator_aid_src_airspeed", PREFLIGHT.required_evidence_topics(mode))
+
+        mode_e_topics = PREFLIGHT.required_evidence_topics("E")
+        self.assertNotIn("estimator_aid_src_airspeed", mode_e_topics)
+        self.assertIn("airspeed_quality_input", mode_e_topics)
+        self.assertIn("ekf2_airspeed_quality", mode_e_topics)
+        self.assertIn("airspeed_selector_quality_status", mode_e_topics)
 
 
 class JoinTests(unittest.TestCase):

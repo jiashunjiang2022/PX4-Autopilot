@@ -13,6 +13,68 @@ TRIGGER_NONE = 0
 FALLBACK_NONE = 0
 DEFAULT_BOOTSTRAP_TIMEOUT_S = 5.0
 
+FROZEN_QUALITY_PARAMETERS = {
+    "FLAP_RATIO": 8.0,
+    "EKF2_ASP_DTAU": 0.08,
+    "EKF2_ASP_DV0": 15.0,
+    "EKF2_ASP_QA": 0.70,
+    "EKF2_ASP_QB": 0.30,
+    "EKF2_ASP_RMAX": 5.0,
+    "EKF2_ASP_RCST": 2.5,
+    "EKF2_ASP_QOFF": 0.40,
+    "EKF2_ASP_QON": 0.60,
+    "EKF2_ASP_QTAU": 0.25,
+    "EKF2_ASP_TOFF": 0.20,
+    "EKF2_ASP_TON": 0.30,
+    "EKF2_ASP_THLD": 0.25,
+    "EKF2_ASP_RL": 0.5,
+    "EKF2_ASP_RU": 8.0,
+    "EKF2_ASP_SEVL": 0.5,
+    "EKF2_ASP_SWIN": 4.0,
+    "EKF2_ASP_DF": 0.5,
+    "EKF2_FLAP_F_ON": 1.0,
+    "EKF2_FLAP_F_OFF": 0.6,
+    "EKF2_FLAP_T_ON": 0.4,
+    "EKF2_FLAP_T_OFF": 1.5,
+    "EKF2_FLAP_T_TO": 0.8,
+    "EKF2_EAS_NOISE": 1.4,
+}
+
+EXPERIMENT_MODES = {
+    "A": {"name": "Baseline", "EKF2_ASP_MODE": 0, "EKF2_ARSP_THR": 8.0, "FW_USE_AIRSPD": 1},
+    "B": {"name": "Constant-R", "EKF2_ASP_MODE": 1, "EKF2_ARSP_THR": 8.0, "FW_USE_AIRSPD": 1},
+    "C": {"name": "Variance-only", "EKF2_ASP_MODE": 2, "EKF2_ARSP_THR": 8.0, "FW_USE_AIRSPD": 1},
+    "D": {"name": "Full", "EKF2_ASP_MODE": 3, "EKF2_ARSP_THR": 8.0, "FW_USE_AIRSPD": 1},
+    "E": {"name": "No-Pitot", "EKF2_ASP_MODE": 0, "EKF2_ARSP_THR": 0.0, "FW_USE_AIRSPD": 0},
+}
+
+
+def experiment_mode_expectations(mode):
+    mode = mode.upper()
+    if mode not in EXPERIMENT_MODES:
+        raise ValueError(f"unknown experiment mode {mode!r}")
+    expected = dict(FROZEN_QUALITY_PARAMETERS)
+    expected.update({
+        "SYS_HAS_NUM_ASPD": 1,
+        "ASPD_QBLK_EN": 0,
+    })
+    expected.update({name: value for name, value in EXPERIMENT_MODES[mode].items() if name != "name"})
+    return expected
+
+
+def required_evidence_topics(mode=None):
+    topics = [
+        "airspeed_quality_input",
+        "ekf2_airspeed_quality",
+        "airspeed_selector_quality_status",
+    ]
+
+    # Mode E deliberately disables EKF airspeed fusion with EKF2_ARSP_THR=0.
+    if mode != "E":
+        topics.append("estimator_aid_src_airspeed")
+
+    return topics
+
 
 def close_enough(actual, expected):
     return math.isclose(float(actual), float(expected), rel_tol=1e-5, abs_tol=1e-5)
@@ -158,17 +220,28 @@ def check_source_switches(status_datasets, minimum_timestamp=None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("ulog", help="disarmed/bench ULog captured after reboot")
-    parser.add_argument("--config", required=True, help="run-specific frozen JSON")
-    parser.add_argument("--expected-mode", required=True, type=int, choices=range(4))
-    parser.add_argument("--expected-rcst", required=True, type=float)
+    parser.add_argument("--config", help="optional run-specific frozen JSON")
+    parser.add_argument("--experiment-mode", type=str.upper, choices=EXPERIMENT_MODES,
+                        help="formal experiment preset to verify: A, B, C, D, or E")
+    parser.add_argument("--expected-mode", type=int, choices=range(4),
+                        help="legacy numeric mode check (requires --expected-rcst)")
+    parser.add_argument("--expected-rcst", type=float,
+                        help="legacy constant-R check (requires --expected-mode)")
     parser.add_argument("--bootstrap-timeout-s", type=float,
                         help="maximum startup identity bootstrap duration")
     parser.add_argument("--valid-start-us", type=int,
                         help="formal valid-interval start; defaults to first armed timestamp when present")
     args = parser.parse_args()
 
-    with open(args.config, encoding="utf-8") as source:
-        config = json.load(source)
+    if args.experiment_mode is None and (args.expected_mode is None or args.expected_rcst is None):
+        parser.error("use --experiment-mode A|B|C|D|E, or both --expected-mode and --expected-rcst")
+    if args.experiment_mode is not None and (args.expected_mode is not None or args.expected_rcst is not None):
+        parser.error("--experiment-mode cannot be combined with legacy --expected-mode/--expected-rcst")
+
+    config = {}
+    if args.config:
+        with open(args.config, encoding="utf-8") as source:
+            config = json.load(source)
 
     unresolved = [name for name, value in config.get("parameters_exact_freeze_before_bench", {}).items()
                   if value is None]
@@ -186,14 +259,21 @@ def main():
     passed = True
     expected = dict(config.get("parameters_exact", {}))
     expected.update(config.get("parameters_exact_freeze_before_bench", {}))
-    expected["EKF2_ASP_MODE"] = args.expected_mode
-    expected["EKF2_ASP_RCST"] = args.expected_rcst
+    if args.experiment_mode is not None:
+        mode_info = EXPERIMENT_MODES[args.experiment_mode]
+        print(f"EXPERIMENT MODE {args.experiment_mode}: {mode_info['name']}")
+        expected.update(experiment_mode_expectations(args.experiment_mode))
+    else:
+        expected["EKF2_ASP_MODE"] = args.expected_mode
+        expected["EKF2_ASP_RCST"] = args.expected_rcst
 
     for name, value in expected.items():
         ok = name in parameters and close_enough(parameters[name], value)
         passed &= report(ok, name, f"actual={parameters.get(name)!r}, expected={value!r}")
 
     for name in config.get("parameters_positive", []):
+        if name in expected:
+            continue
         ok = name in parameters and float(parameters[name]) > 0.0
         passed &= report(ok, name, f"actual={parameters.get(name)!r}, expected > 0")
 
@@ -267,8 +347,7 @@ def main():
     passed &= report(not unexplained_switches, "selected-source transitions",
                      f"unexplained={unexplained_switches[:10]}")
 
-    required_topics = ["airspeed_quality_input", "ekf2_airspeed_quality",
-                       "airspeed_selector_quality_status", "estimator_aid_src_airspeed"]
+    required_topics = required_evidence_topics(args.experiment_mode)
     missing = [name for name in required_topics if not topic_instances(ulog, name)]
     passed &= report(not missing, "required evidence topics",
                      "missing=" + (", ".join(missing) if missing else "none"))

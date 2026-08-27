@@ -1,0 +1,8 @@
+A = Baseline       -> EKF2_ASP_MODE=0
+B = Constant-R     -> EKF2_ASP_MODE=1
+C = Variance-only  -> EKF2_ASP_MODE=2
+D = Full           -> EKF2_ASP_MODE=3
+E = No-Pitot       -> EKF2_ASP_MODE=0 + no-Pitot settings
+
+A/B/C/D: EKF2_ARSP_THR=8, FW_USE_AIRSPD=1
+E:       EKF2_ARSP_THR=0, FW_USE_AIRSPD=0
