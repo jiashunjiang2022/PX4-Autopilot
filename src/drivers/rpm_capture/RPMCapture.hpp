@@ -85,6 +85,7 @@ private:
 
 	hrt_abstime _hrt_timestamp{0};
 	hrt_abstime _hrt_timestamp_prev{0};
+	hrt_abstime _min_pulse_interval_us{0};
 	uint32_t _period{UINT32_MAX};
 	uint32_t _error_count{0};
 	px4::atomic<bool> _interrupt_happened{false};
@@ -95,6 +96,7 @@ private:
 	MedianFilter<float, 5> _rpm_median_filter;
 
 	DEFINE_PARAMETERS(
+		(ParamInt<px4::params::RPM_CAP_MIN_US>) _param_rpm_cap_min_us,
 		(ParamInt<px4::params::RPM_PULS_PER_REV>) _param_rpm_puls_per_rev
 	)
 };

@@ -142,25 +142,37 @@ void WingPhase::tryResolvePendingHall()
 		return;
 	}
 
+	double hall_count = 0.0;
+
 	if (_pending_hall_timestamp == _current_encoder_sample.timestamp) {
-		_zero_count = _current_encoder_sample.total_count;
+		hall_count = _current_encoder_sample.total_count;
+
+	} else {
+		if (_previous_encoder_sample.timestamp == 0) {
+			return;
+		}
+
+		const auto interpolation = wing_phase::interpolate_count_at_timestamp(_previous_encoder_sample,
+				   _current_encoder_sample, _pending_hall_timestamp);
+
+		if (!interpolation.valid) {
+			return;
+		}
+
+		hall_count = interpolation.total_count;
+	}
+
+	static constexpr float kHallRearmPhaseRad = M_PI_F / 4.f;
+	const wing_phase::Result phase_before_reset = wing_phase::compute_phase(hall_count, _zero_count, _counts_per_cycle,
+							   _hall_locked);
+
+	if (!_hall_locked
+	    || (phase_before_reset.valid && fabsf(phase_before_reset.phase_unwrapped_rad) > kHallRearmPhaseRad)) {
+		_zero_count = hall_count;
 		_hall_locked = true;
-		_hall_pending = false;
-		return;
 	}
 
-	if (_previous_encoder_sample.timestamp == 0) {
-		return;
-	}
-
-	const auto interpolation = wing_phase::interpolate_count_at_timestamp(_previous_encoder_sample, _current_encoder_sample,
-				     _pending_hall_timestamp);
-
-	if (interpolation.valid) {
-		_zero_count = interpolation.total_count;
-		_hall_locked = true;
-		_hall_pending = false;
-	}
+	_hall_pending = false;
 }
 
 void WingPhase::Run()
@@ -219,12 +231,16 @@ void WingPhase::Run()
 	if (phase.valid) {
 		message.phase_unwrapped_rad = phase.phase_unwrapped_rad;
 		message.phase_rad = phase.phase_rad;
+		message.phase_deg = message.phase_rad * (180.f / M_PI_F);
+		message.phase_unwrapped_deg = message.phase_unwrapped_rad * (180.f / M_PI_F);
 		message.phase_sin = sinf(message.phase_rad);
 		message.phase_cos = cosf(message.phase_rad);
 
 	} else {
 		message.phase_unwrapped_rad = NAN;
 		message.phase_rad = NAN;
+		message.phase_deg = NAN;
+		message.phase_unwrapped_deg = NAN;
 		message.phase_sin = NAN;
 		message.phase_cos = NAN;
 	}
