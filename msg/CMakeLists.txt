@@ -182,6 +182,7 @@ set(msg_files
 	QshellRetval.msg
 	RadioStatus.msg
 	RateCtrlStatus.msg
+	RateCtrlTerms.msg
 	RcChannels.msg
 	RcParameterMap.msg
 	RoverAttitudeSetpoint.msg

@@ -43,6 +43,7 @@
 
 #include <mathlib/mathlib.h>
 #include <uORB/topics/rate_ctrl_status.h>
+#include <uORB/topics/rate_ctrl_terms.h>
 
 class RateControl
 {
@@ -91,10 +92,12 @@ public:
 	 * @param rate estimation of the current vehicle angular rate
 	 * @param rate_sp desired vehicle angular rate setpoint
 	 * @param dt desired vehicle angular rate setpoint
+	 * @param terms optional snapshot of terms used in this output, before updating the integral
 	 * @return [-1,1] normalized torque vector to apply to the vehicle
 	 */
 	matrix::Vector3f update(const matrix::Vector3f &rate, const matrix::Vector3f &rate_sp,
-				const matrix::Vector3f &angular_accel, const float dt, const bool landed);
+				const matrix::Vector3f &angular_accel, const float dt, const bool landed,
+				rate_ctrl_terms_s *terms = nullptr);
 
 	/**
 	 * Set the integral term to 0 to prevent windup

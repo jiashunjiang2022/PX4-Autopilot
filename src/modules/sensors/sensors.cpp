@@ -544,7 +544,8 @@ void Sensors::diff_pres_poll()
 		_baro_pressure_sum += air_data.baro_pressure_pa;
 		_diff_pres_count++;
 
-		if ((_diff_pres_count > 0) && hrt_elapsed_time(&_airspeed_last_publish) >= 50_ms) {
+		// Publish up to 50 Hz so the 20 Hz selector can consume fresh sensor samples.
+		if ((_diff_pres_count > 0) && hrt_elapsed_time(&_airspeed_last_publish) >= 20_ms) {
 
 			// average data and apply calibration offset (SENS_DPRES_OFF)
 			const uint64_t timestamp_sample = _diff_pres_timestamp_sum / _diff_pres_count;

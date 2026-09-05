@@ -76,7 +76,7 @@
 
 using namespace time_literals;
 
-static constexpr uint32_t SCHEDULE_INTERVAL{100_ms};	/**< The schedule interval in usec (10 Hz) */
+static constexpr uint32_t SCHEDULE_INTERVAL{50_ms};	/**< The schedule interval in usec (20 Hz) */
 static constexpr float _kThrottleFilterTimeConstant{0.5f};
 // Minimal pitot blockage / stuck-airspeed heuristic based on disagreement with ground-minus-wind TAS.
 static constexpr float kAirspeedBlockagePhysicalDeltaThreshold{0.7f};

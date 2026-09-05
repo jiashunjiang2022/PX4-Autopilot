@@ -371,7 +371,12 @@ void FixedwingRateControl::Run()
 				_rate_control.setFeedForwardGain(scaled_gain_ff);
 
 				// Run attitude RATE controllers which need the desired attitudes from above, add trim.
-				const Vector3f angular_acceleration_setpoint = _rate_control.update(rates, body_rates_setpoint, angular_accel, dt, _landed);
+				rate_ctrl_terms_s rate_ctrl_terms{};
+				const Vector3f angular_acceleration_setpoint = _rate_control.update(rates, body_rates_setpoint, angular_accel, dt,
+						_landed, &rate_ctrl_terms);
+				rate_ctrl_terms.timestamp_sample = angular_velocity.timestamp_sample;
+				rate_ctrl_terms.timestamp = hrt_absolute_time();
+				_rate_ctrl_terms_pub.publish(rate_ctrl_terms);
 
 				Vector3f control_u = _gain_compression.getGains().emult(angular_acceleration_setpoint * _airspeed_scaling * _airspeed_scaling);
 

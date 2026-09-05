@@ -69,13 +69,21 @@ void RateControl::setNegativeSaturationFlag(size_t axis, bool is_saturated)
 }
 
 Vector3f RateControl::update(const Vector3f &rate, const Vector3f &rate_sp, const Vector3f &angular_accel,
-			     const float dt, const bool landed)
+			     const float dt, const bool landed, rate_ctrl_terms_s *terms)
 {
 	// angular rates error
 	Vector3f rate_error = rate_sp - rate;
 
 	// PID control with feed forward
 	const Vector3f torque = _gain_p.emult(rate_error) + _rate_int - _gain_d.emult(angular_accel) + _gain_ff.emult(rate_sp);
+
+	if (terms != nullptr) {
+		_gain_p.emult(rate_error).copyTo(terms->p_term);
+		_rate_int.copyTo(terms->i_term);
+		(-_gain_d.emult(angular_accel)).copyTo(terms->d_term);
+		_gain_ff.emult(rate_sp).copyTo(terms->ff_term);
+		torque.copyTo(terms->output);
+	}
 
 	// update integral only if we are not landed
 	if (!landed) {

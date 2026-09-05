@@ -411,6 +411,8 @@ void LoggedTopics::add_flapping_dataset_topics()
 	add_optional_topic("hall_event");
 
 	// Reviewer-facing controller evidence without enabling every high-rate profile topic.
+	add_optional_topic_multi("rate_ctrl_status", 20, 2);
+	add_topic("rate_ctrl_terms", 20);
 	add_optional_topic("tecs_status", 50);
 	add_optional_topic("fixed_wing_lateral_guidance_status", 20);
 	add_optional_topic("fixed_wing_lateral_status", 20);
@@ -420,8 +422,15 @@ void LoggedTopics::add_flapping_dataset_topics()
 	add_topic("vehicle_attitude", 20);
 	add_topic("vehicle_angular_velocity", 10);
 	add_topic("vehicle_local_position", 20);
+	add_topic("vehicle_local_position_setpoint", 20);
+	add_topic("vehicle_rates_setpoint", 20);
+	add_topic_multi("vehicle_torque_setpoint", 20, 2);
+	add_topic_multi("vehicle_thrust_setpoint", 20, 2);
+	add_optional_topic("vehicle_torque_setpoint_virtual_fw", 20);
+	add_optional_topic("vehicle_thrust_setpoint_virtual_fw", 20);
 	add_topic("actuator_motors", 20);
 	add_topic("actuator_servos", 20);
+	add_optional_topic_multi("actuator_outputs", 10, 3);
 
 	add_topic_multi("battery_status", 100, 3);
 	add_topic_multi("sensor_gnss_relative", 100, 1);
