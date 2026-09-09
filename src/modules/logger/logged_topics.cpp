@@ -408,6 +408,7 @@ void LoggedTopics::add_flapping_dataset_topics()
 	add_optional_topic_multi("rpm", 0, 2);
 	add_topic("flap_frequency");
 	add_topic("wing_phase");
+	add_topic("flap_aug_shadow", 20);
 	add_optional_topic("hall_event");
 
 	// Reviewer-facing controller evidence without enabling every high-rate profile topic.

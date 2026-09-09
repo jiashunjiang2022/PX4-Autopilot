@@ -1,0 +1,97 @@
+// AUTO-GENERATED - DO NOT EDIT
+// SOURCE_ARTIFACT_SHA256=cb07341f033e1f01e2d9feb7c4e847b71bde85f765508f88072c1474f666d2ba
+// SOURCE_NORMALIZATION_SHA256=7e20d9dd6cead0d086cb4f376b7ba0f673529182255c779f00705daa33f7f247
+// FEATURE_MANIFEST_SHA256=9c8673f3ad8073b0797edd03f38e6ddb4f9ae2f91ec0b5bb88ca769163ea1293
+// GENERATOR_SHA256=035bfcb3e3c3fe6d6cd1da29e4881d6feb5aac70ebc6a08dc25b31b024c1050b
+#pragma once
+
+#include <cstddef>
+
+namespace flap_aug_shadow::generated::v2_pitch_base
+{
+static constexpr size_t FeatureCount = 47;
+static constexpr float Intercept = 0.000936427678f;
+static constexpr float Mean[FeatureCount]{
+	0.0689561442f, 0.290070474f, 0.0767100975f, 0.0444114991f, -0.025705846f, 0.0521465056f,
+	0.084226869f, 0.0792930424f, 0.305153102f, 0.0058520576f, 0.0752404034f, 0.0634399429f,
+	0.0103369001f, 0.0150826387f, 0.0315579064f, 0.0230938978f, -0.020786928f, -0.0196061917f,
+	-0.119042911f, -0.013528211f, 3.25690246f, 0.119730689f, 10.0344591f, 0.0425929353f,
+	-0.0205372255f, -0.0565787852f, 0.721515536f, 0.38708353f, -0.00800924096f, 0.0387591161f,
+	-0.0358278081f, 0.0233841781f, 0.015374938f, 3.83828688f, -0.0498549454f, 0.681066096f,
+	-0.00385740655f, 0.475457311f, 7.8313961f, 7.16389179f, 0.113486044f, 29.6975269f,
+	15.2759361f, 3.43513894f, -0.779604971f, -0.290353864f, 2.00217342f
+};
+
+static constexpr float Std[FeatureCount]{
+	0.226393789f, 0.111633524f, 0.69809109f, 0.710501254f, 0.69340384f, 0.563258231f,
+	0.313280702f, 0.243581325f, 0.0968427062f, 0.524554014f, 0.291769832f, 0.19870995f,
+	0.233469874f, 0.121038154f, 0.805064797f, 0.614961445f, 0.277452797f, 15.9943571f,
+	14.6194687f, 2.9730804f, 5.68182564f, 5.93586302f, 11.2773609f, 0.151431963f,
+	0.182708457f, 0.131833702f, 0.313145816f, 0.247875616f, 0.344761878f, 0.341628969f,
+	0.155759022f, 0.326559365f, 0.105567694f, 0.519478738f, 4.2831831f, 0.107732542f,
+	0.147914395f, 0.140201703f, 2.95702434f, 1.46586239f, 0.967546046f, 6.91190243f,
+	0.941023946f, 3.14615417f, 1.17515707f, 1.72953033f, 1.02745306f
+};
+
+static constexpr float Coefficient[FeatureCount]{
+	-0.00022801134f, 0.000445998128f, -0.00042804188f, -0.000960251025f, 4.07683547e-05f, 0.00048283767f,
+	-0.000132878922f, -0.000109404129f, 0.0031119315f, 0.000618133985f, 0.0044725081f, -0.000323568325f,
+	0.000106997708f, 0.00206894032f, 0.000367852714f, 0.00168105436f, -8.20712667e-05f, 6.07720758e-05f,
+	0.000509148987f, 0.000379560457f, 0.000133985828f, 4.15967988e-05f, -0.00111463305f, -0.00173927378f,
+	0.000308921124f, 8.48319178e-05f, 0.000536266423f, -0.000206321129f, -0.000705042563f, 0.000271140161f,
+	-0.000287227012f, 0.000513779465f, -0.000711543078f, -0.0066939299f, 0.00236794748f, -0.000994273229f,
+	-0.000234094827f, 0.00293679279f, -0.000985556282f, -0.00121712475f, -0.00159607467f, 0.00116877817f,
+	-0.000171820444f, -3.82754151e-05f, -0.00062090694f, -0.000461166608f, 0.000439286232f
+};
+
+static constexpr const char *FeatureNames[FeatureCount]{
+	"roll",
+	"pitch",
+	"yaw_sin",
+	"yaw_cos",
+	"p",
+	"q",
+	"r",
+	"roll_sp",
+	"pitch_sp",
+	"p_sp",
+	"q_sp",
+	"r_sp",
+	"roll_error",
+	"pitch_error",
+	"p_error",
+	"q_error",
+	"r_error",
+	"dp_dt",
+	"dq_dt",
+	"dr_dt",
+	"ax",
+	"ay",
+	"az",
+	"rollspeed_integ",
+	"pitchspeed_integ",
+	"yawspeed_integ",
+	"roll_integrator_utilization",
+	"pitch_integrator_utilization",
+	"horizontal_tail_1_raw",
+	"horizontal_tail_2_raw",
+	"vertical_tail_raw",
+	"u_tail_roll",
+	"u_tail_pitch",
+	"flap_frequency_hz",
+	"d_flap_frequency_dt",
+	"flap_drive_cmd",
+	"d_flap_drive_cmd_dt",
+	"flap_drive_cmd_squared",
+	"airspeed",
+	"groundspeed",
+	"vertical_speed",
+	"altitude",
+	"battery_voltage",
+	"battery_current",
+	"wind_estimate_north",
+	"wind_estimate_east",
+	"wind_estimate_magnitude"
+};
+
+} // namespace flap_aug_shadow::generated::v2_pitch_base

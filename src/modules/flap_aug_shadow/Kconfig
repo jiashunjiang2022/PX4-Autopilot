@@ -1,0 +1,10 @@
+menuconfig MODULES_FLAP_AUG_SHADOW
+	bool "flap_aug_shadow"
+	default n
+	---help---
+		Read, compute and log frozen V2 and engineering-only V3 Shadow diagnostics.
+		This module has no actuator publication or injection path.
+
+if MODULES_FLAP_AUG_SHADOW
+
+endif

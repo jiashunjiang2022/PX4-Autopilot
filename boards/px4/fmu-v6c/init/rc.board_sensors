@@ -32,3 +32,6 @@ as5600 -X -a 0x36 start
 
 # Hall-indexed wing phase from encoder counts + rpm_capture Hall pulse
 wing_phase start
+
+# Read-only augmentation Shadow diagnostics; no actuator publication path.
+flap_aug_shadow start
