@@ -32,7 +32,6 @@
  ****************************************************************************/
 
 #include "AirspeedValidator.hpp"
-#include "AirspeedSelectorQuality.hpp"
 
 #include <drivers/drv_hrt.h>
 #include <lib/wind_estimator/WindEstimator.hpp>
@@ -44,7 +43,6 @@
 #include <px4_platform_common/module_params.h>
 #include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
 #include <lib/airspeed/airspeed.h>
-#include <lib/airspeed/AirspeedQualityMode.hpp>
 #include <lib/systemlib/mavlink_log.h>
 #include <lib/mathlib/math/filter/AlphaFilter.hpp>
 
@@ -53,6 +51,7 @@
 #include <uORB/SubscriptionMultiArray.hpp>
 #include <uORB/topics/airspeed.h>
 #include <uORB/topics/airspeed_validated.h>
+#include <uORB/topics/airspeed_selector_quality_status.h>
 #include <uORB/topics/estimator_selector_status.h>
 #include <uORB/topics/estimator_status.h>
 #include <uORB/topics/launch_detection_status.h>
@@ -70,21 +69,12 @@
 #include <uORB/topics/vehicle_status.h>
 #include <uORB/topics/vehicle_rates_setpoint.h>
 #include <uORB/topics/airspeed_wind.h>
-#include <uORB/topics/airspeed_selector_quality_status.h>
 #include <uORB/topics/flight_phase_estimation.h>
-#include <uORB/topics/ekf2_airspeed_quality.h>
 
 using namespace time_literals;
 
-static constexpr uint32_t SCHEDULE_INTERVAL{50_ms};	/**< The schedule interval in usec (20 Hz) */
+static constexpr uint32_t SCHEDULE_INTERVAL{100_ms};	/**< The schedule interval in usec (10 Hz) */
 static constexpr float _kThrottleFilterTimeConstant{0.5f};
-// Minimal pitot blockage / stuck-airspeed heuristic based on disagreement with ground-minus-wind TAS.
-static constexpr float kAirspeedBlockagePhysicalDeltaThreshold{0.7f};
-static constexpr float kAirspeedBlockageReferenceDeltaThreshold{4.0f};
-static constexpr float kAirspeedBlockageReferenceErrorThreshold{8.0f};
-static constexpr float kAirspeedBlockageClearErrorThreshold{4.0f};
-static constexpr uint64_t kAirspeedBlockageTriggerTimeUs{2_s};
-static constexpr uint64_t kAirspeedBlockageClearTimeUs{1_s};
 
 using matrix::Dcmf;
 using matrix::Quatf;
@@ -125,6 +115,9 @@ private:
 
 	uORB::Publication<airspeed_validated_s> _airspeed_validated_pub {ORB_ID(airspeed_validated)};			/**< airspeed validated topic*/
 	uORB::Publication<airspeed_selector_quality_status_s> _airspeed_selector_quality_status_pub{ORB_ID(airspeed_selector_quality_status)};
+	uint64_t _airspeed_sample_timestamp[MAX_NUM_AIRSPEED_SENSORS] {};
+	uint32_t _airspeed_device_id[MAX_NUM_AIRSPEED_SENSORS] {};
+	void publish_source_status(const airspeed_validated_s &airspeed);
 	uORB::PublicationMulti<airspeed_wind_s> _wind_est_pub[MAX_NUM_AIRSPEED_SENSORS + 1] {{ORB_ID(airspeed_wind)}, {ORB_ID(airspeed_wind)}, {ORB_ID(airspeed_wind)}, {ORB_ID(airspeed_wind)}}; /**< wind estimate topic (for each airspeed validator + purely sideslip fusion) */
 	orb_advert_t 	_mavlink_log_pub {nullptr}; 						/**< mavlink log topic*/
 
@@ -142,7 +135,6 @@ private:
 	uORB::Subscription _vehicle_rates_setpoint_sub{ORB_ID(vehicle_rates_setpoint)};
 	uORB::Subscription _position_setpoint_sub{ORB_ID(position_setpoint)};
 	uORB::Subscription _launch_detection_status_sub{ORB_ID(launch_detection_status)};
-	uORB::Subscription _ekf2_airspeed_quality_sub{ORB_ID(ekf2_airspeed_quality)};
 	uORB::SubscriptionMultiArray<airspeed_s, MAX_NUM_AIRSPEED_SENSORS> _airspeed_subs{ORB_ID::airspeed};
 	uORB::SubscriptionData<flight_phase_estimation_s> _flight_phase_estimation_sub{ORB_ID(flight_phase_estimation)};
 
@@ -155,7 +147,6 @@ private:
 	vehicle_local_position_s _vehicle_local_position {};
 	vehicle_status_s _vehicle_status {};
 	position_setpoint_s _position_setpoint {};
-	ekf2_airspeed_quality_s _ekf2_airspeed_quality {};
 
 	WindEstimator	_wind_estimator_sideslip; /**< wind estimator instance only fusing sideslip */
 	airspeed_wind_s _wind_estimate_sideslip {}; /**< wind estimate message for wind estimator instance only fusing sideslip */
@@ -174,20 +165,8 @@ private:
 	float _ground_minus_wind_TAS{NAN}; /**< true airspeed from groundspeed minus windspeed */
 	float _ground_minus_wind_CAS{NAN}; /**< calibrated airspeed from groundspeed minus windspeed */
 	bool _armed_prev{false};
-	bool _ekf2_airspeed_quality_valid{false};
-	bool _quality_disable_latched{false};
-	uint8_t _quality_latched_trigger_reason{airspeed_selector_quality_status_s::TRIGGER_REASON_NONE};
-	uint8_t _quality_latched_rejection_reason{airspeed_selector_quality_status_s::REJECTION_REASON_NONE};
-	int32_t _airspeed_quality_mode{0};
-	bool _airspeed_blockage_detected{false};
-	hrt_abstime _airspeed_blockage_candidate_since{0};
-	hrt_abstime _airspeed_blockage_clear_since{0};
-	float _airspeed_blockage_phys_anchor_tas{NAN};
-	float _airspeed_blockage_ref_anchor_tas{NAN};
 
 	hrt_abstime _time_last_airspeed_update[MAX_NUM_AIRSPEED_SENSORS] {};
-	uint64_t _airspeed_sample_timestamp[MAX_NUM_AIRSPEED_SENSORS] {};
-	uint32_t _airspeed_device_id[MAX_NUM_AIRSPEED_SENSORS] {};
 
 	perf_counter_t _perf_elapsed{};
 
@@ -224,7 +203,6 @@ private:
 		(ParamInt<px4::params::ASPD_PRIMARY>) _param_airspeed_primary_index,
 		(ParamInt<px4::params::ASPD_DO_CHECKS>) _param_airspeed_checks_on,
 		(ParamInt<px4::params::ASPD_FALLBACK>) _param_airspeed_fallback,
-		(ParamInt<px4::params::ASPD_QBLK_EN>) _param_quality_blockage_enabled,
 
 		(ParamFloat<px4::params::ASPD_FS_INNOV>) _tas_innov_threshold, /**< innovation check threshold */
 		(ParamFloat<px4::params::ASPD_FS_INTEG>) _tas_innov_integ_threshold, /**< innovation check integrator threshold */
@@ -233,7 +211,6 @@ private:
 
 		(ParamFloat<px4::params::ASPD_WERR_THR>) _param_wind_sigma_max_synth_tas,
 		(ParamFloat<px4::params::ASPD_FP_T_WINDOW>) _aspd_fp_t_window,
-		(ParamInt<px4::params::EKF2_ASP_MODE>) _param_ekf2_asp_mode,
 
 		// external parameters
 		(ParamFloat<px4::params::FW_AIRSPD_STALL>) _param_fw_airspd_stall,
@@ -252,10 +229,6 @@ private:
 	void update_wind_estimator_sideslip(); /**< update the wind estimator instance only fusing sideslip */
 	void update_ground_minus_wind_airspeed(); /**< update airspeed estimate based on groundspeed minus windspeed */
 	void select_airspeed_and_publish(); /**< select airspeed sensor (or groundspeed-windspeed) */
-	void update_airspeed_blockage_status(const airspeed_validated_s &airspeed_validated,
-					 bool using_physical_airspeed_sensor);
-	airspeed_selector_quality::FallbackChoice apply_airspeed_fallback(airspeed_validated_s &airspeed_validated,
-			int pre_quality_index);
 	float get_synthetic_airspeed(float throttle);
 	void update_throttle_filter(hrt_abstime t_now);
 };
@@ -268,7 +241,6 @@ AirspeedModule::AirspeedModule():
 	_param_handle_fw_thr_max = param_find("FW_THR_MAX");
 	// initialise parameters
 	update_params();
-	_airspeed_quality_mode = _param_ekf2_asp_mode.get();
 
 	_perf_elapsed = perf_alloc(PC_ELAPSED, MODULE_NAME": elapsed");
 	_airspeed_validated_pub.advertise();
@@ -430,15 +402,15 @@ AirspeedModule::Run()
 		for (int i = 0; i < _number_of_airspeed_sensors; i++) {
 
 			// poll raw airspeed topic of the i-th sensor
-			airspeed_s airspeed_raw{};
+			airspeed_s airspeed_raw;
 
 			if (_airspeed_subs[i].update(&airspeed_raw)) {
+				_airspeed_sample_timestamp[i] = airspeed_raw.timestamp_sample;
+				_airspeed_device_id[i] = airspeed_raw.device_id;
 
 				input_data.airspeed_indicated_raw = airspeed_raw.indicated_airspeed_m_s;
 				input_data.airspeed_true_raw = airspeed_raw.true_airspeed_m_s;
 				input_data.airspeed_timestamp = airspeed_raw.timestamp;
-				_airspeed_sample_timestamp[i] = airspeed_raw.timestamp_sample;
-				_airspeed_device_id[i] = airspeed_raw.device_id;
 				input_data.air_temperature_celsius = _vehicle_air_data.ambient_temperature;
 
 				if (_in_takeoff_situation) {
@@ -607,7 +579,6 @@ void AirspeedModule::poll_topics()
 	_position_setpoint_sub.update(&_position_setpoint);
 
 	_tecs_status_sub.update(&_tecs_status);
-	_ekf2_airspeed_quality_valid = _ekf2_airspeed_quality_sub.update(&_ekf2_airspeed_quality) || _ekf2_airspeed_quality_valid;
 
 	if (_vehicle_attitude_sub.updated()) {
 		vehicle_attitude_s vehicle_attitude;
@@ -730,7 +701,6 @@ void AirspeedModule::select_airspeed_and_publish()
 	}
 
 	const int valid_airspeed_index = static_cast<int>(_valid_airspeed_src);
-	const bool valid_sensor_index = (valid_airspeed_index > 0) && (valid_airspeed_index <= MAX_NUM_AIRSPEED_SENSORS);
 
 	// print warning or info, depending of whether airspeed got declared invalid or healthy
 	if (_valid_airspeed_src != _prev_airspeed_src &&
@@ -782,13 +752,11 @@ void AirspeedModule::select_airspeed_and_publish()
 	airspeed_validated.indicated_airspeed_m_s = NAN;
 	airspeed_validated.calibrated_airspeed_m_s = NAN;
 	airspeed_validated.true_airspeed_m_s = NAN;
-	airspeed_validated.airspeed_derivative_filtered = valid_sensor_index
-			? _airspeed_validator[valid_airspeed_index - 1].get_airspeed_derivative()
-			: NAN;
+
+	airspeed_validated.airspeed_derivative_filtered = _airspeed_validator[valid_airspeed_index -
+					     1].get_airspeed_derivative();
 	airspeed_validated.throttle_filtered = _throttle_filtered.getState();
-	airspeed_validated.pitch_filtered = valid_sensor_index
-			? _airspeed_validator[valid_airspeed_index - 1].get_pitch_filtered()
-			: NAN;
+	airspeed_validated.pitch_filtered = _airspeed_validator[valid_airspeed_index - 1].get_pitch_filtered();
 
 	airspeed_validated.airspeed_source = valid_airspeed_index;
 	_prev_airspeed_src = _valid_airspeed_src;
@@ -827,204 +795,8 @@ void AirspeedModule::select_airspeed_and_publish()
 		break;
 	}
 
-	airspeed_selector_quality_status_s quality_status{};
-	quality_status.timestamp = _time_now_usec;
-	const airspeed_quality::ModeConfig mode_config = airspeed_quality::mode_config(_airspeed_quality_mode);
-	quality_status.experiment_mode = static_cast<uint8_t>(mode_config.mode);
-	quality_status.selector_quality_enabled = mode_config.selector_quality_enabled;
-	quality_status.pre_quality_source = airspeed_validated.airspeed_source;
-	quality_status.original_selected_source = airspeed_validated.airspeed_source;
-	const int pre_quality_index = static_cast<int>(quality_status.pre_quality_source) - 1;
-	const bool using_physical_airspeed_sensor = airspeed_selector_quality::is_physical_source(
-			quality_status.pre_quality_source);
-
-	if ((pre_quality_index >= 0) && (pre_quality_index < MAX_NUM_AIRSPEED_SENSORS)) {
-		quality_status.pre_quality_device_id = _airspeed_device_id[pre_quality_index];
-		quality_status.decision_timestamp_sample = _airspeed_sample_timestamp[pre_quality_index];
-		quality_status.original_sensor_valid = _airspeed_validator[pre_quality_index].get_airspeed_valid();
-	}
-
-	quality_status.quality_device_id = _ekf2_airspeed_quality.quality_device_id;
-	quality_status.quality_source_instance = _ekf2_airspeed_quality.quality_source_instance;
-	quality_status.quality_timestamp_sample = _ekf2_airspeed_quality.quality_timestamp_sample;
-	quality_status.quality_age_us = (quality_status.quality_timestamp_sample > 0
-					 && _time_now_usec >= quality_status.quality_timestamp_sample)
-					? static_cast<uint32_t>(math::min(_time_now_usec - quality_status.quality_timestamp_sample,
-									static_cast<uint64_t>(UINT32_MAX))) : UINT32_MAX;
-	quality_status.pre_quality_output_finite = airspeed_selector_quality::pre_quality_output_finite(
-						PX4_ISFINITE(airspeed_validated.indicated_airspeed_m_s),
-						PX4_ISFINITE(airspeed_validated.calibrated_airspeed_m_s),
-						PX4_ISFINITE(airspeed_validated.true_airspeed_m_s));
-	quality_status.original_selection_was_fallback = airspeed_selector_quality::original_selection_was_fallback(
-			quality_status.original_selected_source);
-	quality_status.concurrent_original_sensor_invalid = using_physical_airspeed_sensor
-			&& !quality_status.original_sensor_valid;
-	quality_status.trigger_reason = airspeed_selector_quality_status_s::TRIGGER_REASON_NONE;
-	quality_status.rejection_reason = airspeed_selector_quality_status_s::REJECTION_REASON_NONE;
-	quality_status.fallback_source = airspeed_validated_s::SOURCE_DISABLED;
-
-	if (quality_status.original_selection_was_fallback) {
-		quality_status.trigger_reason = airspeed_selector_quality_status_s::TRIGGER_REASON_ORIGINAL_SELECTION_FALLBACK;
-		quality_status.rejection_reason = airspeed_selector_quality_status_s::REJECTION_REASON_FALLBACK_SELECTED;
-		quality_status.fallback_attempted = true;
-		quality_status.fallback_available = true;
-		quality_status.fallback_source = quality_status.original_selected_source;
-
-	} else if (!quality_status.original_sensor_valid) {
-		quality_status.trigger_reason = airspeed_selector_quality_status_s::TRIGGER_REASON_ORIGINAL_SENSOR_INVALID;
-		quality_status.rejection_reason = airspeed_selector_quality_status_s::REJECTION_REASON_ORIGINAL_SENSOR_INVALID;
-	}
-
-	const bool quality_fresh = _ekf2_airspeed_quality_valid
-				   && _ekf2_airspeed_quality.quality_input_valid
-				   && (quality_status.quality_age_us < 1_s);
-	quality_status.source_identity_match = airspeed_selector_quality::source_identity_matches(
-			_number_of_airspeed_sensors, quality_status.pre_quality_source, quality_status.pre_quality_device_id,
-			quality_status.quality_source_instance, quality_status.quality_device_id);
-
-	const bool custom_blockage_enabled = airspeed_selector_quality::custom_blockage_enabled(
-			_param_quality_blockage_enabled.get());
-
-	if (custom_blockage_enabled) {
-		update_airspeed_blockage_status(airspeed_validated, using_physical_airspeed_sensor);
-
-	} else {
-		_airspeed_blockage_detected = false;
-		_airspeed_blockage_candidate_since = 0;
-		_airspeed_blockage_clear_since = 0;
-		_airspeed_blockage_phys_anchor_tas = NAN;
-		_airspeed_blockage_ref_anchor_tas = NAN;
-	}
-
-	quality_status.concurrent_blockage = custom_blockage_enabled
-			&& _airspeed_blockage_detected && using_physical_airspeed_sensor;
-
-	if (!mode_config.selector_quality_enabled) {
-		_quality_disable_latched = false;
-		_quality_latched_trigger_reason = airspeed_selector_quality_status_s::TRIGGER_REASON_NONE;
-		_quality_latched_rejection_reason = airspeed_selector_quality_status_s::REJECTION_REASON_NONE;
-
-	} else if (using_physical_airspeed_sensor && !quality_status.source_identity_match) {
-		_quality_disable_latched = false;
-		_quality_latched_trigger_reason = airspeed_selector_quality_status_s::TRIGGER_REASON_NONE;
-		_quality_latched_rejection_reason = airspeed_selector_quality_status_s::REJECTION_REASON_NONE;
-		quality_status.trigger_reason = airspeed_selector_quality_status_s::TRIGGER_REASON_SOURCE_ID_MISMATCH;
-
-	} else if (using_physical_airspeed_sensor) {
-		const auto decision = airspeed_selector_quality::evaluate_quality(
-					      quality_fresh, _ekf2_airspeed_quality.fuse_enabled);
-
-		if (decision.reject) {
-			_quality_latched_trigger_reason = airspeed_selector_quality_status_s::TRIGGER_REASON_QUALITY_REJECTION;
-			_quality_latched_rejection_reason = airspeed_selector_quality_status_s::REJECTION_REASON_QUALITY_SAFEGUARD;
-		}
-		airspeed_selector_quality::QualityLatchState latch_state {
-			.latched = _quality_disable_latched,
-		};
-		airspeed_selector_quality::update_latch(decision, latch_state);
-		_quality_disable_latched = latch_state.latched;
-
-	} else {
-		_quality_disable_latched = false;
-		_quality_latched_trigger_reason = airspeed_selector_quality_status_s::TRIGGER_REASON_NONE;
-		_quality_latched_rejection_reason = airspeed_selector_quality_status_s::REJECTION_REASON_NONE;
-	}
-
-	if (mode_config.selector_quality_enabled && quality_status.source_identity_match
-	    && _quality_disable_latched && using_physical_airspeed_sensor) {
-		quality_status.quality_rejected = true;
-		quality_status.fallback_attempted = true;
-		quality_status.trigger_reason = _quality_latched_trigger_reason;
-		quality_status.rejection_reason = _quality_latched_rejection_reason;
-
-		int8_t alternate_physical_source = airspeed_validated_s::SOURCE_DISABLED;
-
-		for (int i = 0; i < _number_of_airspeed_sensors; ++i) {
-			if ((i != pre_quality_index) && _airspeed_validator[i].get_airspeed_valid()) {
-				alternate_physical_source = static_cast<int8_t>(i + 1);
-				break;
-			}
-		}
-
-		const bool ground_wind_available = PX4_ISFINITE(_ground_minus_wind_CAS) && PX4_ISFINITE(_ground_minus_wind_TAS);
-		const bool synthetic_available = (_vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING);
-		const auto fallback = airspeed_selector_quality::choose_fallback(alternate_physical_source,
-					  ground_wind_available, synthetic_available, _param_airspeed_fallback.get());
-		quality_status.fallback_available = fallback.available;
-		quality_status.fallback_source = fallback.source;
-
-		if (fallback.source >= airspeed_validated_s::SOURCE_SENSOR_1
-		    && fallback.source <= airspeed_validated_s::SOURCE_SENSOR_3) {
-			const int fallback_index = fallback.source - 1;
-			airspeed_validated.indicated_airspeed_m_s = _airspeed_validator[fallback_index].get_IAS();
-			airspeed_validated.calibrated_airspeed_m_s = _airspeed_validator[fallback_index].get_CAS();
-			airspeed_validated.true_airspeed_m_s = _airspeed_validator[fallback_index].get_TAS();
-			airspeed_validated.airspeed_derivative_filtered = _airspeed_validator[fallback_index].get_airspeed_derivative();
-			airspeed_validated.pitch_filtered = _airspeed_validator[fallback_index].get_pitch_filtered();
-			airspeed_validated.airspeed_source = fallback.source;
-
-		} else if (fallback.source == airspeed_validated_s::SOURCE_GROUND_MINUS_WIND) {
-			airspeed_validated.indicated_airspeed_m_s = _ground_minus_wind_CAS;
-			airspeed_validated.calibrated_airspeed_m_s = _ground_minus_wind_CAS;
-			airspeed_validated.true_airspeed_m_s = _ground_minus_wind_TAS;
-			airspeed_validated.airspeed_source = airspeed_validated_s::SOURCE_GROUND_MINUS_WIND;
-
-		} else if (fallback.source == airspeed_validated_s::SOURCE_SYNTHETIC) {
-			const float synthetic_airspeed = get_synthetic_airspeed(airspeed_validated.throttle_filtered);
-			airspeed_validated.indicated_airspeed_m_s = synthetic_airspeed;
-			airspeed_validated.calibrated_airspeed_m_s = synthetic_airspeed;
-			airspeed_validated.true_airspeed_m_s = calc_true_from_calibrated_airspeed(synthetic_airspeed, _vehicle_air_data.rho);
-			airspeed_validated.airspeed_source = airspeed_validated_s::SOURCE_SYNTHETIC;
-
-		} else {
-			airspeed_validated.indicated_airspeed_m_s = NAN;
-			airspeed_validated.calibrated_airspeed_m_s = NAN;
-			airspeed_validated.true_airspeed_m_s = NAN;
-			airspeed_validated.airspeed_source = airspeed_validated_s::SOURCE_DISABLED;
-		}
-	}
-
-	if (custom_blockage_enabled && _airspeed_blockage_detected && using_physical_airspeed_sensor) {
-		const auto fallback = apply_airspeed_fallback(airspeed_validated, pre_quality_index);
-		quality_status.fallback_attempted = true;
-		quality_status.fallback_available = fallback.available;
-		quality_status.fallback_source = fallback.source;
-
-		if (!quality_status.quality_rejected) {
-			quality_status.trigger_reason = airspeed_selector_quality_status_s::TRIGGER_REASON_BLOCKAGE;
-			quality_status.rejection_reason = quality_status.fallback_available
-							  ? airspeed_selector_quality_status_s::REJECTION_REASON_OTHER
-							  : airspeed_selector_quality_status_s::REJECTION_REASON_SOURCE_UNAVAILABLE;
-		}
-
-	}
-
-	quality_status.final_selected_source = airspeed_validated.airspeed_source;
-	const int final_index = static_cast<int>(quality_status.final_selected_source) - 1;
-
-	if ((final_index >= 0) && (final_index < MAX_NUM_AIRSPEED_SENSORS)) {
-		quality_status.final_device_id = _airspeed_device_id[final_index];
-		quality_status.decision_timestamp_sample = _airspeed_sample_timestamp[final_index];
-
-	} else {
-		quality_status.final_device_id = 0;
-		quality_status.decision_timestamp_sample = _time_now_usec;
-	}
-
-	if (quality_status.fallback_attempted) {
-		const auto fallback_status = airspeed_selector_quality::fallback_status_for_source(
-					     quality_status.final_selected_source);
-		quality_status.fallback_source = fallback_status.source;
-		quality_status.fallback_outcome = static_cast<uint8_t>(fallback_status.outcome);
-		quality_status.fallback_available = fallback_status.available;
-	}
-
-	quality_status.final_valid = PX4_ISFINITE(airspeed_validated.indicated_airspeed_m_s)
-				     && PX4_ISFINITE(airspeed_validated.calibrated_airspeed_m_s)
-				     && PX4_ISFINITE(airspeed_validated.true_airspeed_m_s);
-	_airspeed_selector_quality_status_pub.publish(quality_status);
-
 	_airspeed_validated_pub.publish(airspeed_validated);
+	publish_source_status(airspeed_validated);
 
 	_wind_est_pub[0].publish(_wind_estimate_sideslip);
 
@@ -1047,133 +819,28 @@ void AirspeedModule::select_airspeed_and_publish()
 
 }
 
-void AirspeedModule::update_airspeed_blockage_status(const airspeed_validated_s &airspeed_validated,
-		bool using_physical_airspeed_sensor)
+// Passive telemetry only: upstream selection and the published airspeed stay unchanged.
+void AirspeedModule::publish_source_status(const airspeed_validated_s &airspeed)
 {
-	const bool in_air_fixed_wing = !_vehicle_land_detected.landed
-				       && (_vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING);
-	const bool reference_valid = PX4_ISFINITE(_ground_minus_wind_TAS);
-	const bool physical_valid = using_physical_airspeed_sensor && PX4_ISFINITE(airspeed_validated.true_airspeed_m_s);
+	airspeed_selector_quality_status_s status{};
+	status.timestamp = airspeed.timestamp;
+	status.final_selected_source = airspeed.airspeed_source;
+	status.decision_timestamp_sample = airspeed.timestamp;
+	const int index = static_cast<int>(airspeed.airspeed_source) - 1;
 
-	if (!in_air_fixed_wing || !reference_valid || !physical_valid) {
-		_airspeed_blockage_detected = false;
-		_airspeed_blockage_candidate_since = 0;
-		_airspeed_blockage_clear_since = 0;
-		_airspeed_blockage_phys_anchor_tas = airspeed_validated.true_airspeed_m_s;
-		_airspeed_blockage_ref_anchor_tas = _ground_minus_wind_TAS;
-		return;
+	if (index >= 0 && index < MAX_NUM_AIRSPEED_SENSORS) {
+		status.final_device_id = _airspeed_device_id[index];
+		status.decision_timestamp_sample = _airspeed_sample_timestamp[index];
+		status.original_sensor_valid = _airspeed_validator[index].get_airspeed_valid();
 	}
 
-	if (!PX4_ISFINITE(_airspeed_blockage_phys_anchor_tas) || !PX4_ISFINITE(_airspeed_blockage_ref_anchor_tas)) {
-		_airspeed_blockage_phys_anchor_tas = airspeed_validated.true_airspeed_m_s;
-		_airspeed_blockage_ref_anchor_tas = _ground_minus_wind_TAS;
-	}
-
-	const float phys_change = fabsf(airspeed_validated.true_airspeed_m_s - _airspeed_blockage_phys_anchor_tas);
-	const float ref_change = fabsf(_ground_minus_wind_TAS - _airspeed_blockage_ref_anchor_tas);
-	const float ref_error = fabsf(airspeed_validated.true_airspeed_m_s - _ground_minus_wind_TAS);
-	const bool blockage_candidate = (phys_change < kAirspeedBlockagePhysicalDeltaThreshold)
-					&& ((ref_change > kAirspeedBlockageReferenceDeltaThreshold)
-					    || (ref_error > kAirspeedBlockageReferenceErrorThreshold));
-
-	if (!_airspeed_blockage_detected) {
-		if (blockage_candidate) {
-			if (_airspeed_blockage_candidate_since == 0) {
-				_airspeed_blockage_candidate_since = _time_now_usec;
-				_airspeed_blockage_phys_anchor_tas = airspeed_validated.true_airspeed_m_s;
-				_airspeed_blockage_ref_anchor_tas = _ground_minus_wind_TAS;
-
-			} else if ((_time_now_usec - _airspeed_blockage_candidate_since) >= kAirspeedBlockageTriggerTimeUs) {
-				_airspeed_blockage_detected = true;
-				_airspeed_blockage_clear_since = 0;
-				mavlink_log_critical(&_mavlink_log_pub, "Airspeed blocked or stuck, using fallback\t");
-				events::send(events::ID("airspeed_selector_blocked"), events::Log::Critical,
-					     "Airspeed blocked or stuck, using fallback");
-			}
-
-		} else {
-			_airspeed_blockage_candidate_since = 0;
-			_airspeed_blockage_phys_anchor_tas = airspeed_validated.true_airspeed_m_s;
-			_airspeed_blockage_ref_anchor_tas = _ground_minus_wind_TAS;
-		}
-
-	} else {
-		const bool clear_candidate = (ref_error < kAirspeedBlockageClearErrorThreshold)
-					     || (phys_change > kAirspeedBlockagePhysicalDeltaThreshold);
-
-		if (clear_candidate) {
-			if (_airspeed_blockage_clear_since == 0) {
-				_airspeed_blockage_clear_since = _time_now_usec;
-
-			} else if ((_time_now_usec - _airspeed_blockage_clear_since) >= kAirspeedBlockageClearTimeUs) {
-				_airspeed_blockage_detected = false;
-				_airspeed_blockage_candidate_since = 0;
-				mavlink_log_info(&_mavlink_log_pub, "Airspeed unstuck, sensor reused\t");
-				events::send(events::ID("airspeed_selector_blocked_clear"), events::Log::Info,
-					     "Airspeed unstuck, sensor reused");
-			}
-
-		} else {
-			_airspeed_blockage_clear_since = 0;
-		}
-
-		_airspeed_blockage_phys_anchor_tas = airspeed_validated.true_airspeed_m_s;
-		_airspeed_blockage_ref_anchor_tas = _ground_minus_wind_TAS;
-	}
-}
-
-airspeed_selector_quality::FallbackChoice AirspeedModule::apply_airspeed_fallback(
-	airspeed_validated_s &airspeed_validated, int pre_quality_index)
-{
-	int8_t alternate_physical_source = airspeed_validated_s::SOURCE_DISABLED;
-
-	for (int i = 0; i < _number_of_airspeed_sensors; ++i) {
-		if ((i != pre_quality_index) && _airspeed_validator[i].get_airspeed_valid()) {
-			alternate_physical_source = static_cast<int8_t>(i + 1);
-			break;
-		}
-	}
-
-	const bool ground_wind_available = PX4_ISFINITE(_ground_minus_wind_CAS) && PX4_ISFINITE(_ground_minus_wind_TAS);
-	const bool synthetic_available = (_vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING);
-	const auto fallback = airspeed_selector_quality::choose_fallback(alternate_physical_source,
-			      ground_wind_available, synthetic_available, _param_airspeed_fallback.get());
-
-	if (fallback.source >= airspeed_validated_s::SOURCE_SENSOR_1
-	    && fallback.source <= airspeed_validated_s::SOURCE_SENSOR_3) {
-		const int fallback_index = fallback.source - 1;
-		airspeed_validated.indicated_airspeed_m_s = _airspeed_validator[fallback_index].get_IAS();
-		airspeed_validated.calibrated_airspeed_m_s = _airspeed_validator[fallback_index].get_CAS();
-		airspeed_validated.true_airspeed_m_s = _airspeed_validator[fallback_index].get_TAS();
-		airspeed_validated.airspeed_derivative_filtered = _airspeed_validator[fallback_index].get_airspeed_derivative();
-		airspeed_validated.pitch_filtered = _airspeed_validator[fallback_index].get_pitch_filtered();
-		airspeed_validated.airspeed_source = fallback.source;
-
-	} else if (fallback.source == airspeed_validated_s::SOURCE_GROUND_MINUS_WIND) {
-		airspeed_validated.indicated_airspeed_m_s = _ground_minus_wind_CAS;
-		airspeed_validated.calibrated_airspeed_m_s = _ground_minus_wind_CAS;
-		airspeed_validated.true_airspeed_m_s = _ground_minus_wind_TAS;
-		airspeed_validated.calibrated_ground_minus_wind_m_s = _ground_minus_wind_CAS;
-		airspeed_validated.calibraded_airspeed_synth_m_s = get_synthetic_airspeed(airspeed_validated.throttle_filtered);
-		airspeed_validated.airspeed_source = airspeed_validated_s::SOURCE_GROUND_MINUS_WIND;
-
-	} else if (fallback.source == airspeed_validated_s::SOURCE_SYNTHETIC) {
-		const float synthetic_airspeed = get_synthetic_airspeed(airspeed_validated.throttle_filtered);
-		airspeed_validated.indicated_airspeed_m_s = synthetic_airspeed;
-		airspeed_validated.calibrated_airspeed_m_s = synthetic_airspeed;
-		airspeed_validated.true_airspeed_m_s = calc_true_from_calibrated_airspeed(synthetic_airspeed,
-							_vehicle_air_data.rho);
-		airspeed_validated.calibraded_airspeed_synth_m_s = synthetic_airspeed;
-		airspeed_validated.airspeed_source = airspeed_validated_s::SOURCE_SYNTHETIC;
-
-	} else {
-		airspeed_validated.indicated_airspeed_m_s = NAN;
-		airspeed_validated.calibrated_airspeed_m_s = NAN;
-		airspeed_validated.true_airspeed_m_s = NAN;
-		airspeed_validated.airspeed_source = airspeed_validated_s::SOURCE_DISABLED;
-	}
-
-	return fallback;
+	status.final_valid = PX4_ISFINITE(airspeed.indicated_airspeed_m_s)
+			     && PX4_ISFINITE(airspeed.calibrated_airspeed_m_s)
+			     && PX4_ISFINITE(airspeed.true_airspeed_m_s);
+	status.fallback_available = status.final_valid
+				    && (airspeed.airspeed_source == airspeed_validated_s::SOURCE_GROUND_MINUS_WIND
+					|| airspeed.airspeed_source == airspeed_validated_s::SOURCE_SYNTHETIC);
+	_airspeed_selector_quality_status_pub.publish(status);
 }
 
 float AirspeedModule::get_synthetic_airspeed(float throttle)

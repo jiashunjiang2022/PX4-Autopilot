@@ -90,11 +90,8 @@
 
 #if defined(CONFIG_EKF2_AIRSPEED)
 # include "AirspeedQualityMath.hpp"
-# include "AirspeedQualitySnapshot.hpp"
-# include <lib/airspeed/AirspeedQualityMode.hpp>
 # include <uORB/topics/airspeed.h>
 # include <uORB/topics/airspeed_quality_input.h>
-# include <uORB/topics/airspeed_selector_quality_status.h>
 # include <uORB/topics/airspeed_validated.h>
 # include <uORB/topics/ekf2_airspeed_quality.h>
 # include <uORB/topics/flap_frequency.h>
@@ -173,8 +170,6 @@ private:
 	struct AirspeedQualityState {
 		float airspeed_q{1.f};
 		float q_raw{1.f};
-		float R_as_used{0.f};
-		bool fuse_enabled{true};
 		bool flap_active{false};
 		float flap_frequency_hz{NAN};
 		float spectral_ratio{NAN};
@@ -188,12 +183,6 @@ private:
 		uint8_t spectral_reset_reason{ekf2_airspeed_quality_s::SPECTRAL_RESET_REASON_NONE};
 		uint32_t flap_active_streak_ms{0};
 		uint32_t flap_recent_true_age_ms{0};
-		float gate_q_used{NAN};
-		bool gate_off_condition{false};
-		bool gate_on_condition{false};
-		uint32_t gate_off_streak_ms{0};
-		uint32_t gate_on_streak_ms{0};
-		uint8_t gate_reason{ekf2_airspeed_quality_s::GATE_REASON_NONE};
 		uint64_t timestamp_us{0};
 		uint64_t timestamp_sample{0};
 		uint8_t input_source{airspeed_quality_input_s::INPUT_SOURCE_UNKNOWN};
@@ -208,11 +197,6 @@ private:
 		float temporal_filtered{NAN};
 		float temporal_normalized{NAN};
 		bool temporal_valid{false};
-		float nominal_R_as{NAN};
-		uint8_t experiment_mode{ekf2_airspeed_quality_s::EXPERIMENT_MODE_BASELINE};
-		bool adaptive_r_enabled{false};
-		bool quality_fusion_gate_enabled{false};
-		bool selector_quality_enabled{false};
 			float effective_flap_ratio{NAN};
 			uint32_t quality_device_id{0};
 			uint8_t quality_source_instance{0};
@@ -226,13 +210,11 @@ private:
 	{
 	public:
 		void reset();
-		bool update(uint64_t time_us, float indicated_airspeed, float flap_freq_hz, float eas2tas,
+		bool update(uint64_t time_us, float indicated_airspeed, float flap_freq_hz,
 			    bool flap_freq_timed_out, float flap_f_on_hz, float flap_f_off_hz,
 			    float flap_t_on_s, float flap_t_off_s,
 			    float spec_fs_hz, float spec_win_s, float reference_lower_hz, float reference_upper_hz,
-			    float df_hz, float eval_interval_s, float temporal_tau_s, float a, float b, float dv0, float rmax_factor,
-			    float base_noise_std, float q_on, float q_off, float q_tau_s,
-			    float t_off_s, float t_on_s, float t_hold_s, AirspeedQualityState &out);
+			    float df_hz, float eval_interval_s, float temporal_tau_s, float a, float b, float dv0, float q_tau_s, AirspeedQualityState &out);
 	private:
 		static constexpr int kMaxSamples = 256;
 		enum class SpectralResetReason : uint8_t {
@@ -246,8 +228,6 @@ private:
 		void resetSpectralWindow(SpectralResetReason reason);
 		uint32_t flapActiveStreakMs(uint64_t time_us) const;
 		uint32_t flapRecentTrueAgeMs(uint64_t time_us) const;
-		uint32_t gateOffStreakMs(uint64_t time_us) const;
-		uint32_t gateOnStreakMs(uint64_t time_us) const;
 
 		int _head{0};
 		int _count{0};
@@ -263,10 +243,6 @@ private:
 		float _spectral_ratio_last_valid{NAN};
 		uint64_t _spectral_ratio_last_update_us{0};
 		float _q_smoothed{1.f};
-		bool _fuse_enabled{true};
-		uint64_t _below_off_since{0};
-		uint64_t _above_on_since{0};
-		uint64_t _hold_until{0};
 		bool _flap_active{false};
 		uint64_t _flap_active_since{0};
 		uint64_t _flap_above_on_since{0};
@@ -327,6 +303,7 @@ private:
 
 #if defined(CONFIG_EKF2_AIRSPEED)
 	void UpdateAirspeedSample(ekf2_timestamps_s &ekf2_timestamps);
+	void UpdateAirspeedQualityMonitoring(ekf2_timestamps_s &ekf2_timestamps);
 #endif // CONFIG_EKF2_AIRSPEED
 #if defined(CONFIG_EKF2_AUXVEL)
 	void UpdateAuxVelSample(ekf2_timestamps_s &ekf2_timestamps);
@@ -498,7 +475,6 @@ private:
 	uORB::Subscription _airspeed_quality_input_sub{ORB_ID(airspeed_quality_input)};
 	uORB::Subscription _airspeed_sub {ORB_ID(airspeed)};
 	uORB::Subscription _airspeed_validated_sub{ORB_ID(airspeed_validated)};
-	uORB::Subscription _airspeed_selector_quality_status_sub{ORB_ID(airspeed_selector_quality_status)};
 
 	float _airspeed_scale_factor{1.0f}; ///< scale factor correction applied to airspeed measurements
 	hrt_abstime _airspeed_validated_timestamp_last{0};
@@ -510,12 +486,8 @@ private:
 
 	uORB::PublicationMulti<ekf2_airspeed_quality_s> _ekf2_airspeed_quality_pub{ORB_ID(ekf2_airspeed_quality)};
 	hrt_abstime _airspeed_quality_input_timestamp{0};
-	float _airspeed_quality_eas2tas{1.f};
-	int32_t _airspeed_quality_mode{0};
-	float _airspeed_quality_rcst{1.f};
 	param_t _flap_ratio_handle{PARAM_INVALID};
 	float _effective_flap_ratio{8.f};
-	bool _airspeed_quality_mode_error_reported{false};
 	uint64_t _airspeed_quality_last_sample_timestamp{0};
 	uint32_t _airspeed_quality_input_missed_count{0};
 	perf_counter_t _airspeed_quality_update_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": airspeed quality update")};
@@ -524,7 +496,6 @@ private:
 
 	AirspeedQualityEstimator _airspeed_quality_estimator{};
 	AirspeedQualityState _airspeed_quality_state{};
-	airspeed_quality::SnapshotRing<AirspeedQualityState, 16> _airspeed_quality_snapshots{};
 
 #endif // CONFIG_EKF2_AIRSPEED
 
@@ -723,42 +694,31 @@ private:
 		// control of airspeed fusion
 		(ParamExtFloat<px4::params::EKF2_ARSP_THR>)
 		_param_ekf2_arsp_thr, ///< A value of zero will disabled airspeed fusion. Any positive value sets the minimum airspeed which will be used (m/sec)
-		(ParamExtInt<px4::params::EKF2_ASP_MODE>)
-		_param_ekf2_asp_mode, ///< mutually exclusive experiment mode
-		(ParamExtFloat<px4::params::EKF2_ASP_RCST>)
-		_param_ekf2_asp_rcst, ///< constant-R variance multiplier
-		(ParamExtFloat<px4::params::EKF2_ASP_DF>)
+		(ParamFloat<px4::params::EKF2_ASP_DF>)
 		_param_ekf2_asp_df, ///< airspeed quality spectral band half-width (Hz)
-		(ParamExtFloat<px4::params::EKF2_ASP_RL>)
+		(ParamFloat<px4::params::EKF2_ASP_RL>)
 		_param_ekf2_asp_rl, ///< spectral reference lower bound (Hz)
-		(ParamExtFloat<px4::params::EKF2_ASP_RU>)
+		(ParamFloat<px4::params::EKF2_ASP_RU>)
 		_param_ekf2_asp_ru, ///< spectral reference upper bound (Hz)
-		(ParamExtFloat<px4::params::EKF2_ASP_SEVL>)
+		(ParamFloat<px4::params::EKF2_ASP_SEVL>)
 		_param_ekf2_asp_sevl, ///< spectral evaluation interval (s)
-		(ParamExtFloat<px4::params::EKF2_ASP_DTAU>)
+		(ParamFloat<px4::params::EKF2_ASP_DTAU>)
 		_param_ekf2_asp_dtau, ///< temporal variation filter time constant (s)
-		(ParamExtFloat<px4::params::EKF2_ASP_QA>)
+		(ParamFloat<px4::params::EKF2_ASP_QA>)
 		_param_ekf2_asp_qa, ///< airspeed quality spectral weight
-		(ParamExtFloat<px4::params::EKF2_ASP_QB>)
+		(ParamFloat<px4::params::EKF2_ASP_QB>)
 		_param_ekf2_asp_qb, ///< airspeed quality rate weight
-		(ParamExtFloat<px4::params::EKF2_ASP_SWIN>)
+		(ParamFloat<px4::params::EKF2_ASP_SWIN>)
 		_param_ekf2_asp_swin, ///< spectral window length (s), must fill before valid ratio
-		(ParamExtFloat<px4::params::EKF2_ASP_DV0>)
+		(ParamFloat<px4::params::EKF2_ASP_DV0>)
 		_param_ekf2_asp_dv0, ///< airspeed rate normalization (m/s/s)
-		(ParamExtFloat<px4::params::EKF2_ASP_RMAX>)
-		_param_ekf2_asp_rmax, ///< max airspeed noise multiplier
-		(ParamExtFloat<px4::params::EKF2_ASP_QON>)
-		_param_ekf2_asp_qon, ///< airspeed quality gate on threshold
-		(ParamExtFloat<px4::params::EKF2_ASP_QOFF>)
-		_param_ekf2_asp_qoff, ///< airspeed quality gate off threshold
-		(ParamExtFloat<px4::params::EKF2_ASP_QTAU>)
+		(ParamFloat<px4::params::EKF2_ASP_QTAU>)
 		_param_ekf2_asp_qtau, ///< airspeed quality smoothing time constant (s)
-		(ParamExtFloat<px4::params::EKF2_ASP_TOFF>)
-		_param_ekf2_asp_toff, ///< quality below off threshold duration to disable fusion (s)
-			(ParamExtFloat<px4::params::EKF2_ASP_TON>)
-			_param_ekf2_asp_ton, ///< quality above on threshold duration to re-enable fusion (s)
-			(ParamExtFloat<px4::params::EKF2_ASP_THLD>)
-			_param_ekf2_asp_thld, ///< minimum gate hold duration after each switch (s)
+		(ParamFloat<px4::params::EKF2_FLAP_F_ON>) _param_ekf2_flap_f_on,
+		(ParamFloat<px4::params::EKF2_FLAP_F_OFF>) _param_ekf2_flap_f_off,
+		(ParamFloat<px4::params::EKF2_FLAP_T_ON>) _param_ekf2_flap_t_on,
+		(ParamFloat<px4::params::EKF2_FLAP_T_OFF>) _param_ekf2_flap_t_off,
+		(ParamFloat<px4::params::EKF2_FLAP_T_TO>) _param_ekf2_flap_t_to,
 		#endif // CONFIG_EKF2_AIRSPEED
 
 #if defined(CONFIG_EKF2_SIDESLIP)
@@ -910,13 +870,5 @@ private:
 			(ParamFloat<px4::params::EKF2_TAU_POS>) _param_ekf2_tau_pos
 		)
 
-#if defined(CONFIG_EKF2_AIRSPEED)
-	// Keep these outside DEFINE_PARAMETERS() to stay under macro argument limit.
-	do_not_explicitly_use_this_namespace::ParamExtFloat<px4::params::EKF2_FLAP_F_ON> _param_ekf2_flap_f_on;
-	do_not_explicitly_use_this_namespace::ParamExtFloat<px4::params::EKF2_FLAP_F_OFF> _param_ekf2_flap_f_off;
-	do_not_explicitly_use_this_namespace::ParamExtFloat<px4::params::EKF2_FLAP_T_ON> _param_ekf2_flap_t_on;
-	do_not_explicitly_use_this_namespace::ParamExtFloat<px4::params::EKF2_FLAP_T_OFF> _param_ekf2_flap_t_off;
-	do_not_explicitly_use_this_namespace::ParamExtFloat<px4::params::EKF2_FLAP_T_TO> _param_ekf2_flap_t_to;
-#endif // CONFIG_EKF2_AIRSPEED
 	};
 #endif // !EKF2_HPP

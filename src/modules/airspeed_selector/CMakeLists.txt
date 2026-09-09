@@ -37,9 +37,6 @@ px4_add_module(
 		airspeed_selector_main.cpp
 		AirspeedValidator.cpp
 		AirspeedValidator.hpp
-		AirspeedSelectorQuality.hpp
 	DEPENDS
 		wind_estimator
 )
-
-px4_add_unit_gtest(SRC AirspeedSelectorQualityTest.cpp)

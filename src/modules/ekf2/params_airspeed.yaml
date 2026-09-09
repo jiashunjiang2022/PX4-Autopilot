@@ -1,4 +1,6 @@
 module_name: ekf2
+# EKF2_ASP_* quality and EKF2_FLAP_* parameters below are logging-only.
+# They do not affect airspeed selection, observation variance, or fusion.
 parameters:
 - group: EKF2
   definitions:
@@ -43,36 +45,9 @@ parameters:
       max: 5.0
       unit: m/s
       decimal: 1
-    EKF2_ASP_MODE:
-      description:
-        short: Airspeed quality experiment mode
-        long: 0 runs diagnostics with nominal PX4 variance and selector behavior. 1 uses a frozen
-          constant variance multiplier. 2 adapts variance only. 3 adapts variance and enables the
-          persistent quality fusion gate and selector safeguard. Unknown values fail closed to mode 0.
-      type: int32
-      default: 0
-      min: 0
-      max: 3
-      reboot_required: true
-      values:
-        0: Baseline
-        1: Constant R
-        2: Variance only
-        3: Full proposed
-    EKF2_ASP_RCST:
-      description:
-        short: Constant airspeed variance multiplier
-        long: Dimensionless variance multiplier used only in CONSTANT_R mode. This is not a
-          standard-deviation multiplier and must be frozen from bench results before formal flights.
-      type: float
-      default: 2.5
-      min: 1.0
-      max: 20.0
-      reboot_required: true
-      decimal: 2
     EKF2_ASP_SWIN:
       description:
-        short: Airspeed quality spectral window (new)
+        short: Airspeed quality diagnostic spectral window
         long: Spectral ratio is reported as NaN until this full window is collected.
       type: float
       default: 4.0
@@ -150,60 +125,9 @@ parameters:
       max: 20.0
       unit: m/s^2
       decimal: 1
-    EKF2_ASP_RMAX:
-      description:
-        short: Airspeed noise max multiplier
-      type: float
-      default: 5.0
-      min: 1.0
-      max: 20.0
-      decimal: 1
-    EKF2_ASP_QON:
-      description:
-        short: Airspeed quality gate on threshold
-      type: float
-      default: 0.6
-      min: 0.0
-      max: 1.0
-      decimal: 2
-    EKF2_ASP_QOFF:
-      description:
-        short: Airspeed quality gate off threshold
-      type: float
-      default: 0.4
-      min: 0.0
-      max: 1.0
-      decimal: 2
     EKF2_ASP_QTAU:
       description:
         short: Airspeed quality smoothing time constant
-      type: float
-      default: 0.25
-      min: 0.0
-      max: 2.0
-      unit: s
-      decimal: 2
-    EKF2_ASP_TOFF:
-      description:
-        short: Airspeed quality gate-off persistence time
-      type: float
-      default: 0.20
-      min: 0.0
-      max: 2.0
-      unit: s
-      decimal: 2
-    EKF2_ASP_TON:
-      description:
-        short: Airspeed quality gate-on persistence time
-      type: float
-      default: 0.30
-      min: 0.0
-      max: 2.0
-      unit: s
-      decimal: 2
-    EKF2_ASP_THLD:
-      description:
-        short: Airspeed quality gate minimum hold time
       type: float
       default: 0.25
       min: 0.0
