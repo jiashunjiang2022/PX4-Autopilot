@@ -71,7 +71,9 @@ public:
 		float slow_hat{0.f};
 		float innovation{0.f};
 		float slew_rate{0.f};
+		bool history_ready{false};
 		bool model_valid{false};
+		bool residual_valid{false};
 		bool update_enabled{false};
 	};
 

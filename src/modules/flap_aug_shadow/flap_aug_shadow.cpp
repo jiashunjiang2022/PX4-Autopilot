@@ -416,13 +416,16 @@ void FlapAugShadow::Run()
 
 	flap_aug_shadow_s message{};
 	message.timestamp = now;
-	message.implementation_version = 1;
+	message.implementation_version = 2;
 	message.v2_hash_short = 0x3a71c671u;
 	message.v3_hash_short = 0xf46195fau;
 	message.input_valid = roll_input_valid && v3_model_input_valid && phase_input_valid;
 	message.fast_roll_valid = fast.roll_valid;
 	message.fast_pitch_valid = fast.pitch_valid;
 	message.v3_model_available = true;
+	message.history_ready = slow.history_ready;
+	message.maneuver_prediction_valid = slow.model_valid;
+	message.slow_residual_valid = slow.residual_valid;
 	message.slow_valid = slow_valid;
 	message.rtk_valid = rtk_valid;
 	message.flight_mode = status_valid ? _vehicle_status.nav_state : UINT8_MAX;

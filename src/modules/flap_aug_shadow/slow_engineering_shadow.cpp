@@ -238,7 +238,9 @@ SlowEngineeringShadow::Result SlowEngineeringShadow::update(const float (&curren
 		history_valid = _history_valid[index];
 	}
 
+	_last.history_ready = history_valid;
 	_last.model_valid = history_valid && std::isfinite(tail_roll);
+	_last.residual_valid = false;
 	_last.update_enabled = false;
 	_last.slew_rate = 0.f;
 
@@ -247,6 +249,8 @@ SlowEngineeringShadow::Result SlowEngineeringShadow::update(const float (&curren
 		build_features(features);
 		_last.maneuver_hat = predict_features(features);
 		_last.residual = tail_roll - _last.maneuver_hat;
+		_last.model_valid = std::isfinite(_last.maneuver_hat);
+		_last.residual_valid = _last.model_valid && std::isfinite(_last.residual);
 		const BoundedUpdateResult bounded = _bounded_state.update(_last.residual, confidence, allow_update);
 		_last.innovation = bounded.innovation;
 		_last.slew_rate = bounded.slew_rate;

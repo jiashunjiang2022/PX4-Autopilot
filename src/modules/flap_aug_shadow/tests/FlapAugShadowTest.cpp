@@ -121,9 +121,11 @@ TEST(FlapAugShadow, SlowBoundedUpdateAndModeRetention)
 
 	for (size_t sample = 0; sample < SlowEngineeringShadow::HistorySamples; ++sample) {
 		result = slow.update(current, true, 1.f, 1.f, true);
+		EXPECT_EQ(result.history_ready, sample + 1 == SlowEngineeringShadow::HistorySamples);
 	}
 
 	ASSERT_TRUE(result.model_valid);
+	ASSERT_TRUE(result.residual_valid);
 	ASSERT_TRUE(result.update_enabled);
 	EXPECT_LE(std::fabs(result.innovation), 0.2f);
 	EXPECT_LE(std::fabs(result.slow_hat), 0.6f);
@@ -148,7 +150,9 @@ TEST(FlapAugShadow, MissingDataIsFiniteAndInvalid)
 	SlowEngineeringShadow slow;
 	float current[SlowEngineeringShadow::CurrentFeatureCount] {};
 	const auto slow_result = slow.update(current, false, NAN, 0.f, false);
+	EXPECT_FALSE(slow_result.history_ready);
 	EXPECT_FALSE(slow_result.model_valid);
+	EXPECT_FALSE(slow_result.residual_valid);
 	EXPECT_TRUE(std::isfinite(slow_result.slow_hat));
 }
 

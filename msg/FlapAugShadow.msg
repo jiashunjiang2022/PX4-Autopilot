@@ -9,6 +9,9 @@ bool input_valid
 bool fast_roll_valid
 bool fast_pitch_valid
 bool v3_model_available
+bool history_ready
+bool maneuver_prediction_valid
+bool slow_residual_valid
 bool slow_valid
 bool rtk_valid
 
