@@ -73,6 +73,10 @@ Vector3f RateControl::update(const Vector3f &rate, const Vector3f &rate_sp, cons
 {
 	// angular rates error
 	Vector3f rate_error = rate_sp - rate;
+	_roll_rate_error = PX4_ISFINITE(rate_error(0)) ? rate_error(0) : 0.f;
+	_roll_i_delta_raw = 0.f;
+	_roll_i_delta_pre_imax = 0.f;
+	_roll_i_update_enabled = false;
 
 	// PID control with feed forward
 	const Vector3f torque = _gain_p.emult(rate_error) + _rate_int - _gain_d.emult(angular_accel) + _gain_ff.emult(rate_sp);
@@ -96,6 +100,21 @@ Vector3f RateControl::update(const Vector3f &rate, const Vector3f &rate_sp, cons
 void RateControl::updateIntegral(Vector3f &rate_error, const float dt)
 {
 	for (int i = 0; i < 3; i++) {
+		if (i == 0) {
+			float raw_i_factor = rate_error(i) / math::radians(400.f);
+			raw_i_factor = math::max(0.0f, 1.f - raw_i_factor * raw_i_factor);
+			const float raw_delta = raw_i_factor * _gain_i(i) * rate_error(i) * dt;
+
+			if (PX4_ISFINITE(raw_delta)) {
+				_roll_i_delta_raw = raw_delta;
+				const float raw_accum_candidate = _roll_i_raw_drive_accum + raw_delta;
+
+				if (PX4_ISFINITE(raw_accum_candidate)) {
+					_roll_i_raw_drive_accum = raw_accum_candidate;
+				}
+			}
+		}
+
 		// prevent further positive control saturation
 		if (_control_allocator_saturation_positive(i)) {
 			rate_error(i) = math::min(rate_error(i), 0.f);
@@ -120,9 +139,30 @@ void RateControl::updateIntegral(Vector3f &rate_error, const float dt)
 
 		// do not propagate the result if out of range or invalid
 		if (PX4_ISFINITE(rate_i)) {
+			if (i == 0) {
+				_roll_i_delta_pre_imax = rate_i - _rate_int(i);
+				const float shadow_candidate = _roll_i_shadow_no_imax + _roll_i_delta_pre_imax;
+
+				if (PX4_ISFINITE(shadow_candidate)) {
+					_roll_i_shadow_no_imax = shadow_candidate;
+				}
+
+				_roll_i_update_enabled = true;
+			}
+
 			_rate_int(i) = math::constrain(rate_i, -_lim_int(i), _lim_int(i));
 		}
 	}
+}
+
+void RateControl::resetRollIntegralDiagnostics()
+{
+	_roll_rate_error = 0.f;
+	_roll_i_delta_raw = 0.f;
+	_roll_i_delta_pre_imax = 0.f;
+	_roll_i_shadow_no_imax = 0.f;
+	_roll_i_raw_drive_accum = 0.f;
+	_roll_i_update_enabled = false;
 }
 
 void RateControl::getRateControlStatus(rate_ctrl_status_s &rate_ctrl_status)
@@ -130,4 +170,10 @@ void RateControl::getRateControlStatus(rate_ctrl_status_s &rate_ctrl_status)
 	rate_ctrl_status.rollspeed_integ = _rate_int(0);
 	rate_ctrl_status.pitchspeed_integ = _rate_int(1);
 	rate_ctrl_status.yawspeed_integ = _rate_int(2);
+	rate_ctrl_status.rollspeed_error = _roll_rate_error;
+	rate_ctrl_status.rollspeed_integ_delta_raw = _roll_i_delta_raw;
+	rate_ctrl_status.rollspeed_integ_delta_pre_imax = _roll_i_delta_pre_imax;
+	rate_ctrl_status.rollspeed_integ_shadow_no_imax = _roll_i_shadow_no_imax;
+	rate_ctrl_status.rollspeed_integ_raw_drive_accum = _roll_i_raw_drive_accum;
+	rate_ctrl_status.rollspeed_integ_update_enabled = _roll_i_update_enabled;
 }

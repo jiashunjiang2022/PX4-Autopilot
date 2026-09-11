@@ -103,7 +103,11 @@ public:
 	 * Set the integral term to 0 to prevent windup
 	 * @see _rate_int
 	 */
-	void resetIntegral() { _rate_int.zero(); }
+	void resetIntegral()
+	{
+		_rate_int.zero();
+		resetRollIntegralDiagnostics();
+	}
 
 	/**
 	 * Set the integral term to 0 for specific axes
@@ -114,6 +118,10 @@ public:
 	{
 		if (axis < 3) {
 			_rate_int(axis) = 0.f;
+
+			if (axis == 0) {
+				resetRollIntegralDiagnostics();
+			}
 		}
 	}
 
@@ -125,6 +133,7 @@ public:
 
 private:
 	void updateIntegral(matrix::Vector3f &rate_error, const float dt);
+	void resetRollIntegralDiagnostics();
 
 	// Gains
 	matrix::Vector3f _gain_p; ///< rate control proportional gain for all axes x, y, z
@@ -135,6 +144,12 @@ private:
 
 	// States
 	matrix::Vector3f _rate_int; ///< integral term of the rate controller
+	float _roll_rate_error{0.f};
+	float _roll_i_delta_raw{0.f};
+	float _roll_i_delta_pre_imax{0.f};
+	float _roll_i_shadow_no_imax{0.f};
+	float _roll_i_raw_drive_accum{0.f};
+	bool _roll_i_update_enabled{false};
 
 	// Feedback from control allocation
 	matrix::Vector<bool, 3> _control_allocator_saturation_negative;

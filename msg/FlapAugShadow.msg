@@ -34,6 +34,15 @@ float32 roll_i
 float32 roll_i_norm
 float32 tail_margin
 
+# Counterfactual diagnostic under the observed baseline closed loop.
+bool roll_i_diagnostic_valid
+bool roll_i_update_enabled
+float32 roll_rate_error
+float32 roll_i_delta_raw
+float32 roll_i_delta_pre_imax
+float32 roll_i_shadow_no_imax
+float32 roll_i_raw_drive_accum
+
 float32 fast_roll_pred
 float32 fast_pitch_pred
 

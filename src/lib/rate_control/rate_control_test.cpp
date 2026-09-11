@@ -34,6 +34,8 @@
 #include <gtest/gtest.h>
 #include <lib/rate_control/rate_control.hpp>
 
+#include <cmath>
+
 using namespace matrix;
 
 TEST(RateControlTest, AllZeroCase)
@@ -77,4 +79,106 @@ TEST(RateControlTest, TermsCaptureIntegralUsedInOutput)
 		EXPECT_GT(status.yawspeed_integ, terms.i_term[2]);
 		previous_integral = Vector3f(status.rollspeed_integ, status.pitchspeed_integ, status.yawspeed_integ);
 	}
+}
+
+TEST(RateControlTest, RollUnboundedIntegratorDiagnostics)
+{
+	RateControl rate_control;
+	const Vector3f gain_p(0.2f, 0.3f, 0.4f);
+	const Vector3f gain_i(1.f, 0.5f, 0.25f);
+	const Vector3f gain_d(0.1f, 0.2f, 0.3f);
+	const Vector3f gain_ff(0.05f, 0.06f, 0.07f);
+	const Vector3f integral_limit(0.2f, 0.3f, 0.4f);
+	rate_control.setPidGains(gain_p, gain_i, gain_d);
+	rate_control.setFeedForwardGain(gain_ff);
+	rate_control.setIntegratorLimit(integral_limit);
+	const Vector3f rate{};
+	const Vector3f rate_sp(1.f, 0.5f, -0.25f);
+	const Vector3f accel(0.1f, -0.2f, 0.3f);
+	rate_ctrl_status_s status{};
+	rate_ctrl_terms_s terms{};
+	Vector3f reference_integral{};
+	float pre_limit_max_error = 0.f;
+	bool real_clipped = false;
+	bool shadow_continued = false;
+
+	for (int cycle = 0; cycle < 40; ++cycle) {
+		const Vector3f rate_error = rate_sp - rate;
+		const Vector3f expected_output = gain_p.emult(rate_error) + reference_integral
+						 - gain_d.emult(accel) + gain_ff.emult(rate_sp);
+		const Vector3f output = rate_control.update(rate, rate_sp, accel, 0.02f, false, &terms);
+
+		for (int axis = 0; axis < 3; ++axis) {
+			EXPECT_FLOAT_EQ(output(axis), expected_output(axis));
+			EXPECT_FLOAT_EQ(terms.output[axis], expected_output(axis));
+		}
+
+		rate_control.getRateControlStatus(status);
+
+		for (int axis = 0; axis < 3; ++axis) {
+			float i_factor = rate_error(axis) / math::radians(400.f);
+			i_factor = math::max(0.0f, 1.f - i_factor * i_factor);
+			const float candidate = reference_integral(axis) + i_factor * gain_i(axis) * rate_error(axis) * 0.02f;
+			reference_integral(axis) = math::constrain(candidate, -integral_limit(axis), integral_limit(axis));
+		}
+
+		EXPECT_FLOAT_EQ(status.rollspeed_integ, reference_integral(0));
+		EXPECT_FLOAT_EQ(status.pitchspeed_integ, reference_integral(1));
+		EXPECT_FLOAT_EQ(status.yawspeed_integ, reference_integral(2));
+
+		if (std::fabs(status.rollspeed_integ) < 0.8f * 0.2f) {
+			pre_limit_max_error = math::max(pre_limit_max_error,
+					      std::fabs(status.rollspeed_integ_shadow_no_imax - status.rollspeed_integ));
+		}
+
+		if (status.rollspeed_integ >= 0.2f) {
+			real_clipped = true;
+			shadow_continued = shadow_continued || status.rollspeed_integ_shadow_no_imax > 0.2f;
+		}
+	}
+
+	RecordProperty("pre_limit_max_abs_error", pre_limit_max_error);
+	EXPECT_LE(pre_limit_max_error, 1e-7f);
+	EXPECT_TRUE(real_clipped);
+	EXPECT_TRUE(shadow_continued);
+	EXPECT_GT(status.rollspeed_integ_delta_raw, 0.f);
+	EXPECT_GT(status.rollspeed_integ_delta_pre_imax, 0.f);
+	EXPECT_TRUE(status.rollspeed_integ_update_enabled);
+
+	const float shadow_before_reverse = status.rollspeed_integ_shadow_no_imax;
+	rate_control.update(Vector3f(), Vector3f(-1.f, 0.f, 0.f), Vector3f(), 0.02f, false);
+	rate_control.getRateControlStatus(status);
+	EXPECT_LT(status.rollspeed_integ_delta_pre_imax, 0.f);
+	EXPECT_LT(status.rollspeed_integ_shadow_no_imax, shadow_before_reverse);
+
+	rate_control.setPositiveSaturationFlag(0, true);
+	const float shadow_before_saturation = status.rollspeed_integ_shadow_no_imax;
+	rate_control.update(Vector3f(), Vector3f(1.f, 0.f, 0.f), Vector3f(), 0.02f, false);
+	rate_control.getRateControlStatus(status);
+	EXPECT_GT(status.rollspeed_integ_delta_raw, 0.f);
+	EXPECT_FLOAT_EQ(status.rollspeed_integ_delta_pre_imax, 0.f);
+	EXPECT_FLOAT_EQ(status.rollspeed_integ_shadow_no_imax, shadow_before_saturation);
+	EXPECT_TRUE(status.rollspeed_integ_update_enabled);
+
+	rate_control.resetIntegral();
+	rate_control.getRateControlStatus(status);
+	EXPECT_FLOAT_EQ(status.rollspeed_integ, 0.f);
+	EXPECT_FLOAT_EQ(status.rollspeed_integ_shadow_no_imax, 0.f);
+	EXPECT_FLOAT_EQ(status.rollspeed_integ_raw_drive_accum, 0.f);
+	EXPECT_FALSE(status.rollspeed_integ_update_enabled);
+
+	rate_control.update(Vector3f(), rate_sp, Vector3f(), 0.02f, true);
+	rate_control.getRateControlStatus(status);
+	EXPECT_FLOAT_EQ(status.rollspeed_integ, 0.f);
+	EXPECT_FLOAT_EQ(status.rollspeed_integ_shadow_no_imax, 0.f);
+	EXPECT_FALSE(status.rollspeed_integ_update_enabled);
+
+	rate_control.setPositiveSaturationFlag(0, false);
+	rate_control.update(Vector3f(NAN, 0.f, 0.f), rate_sp, Vector3f(), 0.02f, false);
+	rate_control.getRateControlStatus(status);
+	EXPECT_TRUE(std::isfinite(status.rollspeed_error));
+	EXPECT_TRUE(std::isfinite(status.rollspeed_integ_delta_raw));
+	EXPECT_TRUE(std::isfinite(status.rollspeed_integ_delta_pre_imax));
+	EXPECT_TRUE(std::isfinite(status.rollspeed_integ_shadow_no_imax));
+	EXPECT_FALSE(status.rollspeed_integ_update_enabled);
 }

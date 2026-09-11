@@ -361,6 +361,12 @@ void FlapAugShadow::Run()
 	const bool terms_valid = fresh(now, _rate_terms.timestamp, FastAge)
 				 && std::isfinite(_rate_terms.p_term[0]) && std::isfinite(_rate_terms.i_term[0])
 				 && std::isfinite(_rate_terms.ff_term[0]) && std::isfinite(_rate_terms.output[0]);
+	const bool roll_i_diagnostic_valid = fresh(now, _rate_status.timestamp, IntegratorAge)
+					     && std::isfinite(_rate_status.rollspeed_error)
+					     && std::isfinite(_rate_status.rollspeed_integ_delta_raw)
+					     && std::isfinite(_rate_status.rollspeed_integ_delta_pre_imax)
+					     && std::isfinite(_rate_status.rollspeed_integ_shadow_no_imax)
+					     && std::isfinite(_rate_status.rollspeed_integ_raw_drive_accum);
 	const bool phase_input_valid = armed && airborne && supported_mode && manual_valid
 				       && fresh(now, _attitude.timestamp, FastAge)
 				       && fresh(now, _attitude_setpoint.timestamp, FastAge)
@@ -416,7 +422,7 @@ void FlapAugShadow::Run()
 
 	flap_aug_shadow_s message{};
 	message.timestamp = now;
-	message.implementation_version = 2;
+	message.implementation_version = 3;
 	message.v2_hash_short = 0x3a71c671u;
 	message.v3_hash_short = 0xf46195fau;
 	message.input_valid = roll_input_valid && v3_model_input_valid && phase_input_valid;
@@ -438,6 +444,13 @@ void FlapAugShadow::Run()
 	message.roll_i = terms_valid ? _rate_terms.i_term[0] : 0.f;
 	message.roll_i_norm = std::isfinite(base[26]) ? base[26] : 0.f;
 	message.tail_margin = std::isfinite(tail_margin) ? tail_margin : 0.f;
+	message.roll_i_diagnostic_valid = roll_i_diagnostic_valid;
+	message.roll_i_update_enabled = roll_i_diagnostic_valid && _rate_status.rollspeed_integ_update_enabled;
+	message.roll_rate_error = roll_i_diagnostic_valid ? _rate_status.rollspeed_error : 0.f;
+	message.roll_i_delta_raw = roll_i_diagnostic_valid ? _rate_status.rollspeed_integ_delta_raw : 0.f;
+	message.roll_i_delta_pre_imax = roll_i_diagnostic_valid ? _rate_status.rollspeed_integ_delta_pre_imax : 0.f;
+	message.roll_i_shadow_no_imax = roll_i_diagnostic_valid ? _rate_status.rollspeed_integ_shadow_no_imax : 0.f;
+	message.roll_i_raw_drive_accum = roll_i_diagnostic_valid ? _rate_status.rollspeed_integ_raw_drive_accum : 0.f;
 	message.fast_roll_pred = fast.roll;
 	message.fast_pitch_pred = fast.pitch;
 	message.maneuver_hat = slow.maneuver_hat;
