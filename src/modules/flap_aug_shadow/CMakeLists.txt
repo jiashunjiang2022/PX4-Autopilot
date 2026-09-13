@@ -5,6 +5,8 @@ px4_add_module(
 		flap_aug_shadow.cpp
 		fast_predictor.cpp
 		slow_engineering_shadow.cpp
+	MODULE_CONFIG
+		module.yaml
 	DEPENDS
 		px4_work_queue
 )
@@ -14,4 +16,8 @@ px4_add_unit_gtest(
 	EXTRA_SRCS
 		fast_predictor.cpp
 		slow_engineering_shadow.cpp
+)
+
+px4_add_unit_gtest(
+	SRC tests/V4ShadowTest.cpp
 )

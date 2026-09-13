@@ -1,0 +1,43 @@
+# V4 specimen-prior shadow-only diagnostics. Never drives actuators.
+uint64 timestamp
+
+uint32 v4_implementation_version
+uint32 v4_artifact_hash_short
+
+bool v4_enabled
+bool config_mapping_valid
+bool tail_roll_signal_valid
+float32 b_prior
+bool b_prior_valid
+float32 delta_b_shadow
+float32 u_trim_candidate_shadow
+
+float32 u_controller_eq
+bool u_controller_eq_valid
+float32 tail_roll_realized
+float32 tail_pitch_realized
+float32 tail_yaw_realized
+float32 roll_torque_equiv_prealloc
+float32 allocation_consistency_error
+bool zero_aug_mapping_valid
+bool nonzero_aug_mapping_valid
+float32 u_aug_eq_shadow
+float32 maneuver_hat
+bool maneuver_hat_valid
+float32 r_total_proxy_shadow
+bool r_total_proxy_valid
+float32 innovation_shadow
+bool total_mapping_valid
+bool delta_update_implemented
+
+uint8 maneuver_phase
+float32 slow_confidence
+bool history_ready
+bool v3_model_valid
+bool residual_valid
+bool phase_valid
+
+# Safety proof: this V4 implementation has no actuator path.
+float32 actual_slow_injection
+float32 actual_fast_roll_injection
+float32 actual_fast_pitch_injection

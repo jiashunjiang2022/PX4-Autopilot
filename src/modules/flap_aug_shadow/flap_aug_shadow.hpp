@@ -2,6 +2,7 @@
 
 #include "fast_predictor.hpp"
 #include "slow_engineering_shadow.hpp"
+#include "v4_shadow.hpp"
 
 #include <drivers/drv_hrt.h>
 #include <px4_platform_common/module.h>
@@ -15,6 +16,7 @@
 #include <uORB/topics/airspeed_validated.h>
 #include <uORB/topics/battery_status.h>
 #include <uORB/topics/flap_aug_shadow.h>
+#include <uORB/topics/flap_aug_v4_shadow.h>
 #include <uORB/topics/flap_frequency.h>
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/parameter_update.h>
@@ -27,6 +29,7 @@
 #include <uORB/topics/vehicle_land_detected.h>
 #include <uORB/topics/vehicle_local_position.h>
 #include <uORB/topics/vehicle_rates_setpoint.h>
+#include <uORB/topics/vehicle_torque_setpoint.h>
 #include <uORB/topics/vehicle_status.h>
 #include <uORB/topics/wind.h>
 
@@ -73,6 +76,7 @@ private:
 			 float &roll_sp, float &pitch_sp, float &ground_track_rate, bool &rtk_valid);
 	bool fresh(hrt_abstime now, hrt_abstime timestamp, hrt_abstime maximum_age) const;
 	void reset_estimators();
+	bool verify_v4_configuration() const;
 
 	uORB::Subscription _actuator_motors_sub{ORB_ID(actuator_motors)};
 	uORB::Subscription _actuator_servos_sub{ORB_ID(actuator_servos)};
@@ -90,9 +94,11 @@ private:
 	uORB::Subscription _land_sub{ORB_ID(vehicle_land_detected)};
 	uORB::Subscription _local_position_sub{ORB_ID(vehicle_local_position)};
 	uORB::Subscription _rates_setpoint_sub{ORB_ID(vehicle_rates_setpoint)};
+	uORB::Subscription _torque_setpoint_sub{ORB_ID(vehicle_torque_setpoint)};
 	uORB::Subscription _vehicle_status_sub{ORB_ID(vehicle_status)};
 	uORB::Subscription _wind_sub{ORB_ID(wind)};
 	uORB::Publication<flap_aug_shadow_s> _shadow_pub{ORB_ID(flap_aug_shadow)};
+	uORB::Publication<flap_aug_v4_shadow_s> _v4_shadow_pub{ORB_ID(flap_aug_v4_shadow)};
 
 	actuator_motors_s _actuator_motors{};
 	actuator_servos_s _actuator_servos{};
@@ -109,6 +115,7 @@ private:
 	vehicle_land_detected_s _land{};
 	vehicle_local_position_s _local_position{};
 	vehicle_rates_setpoint_s _rates_setpoint{};
+	vehicle_torque_setpoint_s _torque_setpoint{};
 	vehicle_status_s _vehicle_status{};
 	wind_s _wind{};
 
@@ -120,6 +127,7 @@ private:
 	CausalLowpassDerivative _propulsion_derivative{};
 
 	float _legacy_integrator[3]{};
+	V4ShadowState _v4_state{};
 	hrt_abstime _legacy_integrator_timestamp{0};
 	uint64_t _legacy_integrator_bucket{UINT64_MAX};
 	float _previous_track{0.f};
@@ -131,7 +139,26 @@ private:
 
 	DEFINE_PARAMETERS(
 		(ParamFloat<px4::params::FW_RR_IMAX>) _param_fw_rr_imax,
-		(ParamFloat<px4::params::FW_PR_IMAX>) _param_fw_pr_imax
+		(ParamFloat<px4::params::FW_PR_IMAX>) _param_fw_pr_imax,
+		(ParamBool<px4::params::FLAP_V4_ENABLE>) _param_flap_v4_enable,
+		(ParamFloat<px4::params::FLAP_V4_B_PRIOR>) _param_flap_v4_b_prior,
+		(ParamInt<px4::params::CA_SV_CS0_TYPE>) _param_ca_sv_cs0_type,
+		(ParamFloat<px4::params::CA_SV_CS0_TRQ_R>) _param_ca_sv_cs0_trq_r,
+		(ParamFloat<px4::params::CA_SV_CS0_TRQ_P>) _param_ca_sv_cs0_trq_p,
+		(ParamFloat<px4::params::CA_SV_CS0_TRQ_Y>) _param_ca_sv_cs0_trq_y,
+		(ParamInt<px4::params::CA_SV_CS1_TYPE>) _param_ca_sv_cs1_type,
+		(ParamFloat<px4::params::CA_SV_CS1_TRQ_R>) _param_ca_sv_cs1_trq_r,
+		(ParamFloat<px4::params::CA_SV_CS1_TRQ_P>) _param_ca_sv_cs1_trq_p,
+		(ParamFloat<px4::params::CA_SV_CS1_TRQ_Y>) _param_ca_sv_cs1_trq_y,
+		(ParamInt<px4::params::CA_SV_CS2_TYPE>) _param_ca_sv_cs2_type,
+		(ParamFloat<px4::params::CA_SV_CS2_TRQ_R>) _param_ca_sv_cs2_trq_r,
+		(ParamFloat<px4::params::CA_SV_CS2_TRQ_P>) _param_ca_sv_cs2_trq_p,
+		(ParamFloat<px4::params::CA_SV_CS2_TRQ_Y>) _param_ca_sv_cs2_trq_y,
+		(ParamInt<px4::params::CA_SV_CS_COUNT>) _param_ca_sv_cs_count,
+		(ParamInt<px4::params::PWM_MAIN_FUNC1>) _param_pwm_main_func1,
+		(ParamInt<px4::params::PWM_MAIN_FUNC2>) _param_pwm_main_func2,
+		(ParamInt<px4::params::PWM_MAIN_FUNC5>) _param_pwm_main_func5,
+		(ParamInt<px4::params::PWM_MAIN_REV>) _param_pwm_main_rev
 	)
 };
 

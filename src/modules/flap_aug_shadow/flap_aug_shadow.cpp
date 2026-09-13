@@ -22,6 +22,10 @@ constexpr hrt_abstime WindAge = 120_ms;
 constexpr hrt_abstime StatusAge = 1_s;
 constexpr hrt_abstime LongInvalidTime = 2_s;
 constexpr float TrackRateAlpha = 0.0392105608f; // 1-exp(-0.02/0.5)
+constexpr uint32_t V4ImplementationVersion = 1;
+// Diagnostic storage sanity bound only; this is not a control or actuator authorization bound.
+// FNV-1a short ID for the frozen V4 semantic specification package.
+constexpr uint32_t V4ArtifactHashShort = 0x93d9738au;
 
 float wrap_pi(float value)
 {
@@ -98,6 +102,7 @@ void FlapAugShadow::update_subscriptions()
 	_land_sub.update(&_land);
 	_local_position_sub.update(&_local_position);
 	_rates_setpoint_sub.update(&_rates_setpoint);
+	_torque_setpoint_sub.update(&_torque_setpoint);
 	_vehicle_status_sub.update(&_vehicle_status);
 	_wind_sub.update(&_wind);
 
@@ -106,6 +111,33 @@ void FlapAugShadow::update_subscriptions()
 		_parameter_update_sub.copy(&update);
 		updateParams();
 	}
+}
+
+bool FlapAugShadow::verify_v4_configuration() const
+{
+	constexpr float Tolerance = 1e-4f;
+	auto near = [Tolerance](float value, float expected) {
+		return std::isfinite(value) && fabsf(value - expected) <= Tolerance;
+	};
+
+	// Frozen three-surface identity: left elevon, right elevon, rudder.
+	return _param_ca_sv_cs_count.get() == 3
+	       && _param_ca_sv_cs0_type.get() == 5
+	       && near(_param_ca_sv_cs0_trq_r.get(), -0.55f)
+	       && near(_param_ca_sv_cs0_trq_p.get(), 1.f)
+	       && near(_param_ca_sv_cs0_trq_y.get(), 0.f)
+	       && _param_ca_sv_cs1_type.get() == 6
+	       && near(_param_ca_sv_cs1_trq_r.get(), 0.55f)
+	       && near(_param_ca_sv_cs1_trq_p.get(), 1.f)
+	       && near(_param_ca_sv_cs1_trq_y.get(), 0.f)
+	       && _param_ca_sv_cs2_type.get() == 4
+	       && near(_param_ca_sv_cs2_trq_r.get(), 0.f)
+	       && near(_param_ca_sv_cs2_trq_p.get(), 0.f)
+	       && near(_param_ca_sv_cs2_trq_y.get(), 1.f)
+	       && _param_pwm_main_func1.get() == 201
+	       && _param_pwm_main_func2.get() == 202
+	       && _param_pwm_main_func5.get() == 203
+	       && _param_pwm_main_rev.get() == 17;
 }
 
 void FlapAugShadow::update_legacy_integrator(hrt_abstime now)
@@ -322,6 +354,7 @@ void FlapAugShadow::reset_estimators()
 	_track_rate_initialized = false;
 	_track_rate_state = 0.f;
 	_invalid_since = 0;
+	_v4_state.reset();
 }
 
 void FlapAugShadow::Run()
@@ -473,6 +506,54 @@ void FlapAugShadow::Run()
 	message.slow_compute_us = slow_compute_us;
 	message.total_compute_us = static_cast<uint32_t>(hrt_absolute_time() - total_start);
 	_shadow_pub.publish(message);
+
+	// V4 is intentionally a separate diagnostic state. Its update law is not frozen in the
+	// architecture package, so delta_b remains zero; configuration validity is runtime guarded.
+	const V4ShadowResult v4 = _v4_state.update(_param_flap_v4_enable.get(), _param_flap_v4_b_prior.get(),
+									   verify_v4_configuration(), base[28], base[29], base[30],
+									   _torque_setpoint.xyz[0], slow.model_valid, slow.maneuver_hat,
+									   ActualInjection::Slow, ActualInjection::FastRoll,
+									   ActualInjection::FastPitch);
+
+	flap_aug_v4_shadow_s v4_message{};
+	v4_message.timestamp = now;
+	v4_message.v4_implementation_version = V4ImplementationVersion;
+	v4_message.v4_artifact_hash_short = V4ArtifactHashShort;
+	v4_message.v4_enabled = v4.enabled;
+	v4_message.config_mapping_valid = v4.config_mapping_valid;
+	v4_message.tail_roll_signal_valid = v4.tail_roll_signal_valid;
+	v4_message.b_prior = v4.b_prior;
+	v4_message.b_prior_valid = v4.b_prior_valid;
+	v4_message.delta_b_shadow = v4.delta_b_shadow;
+	v4_message.u_trim_candidate_shadow = v4.u_trim_candidate_shadow;
+	// This is the realized PRE_REVERSAL differential-tail coordinate verified for the aircraft.
+	v4_message.u_controller_eq = v4.u_controller_eq;
+	v4_message.u_controller_eq_valid = v4.u_controller_eq_valid;
+	v4_message.tail_roll_realized = v4.tail_roll_realized;
+	v4_message.tail_pitch_realized = v4.tail_pitch_realized;
+	v4_message.tail_yaw_realized = v4.tail_yaw_realized;
+	v4_message.roll_torque_equiv_prealloc = v4.roll_torque_equiv_prealloc;
+	v4_message.allocation_consistency_error = v4.allocation_consistency_error;
+	v4_message.zero_aug_mapping_valid = v4.zero_aug_mapping_valid;
+	v4_message.nonzero_aug_mapping_valid = v4.nonzero_aug_mapping_valid;
+	v4_message.u_aug_eq_shadow = v4.u_aug_eq_shadow;
+	v4_message.maneuver_hat = v4.maneuver_hat;
+	v4_message.maneuver_hat_valid = v4.maneuver_hat_valid;
+	v4_message.r_total_proxy_shadow = v4.r_total_proxy_shadow;
+	v4_message.r_total_proxy_valid = v4.r_total_proxy_valid;
+	v4_message.innovation_shadow = v4.innovation_shadow;
+	v4_message.total_mapping_valid = v4.total_mapping_valid;
+	v4_message.delta_update_implemented = v4.delta_update_implemented;
+	v4_message.maneuver_phase = static_cast<uint8_t>(phase.phase);
+	v4_message.slow_confidence = std::isfinite(phase.confidence) ? phase.confidence : 0.f;
+	v4_message.history_ready = slow.history_ready;
+	v4_message.v3_model_valid = slow.model_valid;
+	v4_message.residual_valid = slow.residual_valid;
+	v4_message.phase_valid = phase_input_valid;
+	v4_message.actual_slow_injection = ActualInjection::Slow;
+	v4_message.actual_fast_roll_injection = ActualInjection::FastRoll;
+	v4_message.actual_fast_pitch_injection = ActualInjection::FastPitch;
+	_v4_shadow_pub.publish(v4_message);
 }
 
 int FlapAugShadow::task_spawn(int argc, char *argv[])

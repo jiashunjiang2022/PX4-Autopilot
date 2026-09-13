@@ -1,0 +1,27 @@
+module_name: flap_aug_shadow
+
+parameters:
+    - group: Flap V4 Shadow
+      definitions:
+        FLAP_V4_ENABLE:
+            description:
+                short: Enable V4 specimen-prior Shadow diagnostics
+                long: |
+                    Enables computation and publication of V4 specimen-prior diagnostic state only.
+                    This parameter cannot enable actuator augmentation and has no control-path effect.
+            type: boolean
+            default: false
+            category: System
+
+        FLAP_V4_B_PRIOR:
+            description:
+                short: V4 specimen prior diagnostic value
+                long: |
+                    Fixed specimen-prior diagnostic artifact value for the current evaluation block.
+                    It is logged only; it is not a trim command and is never sent to a controller or actuator.
+            type: float
+            default: 0.0
+            min: -2.0
+            max: 2.0
+            decimal: 6
+            category: System

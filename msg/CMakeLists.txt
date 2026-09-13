@@ -92,6 +92,7 @@ set(msg_files
 	FailsafeFlags.msg
 	FailureDetectorStatus.msg
 	FlapAugShadow.msg
+	FlapAugV4Shadow.msg
 	FlapFrequency.msg
 	FlightPhaseEstimation.msg
 	FollowTarget.msg
