@@ -116,7 +116,7 @@ void FlapAugShadow::update_subscriptions()
 bool FlapAugShadow::verify_v4_configuration() const
 {
 	constexpr float Tolerance = 1e-4f;
-	auto near = [Tolerance](float value, float expected) {
+	auto near = [](float value, float expected) {
 		return std::isfinite(value) && fabsf(value - expected) <= Tolerance;
 	};
 
@@ -400,6 +400,9 @@ void FlapAugShadow::Run()
 					     && std::isfinite(_rate_status.rollspeed_integ_delta_pre_imax)
 					     && std::isfinite(_rate_status.rollspeed_integ_shadow_no_imax)
 					     && std::isfinite(_rate_status.rollspeed_integ_raw_drive_accum);
+	const bool slow_status_valid = fresh(now, _rate_status.timestamp, IntegratorAge)
+				       && std::isfinite(_rate_status.flap_slow_applied_torque);
+	const float actual_slow_injection = slow_status_valid ? _rate_status.flap_slow_applied_torque : 0.f;
 	const bool phase_input_valid = armed && airborne && supported_mode && manual_valid
 				       && fresh(now, _attitude.timestamp, FastAge)
 				       && fresh(now, _attitude_setpoint.timestamp, FastAge)
@@ -499,7 +502,7 @@ void FlapAugShadow::Run()
 	message.projected_fast_roll_aug = 0.f;
 	message.projected_fast_pitch_aug = 0.f;
 	message.projection_active = false;
-	message.actual_slow_injection = ActualInjection::Slow;
+		message.actual_slow_injection = actual_slow_injection;
 	message.actual_fast_roll_injection = ActualInjection::FastRoll;
 	message.actual_fast_pitch_injection = ActualInjection::FastPitch;
 	message.fast_compute_us = fast_compute_us;
@@ -512,7 +515,7 @@ void FlapAugShadow::Run()
 	const V4ShadowResult v4 = _v4_state.update(_param_flap_v4_enable.get(), _param_flap_v4_b_prior.get(),
 									   verify_v4_configuration(), base[28], base[29], base[30],
 									   _torque_setpoint.xyz[0], slow.model_valid, slow.maneuver_hat,
-									   ActualInjection::Slow, ActualInjection::FastRoll,
+										   actual_slow_injection, ActualInjection::FastRoll,
 									   ActualInjection::FastPitch);
 
 	flap_aug_v4_shadow_s v4_message{};
@@ -550,7 +553,7 @@ void FlapAugShadow::Run()
 	v4_message.v3_model_valid = slow.model_valid;
 	v4_message.residual_valid = slow.residual_valid;
 	v4_message.phase_valid = phase_input_valid;
-	v4_message.actual_slow_injection = ActualInjection::Slow;
+	v4_message.actual_slow_injection = actual_slow_injection;
 	v4_message.actual_fast_roll_injection = ActualInjection::FastRoll;
 	v4_message.actual_fast_pitch_injection = ActualInjection::FastPitch;
 	_v4_shadow_pub.publish(v4_message);

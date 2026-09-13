@@ -71,6 +71,8 @@
 #include <uORB/topics/vehicle_thrust_setpoint.h>
 #include <uORB/topics/vehicle_torque_setpoint.h>
 
+#include "FixedB0Experiment.hpp"
+
 using matrix::Eulerf;
 using matrix::Quatf;
 
@@ -210,7 +212,32 @@ private:
 		(ParamFloat<px4::params::TRIM_ROLL>) _param_trim_roll,
 		(ParamFloat<px4::params::TRIM_YAW>) _param_trim_yaw,
 
-		(ParamInt<px4::params::FW_SPOILERS_MAN>) _param_fw_spoilers_man
+		(ParamInt<px4::params::FW_SPOILERS_MAN>) _param_fw_spoilers_man,
+		(ParamBool<px4::params::FLAP_SLOW_EN>) _param_flap_slow_en,
+		(ParamFloat<px4::params::FLAP_SLOW_B0>) _param_flap_slow_b0,
+		(ParamFloat<px4::params::FLAP_SLOW_SLEW>) _param_flap_slow_slew,
+		(ParamInt<px4::params::CA_AIRFRAME>) _param_ca_airframe,
+		(ParamInt<px4::params::CA_METHOD>) _param_ca_method,
+		(ParamInt<px4::params::CA_SV_CS_COUNT>) _param_ca_sv_cs_count,
+		(ParamInt<px4::params::CA_SV_CS0_TYPE>) _param_ca_sv_cs0_type,
+		(ParamFloat<px4::params::CA_SV_CS0_TRQ_R>) _param_ca_sv_cs0_trq_r,
+		(ParamFloat<px4::params::CA_SV_CS0_TRQ_P>) _param_ca_sv_cs0_trq_p,
+		(ParamFloat<px4::params::CA_SV_CS0_TRQ_Y>) _param_ca_sv_cs0_trq_y,
+		(ParamFloat<px4::params::CA_SV_CS0_TRIM>) _param_ca_sv_cs0_trim,
+		(ParamInt<px4::params::CA_SV_CS1_TYPE>) _param_ca_sv_cs1_type,
+		(ParamFloat<px4::params::CA_SV_CS1_TRQ_R>) _param_ca_sv_cs1_trq_r,
+		(ParamFloat<px4::params::CA_SV_CS1_TRQ_P>) _param_ca_sv_cs1_trq_p,
+		(ParamFloat<px4::params::CA_SV_CS1_TRQ_Y>) _param_ca_sv_cs1_trq_y,
+		(ParamFloat<px4::params::CA_SV_CS1_TRIM>) _param_ca_sv_cs1_trim,
+		(ParamInt<px4::params::CA_SV_CS2_TYPE>) _param_ca_sv_cs2_type,
+		(ParamFloat<px4::params::CA_SV_CS2_TRQ_R>) _param_ca_sv_cs2_trq_r,
+		(ParamFloat<px4::params::CA_SV_CS2_TRQ_P>) _param_ca_sv_cs2_trq_p,
+		(ParamFloat<px4::params::CA_SV_CS2_TRQ_Y>) _param_ca_sv_cs2_trq_y,
+		(ParamFloat<px4::params::CA_SV_CS2_TRIM>) _param_ca_sv_cs2_trim,
+		(ParamInt<px4::params::PWM_MAIN_FUNC1>) _param_pwm_main_func1,
+		(ParamInt<px4::params::PWM_MAIN_FUNC2>) _param_pwm_main_func2,
+		(ParamInt<px4::params::PWM_MAIN_FUNC5>) _param_pwm_main_func5,
+		(ParamInt<px4::params::PWM_MAIN_REV>) _param_pwm_main_rev
 	)
 
 	RateControl _rate_control; ///< class for rate control calculations
@@ -227,4 +254,8 @@ private:
 	void		vehicle_land_detected_poll();
 
 	float 		get_airspeed_and_update_scaling(float dt);
+	bool verify_flap_slow_configuration() const;
+
+	FixedB0Experiment _fixed_b0{};
+	FixedB0Experiment::Result _fixed_b0_result{};
 };

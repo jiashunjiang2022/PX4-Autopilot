@@ -13,6 +13,36 @@ parameters:
             default: false
             category: System
 
+        FLAP_SLOW_EN:
+            description:
+                short: Enable fixed-b0 Slow experiment
+                long: Enables the guarded fixed specimen-prior Slow torque experiment. Fast injection and delta_b remain disabled.
+            type: boolean
+            default: false
+            category: System
+
+        FLAP_SLOW_B0:
+            description:
+                short: Fixed-b0 tail coordinate
+                long: Fixed specimen prior in the validated tail-roll coordinate; source gate accepts only -0.22 to +0.22.
+            type: float
+            default: 0.0
+            min: -0.22
+            max: 0.22
+            decimal: 6
+            category: System
+
+        FLAP_SLOW_SLEW:
+            description:
+                short: Fixed-b0 ramp rate
+                long: Bounded tail-coordinate ramp rate for the experiment.
+            type: float
+            default: 0.02
+            min: 0.005
+            max: 0.05
+            decimal: 3
+            category: System
+
         FLAP_V4_B_PRIOR:
             description:
                 short: V4 specimen prior diagnostic value

@@ -92,6 +92,22 @@ FixedwingRateControl::parameters_update()
 	return PX4_OK;
 }
 
+bool FixedwingRateControl::verify_flap_slow_configuration() const
+{
+	const bool method_compatible = (_param_ca_method.get() == 0) || (_param_ca_method.get() == 2);
+	return _param_ca_airframe.get() == 1 && method_compatible && _param_ca_sv_cs_count.get() == 3
+	       && _param_ca_sv_cs0_type.get() == 5 && fabsf(_param_ca_sv_cs0_trq_r.get() + 0.55f) < 1e-4f
+	       && fabsf(_param_ca_sv_cs0_trq_p.get() - 1.f) < 1e-4f && fabsf(_param_ca_sv_cs0_trq_y.get()) < 1e-4f
+	       && fabsf(_param_ca_sv_cs0_trim.get()) < 1e-4f && _param_ca_sv_cs1_type.get() == 6
+	       && fabsf(_param_ca_sv_cs1_trq_r.get() - 0.55f) < 1e-4f && fabsf(_param_ca_sv_cs1_trq_p.get() - 1.f) < 1e-4f
+	       && fabsf(_param_ca_sv_cs1_trq_y.get()) < 1e-4f && fabsf(_param_ca_sv_cs1_trim.get()) < 1e-4f
+	       && _param_ca_sv_cs2_type.get() == 4 && fabsf(_param_ca_sv_cs2_trq_r.get()) < 1e-4f
+	       && fabsf(_param_ca_sv_cs2_trq_p.get()) < 1e-4f && fabsf(_param_ca_sv_cs2_trq_y.get() - 1.f) < 1e-4f
+	       && fabsf(_param_ca_sv_cs2_trim.get()) < 1e-4f && _param_pwm_main_func1.get() == 201
+	       && _param_pwm_main_func2.get() == 202 && _param_pwm_main_func5.get() == 203
+	       && _param_pwm_main_rev.get() == 17;
+}
+
 void
 FixedwingRateControl::vehicle_manual_poll()
 {
@@ -415,13 +431,6 @@ void FixedwingRateControl::Run()
 				}
 			}
 
-			// publish rate controller status
-			rate_ctrl_status_s rate_ctrl_status{};
-			_rate_control.getRateControlStatus(rate_ctrl_status);
-			rate_ctrl_status.timestamp = hrt_absolute_time();
-
-			_rate_ctrl_status_pub.publish(rate_ctrl_status);
-
 		} else {
 			// full manual
 			_gain_compression.reset();
@@ -440,7 +449,44 @@ void FixedwingRateControl::Run()
 			_vehicle_torque_setpoint.xyz[2] = -helper;
 		}
 
-		/* Only publish if any of the proper modes are enabled */
+		// Fixed-b0 is inserted after existing yaw feed-forward and tailsitter transforms.
+		// It is standard fixed-wing only; ControlAllocator and PWM remain authoritative.
+		FixedB0Experiment::Inputs slow_inputs{};
+		slow_inputs.enabled = _param_flap_slow_en.get();
+		slow_inputs.armed = _vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED;
+		slow_inputs.airborne = !_landed;
+		slow_inputs.fixed_wing = _vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING;
+		slow_inputs.vtol = _vehicle_status.is_vtol;
+		slow_inputs.tailsitter = _vehicle_status.is_vtol_tailsitter;
+		slow_inputs.transition = _vehicle_status.in_transition_mode;
+		slow_inputs.failsafe = _vehicle_status.failsafe;
+		slow_inputs.rates_enabled = _vcontrol_mode.flag_control_rates_enabled;
+		slow_inputs.supported_mode = _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION;
+		slow_inputs.config_valid = verify_flap_slow_configuration();
+		slow_inputs.b0_tail = _param_flap_slow_b0.get();
+		slow_inputs.slew_tail_per_s = _param_flap_slow_slew.get();
+		const float roll_baseline = _vehicle_torque_setpoint.xyz[0];
+		_fixed_b0_result = _fixed_b0.update(slow_inputs, dt, roll_baseline);
+		_vehicle_torque_setpoint.xyz[0] = math::constrain(roll_baseline + _fixed_b0_result.applied_torque, -1.f, 1.f);
+
+		rate_ctrl_status_s rate_ctrl_status{};
+		_rate_control.getRateControlStatus(rate_ctrl_status);
+		rate_ctrl_status.timestamp = hrt_absolute_time();
+		rate_ctrl_status.flap_slow_enabled = slow_inputs.enabled;
+		rate_ctrl_status.flap_slow_gate_valid = _fixed_b0_result.gate_valid;
+		rate_ctrl_status.flap_slow_config_valid = _fixed_b0_result.config_valid;
+		rate_ctrl_status.flap_slow_b0_tail = slow_inputs.b0_tail;
+		rate_ctrl_status.flap_slow_target_tail = _fixed_b0_result.target_tail;
+		rate_ctrl_status.flap_slow_applied_tail = _fixed_b0_result.applied_tail;
+		rate_ctrl_status.flap_slow_internal_scale = _fixed_b0_result.internal_scale;
+		rate_ctrl_status.flap_slow_applied_torque = _fixed_b0_result.applied_torque;
+		rate_ctrl_status.flap_slow_roll_baseline = roll_baseline;
+		rate_ctrl_status.flap_slow_roll_total = _vehicle_torque_setpoint.xyz[0];
+		rate_ctrl_status.flap_slow_total_clipped = _fixed_b0_result.total_clipped;
+		rate_ctrl_status.flap_slow_exit_reason = static_cast<uint8_t>(_fixed_b0_result.exit_reason);
+		_rate_ctrl_status_pub.publish(rate_ctrl_status);
+
+	/* Only publish if any of the proper modes are enabled */
 		if (_vcontrol_mode.flag_control_rates_enabled ||
 		    _vcontrol_mode.flag_control_attitude_enabled ||
 		    _vcontrol_mode.flag_control_manual_enabled) {

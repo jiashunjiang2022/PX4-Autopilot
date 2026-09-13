@@ -42,3 +42,7 @@ px4_add_module(
 		RateControl
 		SlewRate
 	)
+
+px4_add_unit_gtest(
+	SRC tests/FixedB0ExperimentTest.cpp
+)
