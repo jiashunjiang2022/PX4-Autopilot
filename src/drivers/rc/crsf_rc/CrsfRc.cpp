@@ -46,6 +46,8 @@ using namespace time_literals;
 
 #define CRSF_BAUDRATE 420000
 
+static constexpr auto StartupRetryDelay = 500_ms;
+
 CrsfRc::CrsfRc(const char *device) :
 	ModuleParams(nullptr),
 	ScheduledWorkItem(MODULE_NAME, px4::serial_port_to_wq(device))
@@ -138,7 +140,7 @@ void CrsfRc::Run()
 
 		if (_uart == nullptr) {
 			PX4_ERR("Error creating serial device %s", _device);
-			px4_sleep(1);
+			ScheduleDelayed(StartupRetryDelay);
 			return;
 		}
 	}
@@ -148,14 +150,16 @@ void CrsfRc::Run()
 		// Otherwise the default baudrate will be used.
 		if (! _uart->setBaudrate(CRSF_BAUDRATE)) {
 			PX4_ERR("Error setting baudrate to %u on %s", CRSF_BAUDRATE, _device);
-			px4_sleep(1);
+			(void) _uart->close();
+			ScheduleDelayed(StartupRetryDelay);
 			return;
 		}
 
 		// Open the UART. If this is successful then the UART is ready to use.
 		if (! _uart->open()) {
 			PX4_ERR("Error opening serial device  %s", _device);
-			px4_sleep(1);
+			(void) _uart->close();
+			ScheduleDelayed(StartupRetryDelay);
 			return;
 		}
 
