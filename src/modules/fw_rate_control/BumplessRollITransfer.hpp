@@ -189,6 +189,11 @@ public:
 			}
 
 			if (_state == State::TransferIn) {
+				if (fabsf(out.residual_i_before_raw) <= StateEpsilon
+				    || valuesOppose(out.residual_i_before_raw, _latched_target_raw)) {
+					return cancelTransferEpisode(out);
+				}
+
 				const float requested_delta_s = towardTargetStep(_transferred_i_raw, _latched_target_raw,
 								in.slew_raw_per_s * in.dt);
 				applyTransfer(out, rate_control, -requested_delta_s, false);
@@ -196,6 +201,11 @@ public:
 				if (fabsf(_latched_target_raw - _transferred_i_raw) <= StateEpsilon) {
 					_state = State::TransferHold;
 				}
+			}
+
+			if (_state == State::TransferHold
+			    && valuesOppose(out.residual_i_before_raw, _transferred_i_raw)) {
+				return cancelTransferEpisode(out);
 			}
 
 			return finalize(out);
@@ -258,6 +268,28 @@ private:
 	static float towardZeroStep(float value, float max_step)
 	{
 		return towardTargetStep(value, 0.f, max_step);
+	}
+
+	static bool valuesOppose(float first, float second)
+	{
+		return (first > StateEpsilon && second < -StateEpsilon)
+		       || (first < -StateEpsilon && second > StateEpsilon);
+	}
+
+	Result cancelTransferEpisode(Result &out)
+	{
+		_latched_target_raw = 0.f;
+
+		if (fabsf(_transferred_i_raw) > StateEpsilon) {
+			_state = State::NormalTransferOut;
+			out.reason = Reason::NormalDisable;
+
+		} else {
+			_transferred_i_raw = 0.f;
+			_state = State::Disabled;
+		}
+
+		return finalize(out);
 	}
 
 	void applyTransfer(Result &out, RateControl &rate_control, float requested_delta_i, bool safety)

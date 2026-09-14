@@ -66,6 +66,175 @@ void enter_transfer(BumplessRollITransfer &transfer, RateControl &rate_control,
 	EXPECT_EQ(transfer.update(in, rate_control).state, BumplessRollITransfer::State::Eligible);
 	EXPECT_EQ(transfer.update(in, rate_control).state, BumplessRollITransfer::State::TransferIn);
 }
+
+void naturally_move_roll_i_to(RateControl &rate_control, float transferred_raw, float target)
+{
+	rate_control.setRollITransferContext(transferred_raw, true);
+
+	for (int iteration = 0; iteration < 8; ++iteration) {
+		const float error = target - roll_i(rate_control);
+		rate_control.update(Vector3f(), Vector3f(error, 0.f, 0.f), Vector3f(), 1.f, false);
+	}
+
+	ASSERT_NEAR(roll_i(rate_control), target, StateTolerance);
+}
+
+void expect_normal_exit_to_disabled(BumplessRollITransfer &transfer, RateControl &rate_control,
+				    const BumplessRollITransfer::Inputs &in)
+{
+	float previous_magnitude = std::fabs(transfer.transferredRaw());
+	ASSERT_GT(previous_magnitude, StateTolerance);
+	bool observed_disabled = false;
+
+	for (int cycle = 0; cycle < 20; ++cycle) {
+		const float total_before = roll_i(rate_control) + transfer.transferredRaw();
+		const auto result = transfer.update(in, rate_control);
+		EXPECT_FALSE(result.recovery);
+		EXPECT_FALSE(result.reset_required);
+		EXPECT_NEAR(result.total_equivalent_i_raw, total_before, StateTolerance);
+		EXPECT_NEAR(result.accepted_delta_i_raw + result.accepted_delta_s_raw, 0.f, StateTolerance);
+		const float magnitude = std::fabs(result.transferred_i_raw);
+
+		if (result.state == BumplessRollITransfer::State::Disabled) {
+			observed_disabled = true;
+			EXPECT_NEAR(magnitude, 0.f, StateTolerance);
+			break;
+		}
+
+		EXPECT_EQ(result.state, BumplessRollITransfer::State::NormalTransferOut);
+		EXPECT_LT(magnitude, previous_magnitude);
+		previous_magnitude = magnitude;
+	}
+
+	EXPECT_TRUE(observed_disabled);
+}
+}
+
+TEST(BumplessRollITransfer, TransferInPositiveResidualReachesZero)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_roll(rate_control, 1.f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.cap_raw = 0.05f;
+	enter_transfer(transfer, rate_control, in);
+	transfer.update(in, rate_control);
+	ASSERT_GT(transfer.transferredRaw(), StateTolerance);
+	ASSERT_LT(transfer.transferredRaw(), transfer.latchedTargetRaw());
+	naturally_move_roll_i_to(rate_control, transfer.transferredRaw(), 0.f);
+	const float total_before_cancel = roll_i(rate_control) + transfer.transferredRaw();
+	const auto cancelled = transfer.update(in, rate_control);
+	EXPECT_EQ(cancelled.state, BumplessRollITransfer::State::NormalTransferOut);
+	EXPECT_FALSE(cancelled.recovery);
+	EXPECT_FALSE(cancelled.reset_required);
+	EXPECT_NEAR(cancelled.total_equivalent_i_raw, total_before_cancel, StateTolerance);
+	expect_normal_exit_to_disabled(transfer, rate_control, in);
+}
+
+TEST(BumplessRollITransfer, TransferInNegativeResidualReachesZero)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_roll(rate_control, -1.f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.cap_raw = 0.05f;
+	enter_transfer(transfer, rate_control, in);
+	transfer.update(in, rate_control);
+	ASSERT_LT(transfer.transferredRaw(), -StateTolerance);
+	ASSERT_LT(std::fabs(transfer.transferredRaw()), std::fabs(transfer.latchedTargetRaw()));
+	naturally_move_roll_i_to(rate_control, transfer.transferredRaw(), 0.f);
+	const float total_before_cancel = roll_i(rate_control) + transfer.transferredRaw();
+	const auto cancelled = transfer.update(in, rate_control);
+	EXPECT_EQ(cancelled.state, BumplessRollITransfer::State::NormalTransferOut);
+	EXPECT_FALSE(cancelled.recovery);
+	EXPECT_FALSE(cancelled.reset_required);
+	EXPECT_NEAR(cancelled.total_equivalent_i_raw, total_before_cancel, StateTolerance);
+	expect_normal_exit_to_disabled(transfer, rate_control, in);
+}
+
+TEST(BumplessRollITransfer, TransferInPositiveEntryResidualReverses)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_roll(rate_control, 1.f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.cap_raw = 0.05f;
+	enter_transfer(transfer, rate_control, in);
+	transfer.update(in, rate_control);
+	naturally_move_roll_i_to(rate_control, transfer.transferredRaw(), -0.01f);
+	const auto cancelled = transfer.update(in, rate_control);
+	EXPECT_EQ(cancelled.state, BumplessRollITransfer::State::NormalTransferOut);
+	EXPECT_NE(cancelled.reason, BumplessRollITransfer::Reason::ControlInvalid);
+	EXPECT_FALSE(cancelled.recovery);
+	EXPECT_FALSE(cancelled.reset_required);
+	expect_normal_exit_to_disabled(transfer, rate_control, in);
+}
+
+TEST(BumplessRollITransfer, TransferInNegativeEntryResidualReverses)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_roll(rate_control, -1.f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.cap_raw = 0.05f;
+	enter_transfer(transfer, rate_control, in);
+	transfer.update(in, rate_control);
+	naturally_move_roll_i_to(rate_control, transfer.transferredRaw(), 0.01f);
+	const auto cancelled = transfer.update(in, rate_control);
+	EXPECT_EQ(cancelled.state, BumplessRollITransfer::State::NormalTransferOut);
+	EXPECT_NE(cancelled.reason, BumplessRollITransfer::Reason::ControlInvalid);
+	EXPECT_FALSE(cancelled.recovery);
+	EXPECT_FALSE(cancelled.reset_required);
+	expect_normal_exit_to_disabled(transfer, rate_control, in);
+}
+
+TEST(BumplessRollITransfer, TransferHoldOppositionExits)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_roll(rate_control, 1.f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.cap_raw = 0.05f;
+	enter_transfer(transfer, rate_control, in);
+
+	while (transfer.state() != BumplessRollITransfer::State::TransferHold) {
+		transfer.update(in, rate_control);
+	}
+
+	naturally_move_roll_i_to(rate_control, transfer.transferredRaw(), -0.01f);
+	const auto exit_started = transfer.update(in, rate_control);
+	EXPECT_EQ(exit_started.state, BumplessRollITransfer::State::NormalTransferOut);
+	EXPECT_FALSE(exit_started.recovery);
+	EXPECT_FALSE(exit_started.reset_required);
+	expect_normal_exit_to_disabled(transfer, rate_control, in);
+	EXPECT_EQ(transfer.update(in, rate_control).state, BumplessRollITransfer::State::Eligible);
+}
+
+TEST(BumplessRollITransfer, OldLatchedTargetCannotHarvestLaterI)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_roll(rate_control, 1.f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.cap_raw = 0.05f;
+	enter_transfer(transfer, rate_control, in);
+	transfer.update(in, rate_control);
+	const float old_target = transfer.latchedTargetRaw();
+	naturally_move_roll_i_to(rate_control, transfer.transferredRaw(), 0.f);
+	ASSERT_EQ(transfer.update(in, rate_control).state, BumplessRollITransfer::State::NormalTransferOut);
+
+	naturally_move_roll_i_to(rate_control, transfer.transferredRaw(), 0.005f);
+	expect_normal_exit_to_disabled(transfer, rate_control, in);
+	naturally_move_roll_i_to(rate_control, transfer.transferredRaw(), 0.02f);
+	EXPECT_EQ(transfer.update(in, rate_control).state, BumplessRollITransfer::State::Eligible);
+	EXPECT_NEAR(transfer.latchedTargetRaw(), roll_i(rate_control), StateTolerance);
+	EXPECT_LT(transfer.latchedTargetRaw(), old_target);
 }
 
 TEST(BumplessRollITransfer, PositiveRampInPreservesTotalAndStopsAtZero)
