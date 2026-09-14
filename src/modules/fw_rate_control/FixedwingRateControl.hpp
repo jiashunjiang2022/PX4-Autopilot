@@ -71,7 +71,7 @@
 #include <uORB/topics/vehicle_thrust_setpoint.h>
 #include <uORB/topics/vehicle_torque_setpoint.h>
 
-#include "FixedB0Experiment.hpp"
+#include "BumplessRollITransfer.hpp"
 
 using matrix::Eulerf;
 using matrix::Quatf;
@@ -216,6 +216,9 @@ private:
 		(ParamBool<px4::params::FLAP_SLOW_EN>) _param_flap_slow_en,
 		(ParamFloat<px4::params::FLAP_SLOW_B0>) _param_flap_slow_b0,
 		(ParamFloat<px4::params::FLAP_SLOW_SLEW>) _param_flap_slow_slew,
+		(ParamFloat<px4::params::FLAP_B2B_CAP>) _param_flap_b2b_cap,
+		(ParamFloat<px4::params::FLAP_B2B_SLEW>) _param_flap_b2b_slew,
+		(ParamFloat<px4::params::FLAP_B2B_SAFE>) _param_flap_b2b_safe,
 		(ParamInt<px4::params::CA_AIRFRAME>) _param_ca_airframe,
 		(ParamInt<px4::params::CA_METHOD>) _param_ca_method,
 		(ParamInt<px4::params::CA_SV_CS_COUNT>) _param_ca_sv_cs_count,
@@ -255,7 +258,15 @@ private:
 
 	float 		get_airspeed_and_update_scaling(float dt);
 	bool verify_flap_slow_configuration() const;
+	void resetIntegralAndTransfer();
+	void resetRollIntegralAndTransfer();
 
-	FixedB0Experiment _fixed_b0{};
-	FixedB0Experiment::Result _fixed_b0_result{};
+	BumplessRollITransfer _bumpless_roll_i_transfer{};
+	BumplessRollITransfer::Result _bumpless_roll_i_result{};
+	uint8_t _previous_nav_state{vehicle_status_s::NAVIGATION_STATE_MAX};
+	bool _previous_nav_state_valid{false};
+	bool _roll_i_reset_this_cycle{false};
+	float _b2b_g_current{0.f};
+	float _b2b_roll_baseline{0.f};
+	bool _b2b_total_clipped{false};
 };

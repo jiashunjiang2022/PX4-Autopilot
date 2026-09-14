@@ -108,6 +108,20 @@ bool FixedwingRateControl::verify_flap_slow_configuration() const
 	       && _param_pwm_main_rev.get() == 17;
 }
 
+void FixedwingRateControl::resetIntegralAndTransfer()
+{
+	_rate_control.resetIntegral();
+	_bumpless_roll_i_transfer.synchronizeReset(_rate_control.rollIntegralResetEpoch());
+	_roll_i_reset_this_cycle = true;
+}
+
+void FixedwingRateControl::resetRollIntegralAndTransfer()
+{
+	_rate_control.resetIntegral(0);
+	_bumpless_roll_i_transfer.synchronizeReset(_rate_control.rollIntegralResetEpoch());
+	_roll_i_reset_this_cycle = true;
+}
+
 void
 FixedwingRateControl::vehicle_manual_poll()
 {
@@ -226,6 +240,7 @@ void FixedwingRateControl::Run()
 	}
 
 	perf_begin(_loop_perf);
+	_roll_i_reset_this_cycle = false;
 
 	// only run controller if angular velocity changed
 	if (_vehicle_angular_velocity_sub.updated() || (hrt_elapsed_time(&_last_run) > 20_ms)) { //TODO rate!
@@ -283,6 +298,11 @@ void FixedwingRateControl::Run()
 		_in_fw_or_transition_wo_tailsitter_transition =  is_fixed_wing || is_in_transition_except_tailsitter;
 
 		_vehicle_control_mode_sub.update(&_vcontrol_mode);
+		const bool pilot_abort_to_stabilized = _previous_nav_state_valid
+				&& _previous_nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION
+				&& _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_STAB;
+		_previous_nav_state = _vehicle_status.nav_state;
+		_previous_nav_state_valid = true;
 
 		vehicle_land_detected_poll();
 
@@ -301,14 +321,14 @@ void FixedwingRateControl::Run()
 
 			/* reset integrals where needed */
 			if (_rates_sp.reset_integral) {
-				_rate_control.resetIntegral();
+				resetIntegralAndTransfer();
 			}
 
 			// Reset integrators if the aircraft is on ground or not in a state where the fw attitude controller is run
 			if (_landed || !_in_fw_or_transition_wo_tailsitter_transition) {
 
 				_gain_compression.reset();
-				_rate_control.resetIntegral();
+				resetIntegralAndTransfer();
 			}
 
 			// Update saturation status from control allocation feedback
@@ -347,6 +367,38 @@ void FixedwingRateControl::Run()
 					}
 				}
 			}
+
+			const float airspeed_scale_squared = _airspeed_scaling * _airspeed_scaling;
+			_b2b_g_current = _gain_compression.getGains()(0) * airspeed_scale_squared;
+			const bool transfer_config_valid = verify_flap_slow_configuration();
+			BumplessRollITransfer::Inputs transfer_inputs{};
+			transfer_inputs.enabled = _param_flap_slow_en.get();
+			transfer_inputs.eligible = _vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED
+						   && !_landed && is_fixed_wing && !_vehicle_status.is_vtol
+						   && !_vehicle_status.is_vtol_tailsitter && !_vehicle_status.in_transition_mode
+						   && !_vehicle_status.failsafe
+						   && _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION
+						   && transfer_config_valid;
+			transfer_inputs.pilot_abort = pilot_abort_to_stabilized;
+			transfer_inputs.failsafe = _vehicle_status.failsafe;
+			transfer_inputs.hard_reset = _vehicle_status.arming_state != vehicle_status_s::ARMING_STATE_ARMED || _landed;
+			transfer_inputs.rates_enabled = _vcontrol_mode.flag_control_rates_enabled;
+			transfer_inputs.config_valid = transfer_config_valid;
+			transfer_inputs.dt = dt;
+			transfer_inputs.imax_raw = _param_fw_rr_imax.get();
+			transfer_inputs.cap_raw = _param_flap_b2b_cap.get();
+			transfer_inputs.slew_raw_per_s = _param_flap_b2b_slew.get();
+			transfer_inputs.safety_slew_raw_per_s = _param_flap_b2b_safe.get();
+			transfer_inputs.g_current = _b2b_g_current;
+			_bumpless_roll_i_result = _bumpless_roll_i_transfer.update(transfer_inputs, _rate_control);
+
+			if (_bumpless_roll_i_result.reset_required) {
+				resetRollIntegralAndTransfer();
+			}
+
+			const float transferred_roll_i_raw = _bumpless_roll_i_transfer.transferredRaw();
+			_rate_control.setRollITransferContext(transferred_roll_i_raw,
+					std::fabs(transferred_roll_i_raw) > FLT_EPSILON);
 
 			/* bi-linear interpolation over airspeed for actuator trim scheduling */
 			Vector3f trim(_param_trim_roll.get(), _param_trim_pitch.get(), _param_trim_yaw.get());
@@ -388,13 +440,31 @@ void FixedwingRateControl::Run()
 
 				// Run attitude RATE controllers which need the desired attitudes from above, add trim.
 				rate_ctrl_terms_s rate_ctrl_terms{};
-				const Vector3f angular_acceleration_setpoint = _rate_control.update(rates, body_rates_setpoint, angular_accel, dt,
+				Vector3f angular_acceleration_setpoint = _rate_control.update(rates, body_rates_setpoint, angular_accel, dt,
 						_landed, &rate_ctrl_terms);
 				rate_ctrl_terms.timestamp_sample = angular_velocity.timestamp_sample;
 				rate_ctrl_terms.timestamp = hrt_absolute_time();
 				_rate_ctrl_terms_pub.publish(rate_ctrl_terms);
 
-				Vector3f control_u = _gain_compression.getGains().emult(angular_acceleration_setpoint * _airspeed_scaling * _airspeed_scaling);
+				const Vector3f gains_before_update = _gain_compression.getGains();
+				_b2b_g_current = gains_before_update(0) * airspeed_scale_squared;
+				_b2b_roll_baseline = math::constrain(_b2b_g_current * angular_acceleration_setpoint(0) + trim(0), -1.f, 1.f);
+
+				Vector3f control_u;
+
+				if (std::fabs(transferred_roll_i_raw) > FLT_EPSILON) {
+					angular_acceleration_setpoint(0) = BumplessRollITransfer::composeRawRoll(
+							angular_acceleration_setpoint(0), transferred_roll_i_raw);
+					control_u = gains_before_update.emult(angular_acceleration_setpoint * airspeed_scale_squared);
+
+				} else {
+					// Preserve the original arithmetic ordering when B2b has no transferred state.
+					control_u = _gain_compression.getGains().emult(
+							angular_acceleration_setpoint * _airspeed_scaling * _airspeed_scaling);
+				}
+
+				const float roll_unconstrained = control_u(0) + trim(0);
+				_b2b_total_clipped = roll_unconstrained < -1.f || roll_unconstrained > 1.f;
 
 				_gain_compression.update(control_u, dt);
 
@@ -409,7 +479,7 @@ void FixedwingRateControl::Run()
 					matrix::constrain(control_u + trim, -1.f, 1.f).copyTo(_vehicle_torque_setpoint.xyz);
 
 				} else {
-					_rate_control.resetIntegral();
+					resetIntegralAndTransfer();
 					trim.copyTo(_vehicle_torque_setpoint.xyz);
 				}
 
@@ -434,7 +504,11 @@ void FixedwingRateControl::Run()
 		} else {
 			// full manual
 			_gain_compression.reset();
-			_rate_control.resetIntegral();
+			resetIntegralAndTransfer();
+			_bumpless_roll_i_result = {};
+			_b2b_g_current = 0.f;
+			_b2b_roll_baseline = _vehicle_torque_setpoint.xyz[0];
+			_b2b_total_clipped = false;
 		}
 
 		// Add feed-forward from roll control output to yaw control output
@@ -449,41 +523,49 @@ void FixedwingRateControl::Run()
 			_vehicle_torque_setpoint.xyz[2] = -helper;
 		}
 
-		// Fixed-b0 is inserted after existing yaw feed-forward and tailsitter transforms.
-		// It is standard fixed-wing only; ControlAllocator and PWM remain authoritative.
-		FixedB0Experiment::Inputs slow_inputs{};
-		slow_inputs.enabled = _param_flap_slow_en.get();
-		slow_inputs.armed = _vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED;
-		slow_inputs.airborne = !_landed;
-		slow_inputs.fixed_wing = _vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING;
-		slow_inputs.vtol = _vehicle_status.is_vtol;
-		slow_inputs.tailsitter = _vehicle_status.is_vtol_tailsitter;
-		slow_inputs.transition = _vehicle_status.in_transition_mode;
-		slow_inputs.failsafe = _vehicle_status.failsafe;
-		slow_inputs.rates_enabled = _vcontrol_mode.flag_control_rates_enabled;
-		slow_inputs.supported_mode = _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION;
-		slow_inputs.config_valid = verify_flap_slow_configuration();
-		slow_inputs.b0_tail = _param_flap_slow_b0.get();
-		slow_inputs.slew_tail_per_s = _param_flap_slow_slew.get();
-		const float roll_baseline = _vehicle_torque_setpoint.xyz[0];
-		_fixed_b0_result = _fixed_b0.update(slow_inputs, dt, roll_baseline);
-		_vehicle_torque_setpoint.xyz[0] = math::constrain(roll_baseline + _fixed_b0_result.applied_torque, -1.f, 1.f);
-
 		rate_ctrl_status_s rate_ctrl_status{};
 		_rate_control.getRateControlStatus(rate_ctrl_status);
 		rate_ctrl_status.timestamp = hrt_absolute_time();
-		rate_ctrl_status.flap_slow_enabled = slow_inputs.enabled;
-		rate_ctrl_status.flap_slow_gate_valid = _fixed_b0_result.gate_valid;
-		rate_ctrl_status.flap_slow_config_valid = _fixed_b0_result.config_valid;
-		rate_ctrl_status.flap_slow_b0_tail = slow_inputs.b0_tail;
-		rate_ctrl_status.flap_slow_target_tail = _fixed_b0_result.target_tail;
-		rate_ctrl_status.flap_slow_applied_tail = _fixed_b0_result.applied_tail;
-		rate_ctrl_status.flap_slow_internal_scale = _fixed_b0_result.internal_scale;
-		rate_ctrl_status.flap_slow_applied_torque = _fixed_b0_result.applied_torque;
-		rate_ctrl_status.flap_slow_roll_baseline = roll_baseline;
+		const float transferred_roll_i_raw = _bumpless_roll_i_transfer.transferredRaw();
+		const float effective_slow_torque = _b2b_g_current * transferred_roll_i_raw;
+		rate_ctrl_status.flap_slow_enabled = _param_flap_slow_en.get();
+		rate_ctrl_status.flap_slow_gate_valid = _bumpless_roll_i_result.state == BumplessRollITransfer::State::Eligible
+				|| _bumpless_roll_i_result.state == BumplessRollITransfer::State::TransferIn
+				|| _bumpless_roll_i_result.state == BumplessRollITransfer::State::TransferHold;
+		rate_ctrl_status.flap_slow_config_valid = verify_flap_slow_configuration();
+		rate_ctrl_status.flap_slow_b0_tail = _param_flap_slow_b0.get();
+		rate_ctrl_status.flap_slow_target_tail = 0.f;
+		rate_ctrl_status.flap_slow_applied_tail = effective_slow_torque / 1.1f;
+		rate_ctrl_status.flap_slow_internal_scale = 1.1f;
+		rate_ctrl_status.flap_slow_applied_torque = effective_slow_torque;
+		rate_ctrl_status.flap_slow_roll_baseline = _b2b_roll_baseline;
 		rate_ctrl_status.flap_slow_roll_total = _vehicle_torque_setpoint.xyz[0];
-		rate_ctrl_status.flap_slow_total_clipped = _fixed_b0_result.total_clipped;
-		rate_ctrl_status.flap_slow_exit_reason = static_cast<uint8_t>(_fixed_b0_result.exit_reason);
+		rate_ctrl_status.flap_slow_total_clipped = _b2b_total_clipped;
+		rate_ctrl_status.flap_slow_exit_reason = static_cast<uint8_t>(_bumpless_roll_i_result.reason);
+		rate_ctrl_status.flap_b2b_state = static_cast<uint8_t>(_bumpless_roll_i_result.state);
+		rate_ctrl_status.flap_b2b_reason = static_cast<uint8_t>(_bumpless_roll_i_result.reason);
+		rate_ctrl_status.flap_b2b_normal_exit = _bumpless_roll_i_result.normal_exit;
+		rate_ctrl_status.flap_b2b_safety_exit = _bumpless_roll_i_result.safety_exit;
+		rate_ctrl_status.flap_b2b_recovery = _bumpless_roll_i_result.recovery;
+		rate_ctrl_status.flap_b2b_reset_mismatch = _bumpless_roll_i_result.reset_mismatch;
+		rate_ctrl_status.flap_b2b_reset_this_cycle = _roll_i_reset_this_cycle;
+		rate_ctrl_status.flap_b2b_transfer_limited = _bumpless_roll_i_result.transfer_limited;
+		rate_ctrl_status.flap_b2b_i_before_raw = _bumpless_roll_i_result.residual_i_before_raw;
+		rate_ctrl_status.flap_b2b_requested_delta_i_raw = _bumpless_roll_i_result.requested_delta_i_raw;
+		rate_ctrl_status.flap_b2b_accepted_delta_i_raw = _bumpless_roll_i_result.accepted_delta_i_raw;
+		rate_ctrl_status.flap_b2b_i_after_transfer_raw = _bumpless_roll_i_result.residual_i_raw;
+		rate_ctrl_status.flap_b2b_transferred_before_raw = _bumpless_roll_i_result.transferred_i_before_raw;
+		rate_ctrl_status.flap_b2b_requested_delta_s_raw = _bumpless_roll_i_result.requested_delta_s_raw;
+		rate_ctrl_status.flap_b2b_accepted_delta_s_raw = _bumpless_roll_i_result.accepted_delta_s_raw;
+		rate_ctrl_status.flap_b2b_transferred_raw = transferred_roll_i_raw;
+		rate_ctrl_status.flap_b2b_total_equivalent_raw = rate_ctrl_status.rollspeed_integ + transferred_roll_i_raw;
+		rate_ctrl_status.flap_b2b_natural_delta_pre_imax_raw = rate_ctrl_status.rollspeed_integ_delta_pre_imax;
+		rate_ctrl_status.flap_b2b_natural_delta_accepted_raw = rate_ctrl_status.rollspeed_integ_delta_accepted;
+		rate_ctrl_status.flap_b2b_unmatched_delta_raw = _bumpless_roll_i_result.unmatched_delta_raw;
+		rate_ctrl_status.flap_b2b_g_current = _b2b_g_current;
+		rate_ctrl_status.flap_b2b_effective_slow_torque = effective_slow_torque;
+		rate_ctrl_status.flap_b2b_effective_slow_tail = effective_slow_torque / 1.1f;
+		rate_ctrl_status.flap_b2b_reset_epoch = _rate_control.rollIntegralResetEpoch();
 		_rate_ctrl_status_pub.publish(rate_ctrl_status);
 
 	/* Only publish if any of the proper modes are enabled */

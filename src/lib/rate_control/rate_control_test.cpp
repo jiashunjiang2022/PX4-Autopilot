@@ -38,6 +38,24 @@
 
 using namespace matrix;
 
+namespace
+{
+constexpr float TransferTolerance = 2e-7f;
+
+void configure_transfer_test(RateControl &rate_control)
+{
+	rate_control.setPidGains(Vector3f(0.f, 0.f, 0.f), Vector3f(1.f, 1.f, 1.f), Vector3f(0.f, 0.f, 0.f));
+	rate_control.setIntegratorLimit(Vector3f(0.2f, 0.3f, 0.4f));
+}
+
+rate_ctrl_status_s status_of(RateControl &rate_control)
+{
+	rate_ctrl_status_s status{};
+	rate_control.getRateControlStatus(status);
+	return status;
+}
+}
+
 TEST(RateControlTest, AllZeroCase)
 {
 	RateControl rate_control;
@@ -181,4 +199,105 @@ TEST(RateControlTest, RollUnboundedIntegratorDiagnostics)
 	EXPECT_TRUE(std::isfinite(status.rollspeed_integ_delta_pre_imax));
 	EXPECT_TRUE(std::isfinite(status.rollspeed_integ_shadow_no_imax));
 	EXPECT_FALSE(status.rollspeed_integ_update_enabled);
+}
+
+TEST(RateControlTest, RollTransferAcceptsPositiveDelta)
+{
+	RateControl rate_control;
+	configure_transfer_test(rate_control);
+	rate_control.update(Vector3f(), Vector3f(-1.f, 0.f, 0.f), Vector3f(), 0.1f, false);
+	const float before = status_of(rate_control).rollspeed_integ;
+	RateControl::RollITransferRequest request{0.02f, 0.f, RateControl::RollITransferMode::TowardZero};
+	const auto result = rate_control.applyRollITransfer(request);
+	EXPECT_TRUE(result.valid);
+	EXPECT_NEAR(result.accepted_delta_raw, 0.02f, TransferTolerance);
+	EXPECT_NEAR(result.residual_after_raw, before + 0.02f, TransferTolerance);
+}
+
+TEST(RateControlTest, RollTransferAcceptsNegativeDeltaSymmetrically)
+{
+	RateControl rate_control;
+	configure_transfer_test(rate_control);
+	rate_control.update(Vector3f(), Vector3f(1.f, 0.f, 0.f), Vector3f(), 0.1f, false);
+	const float before = status_of(rate_control).rollspeed_integ;
+	RateControl::RollITransferRequest request{-0.02f, 0.f, RateControl::RollITransferMode::TowardZero};
+	const auto result = rate_control.applyRollITransfer(request);
+	EXPECT_TRUE(result.valid);
+	EXPECT_NEAR(result.accepted_delta_raw, -0.02f, TransferTolerance);
+	EXPECT_NEAR(result.residual_after_raw, before - 0.02f, TransferTolerance);
+}
+
+TEST(RateControlTest, RollTransferDoesNotCrossPositiveZero)
+{
+	RateControl rate_control;
+	configure_transfer_test(rate_control);
+	rate_control.update(Vector3f(), Vector3f(1.f, 0.f, 0.f), Vector3f(), 0.1f, false);
+	const auto result = rate_control.applyRollITransfer(
+		RateControl::RollITransferRequest{-1.f, 0.f, RateControl::RollITransferMode::TowardZero});
+	EXPECT_TRUE(result.limited_at_zero);
+	EXPECT_NEAR(result.residual_after_raw, 0.f, TransferTolerance);
+}
+
+TEST(RateControlTest, RollTransferDoesNotCrossNegativeZero)
+{
+	RateControl rate_control;
+	configure_transfer_test(rate_control);
+	rate_control.update(Vector3f(), Vector3f(-1.f, 0.f, 0.f), Vector3f(), 0.1f, false);
+	const auto result = rate_control.applyRollITransfer(
+		RateControl::RollITransferRequest{1.f, 0.f, RateControl::RollITransferMode::TowardZero});
+	EXPECT_TRUE(result.limited_at_zero);
+	EXPECT_NEAR(result.residual_after_raw, 0.f, TransferTolerance);
+}
+
+TEST(RateControlTest, RollTransferCannotCreateIntegralFromZero)
+{
+	RateControl rate_control;
+	configure_transfer_test(rate_control);
+	const auto result = rate_control.applyRollITransfer(
+		RateControl::RollITransferRequest{0.02f, 0.f, RateControl::RollITransferMode::TowardZero});
+	EXPECT_TRUE(result.valid);
+	EXPECT_TRUE(result.limited_at_zero);
+	EXPECT_NEAR(result.accepted_delta_raw, 0.f, TransferTolerance);
+	EXPECT_NEAR(result.residual_after_raw, 0.f, TransferTolerance);
+}
+
+TEST(RateControlTest, TransferredContextShiftsOnlyRollNaturalBounds)
+{
+	RateControl rate_control;
+	configure_transfer_test(rate_control);
+	rate_control.setRollITransferContext(0.08f, true);
+
+	for (int i = 0; i < 30; ++i) {
+		rate_control.update(Vector3f(), Vector3f(1.f, 1.f, 1.f), Vector3f(), 0.02f, false);
+	}
+
+	const auto status = status_of(rate_control);
+	EXPECT_LE(status.rollspeed_integ + 0.08f, 0.2f + TransferTolerance);
+	EXPECT_NEAR(status.rollspeed_integ, 0.12f, TransferTolerance);
+	EXPECT_NEAR(status.pitchspeed_integ, 0.3f, TransferTolerance);
+	EXPECT_NEAR(status.yawspeed_integ, 0.4f, TransferTolerance);
+}
+
+TEST(RateControlTest, RollTransferLeavesPitchAndYawIntegratorsUntouched)
+{
+	RateControl rate_control;
+	configure_transfer_test(rate_control);
+	rate_control.update(Vector3f(), Vector3f(1.f, 1.f, -1.f), Vector3f(), 0.1f, false);
+	const auto before = status_of(rate_control);
+	rate_control.applyRollITransfer(
+		RateControl::RollITransferRequest{-0.02f, 0.f, RateControl::RollITransferMode::TowardZero});
+	const auto after = status_of(rate_control);
+	EXPECT_FLOAT_EQ(after.pitchspeed_integ, before.pitchspeed_integ);
+	EXPECT_FLOAT_EQ(after.yawspeed_integ, before.yawspeed_integ);
+}
+
+TEST(RateControlTest, RollResetAdvancesEpochAndClearsState)
+{
+	RateControl rate_control;
+	configure_transfer_test(rate_control);
+	rate_control.update(Vector3f(), Vector3f(1.f, 0.f, 0.f), Vector3f(), 0.1f, false);
+	const uint32_t before_epoch = rate_control.rollIntegralResetEpoch();
+	rate_control.resetIntegral();
+	EXPECT_EQ(rate_control.rollIntegralResetEpoch(), before_epoch + 1);
+	EXPECT_FLOAT_EQ(status_of(rate_control).rollspeed_integ, 0.f);
 }

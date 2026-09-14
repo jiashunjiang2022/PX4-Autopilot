@@ -9,6 +9,7 @@ float32 yawspeed_integ
 float32 rollspeed_error
 float32 rollspeed_integ_delta_raw
 float32 rollspeed_integ_delta_pre_imax
+float32 rollspeed_integ_delta_accepted
 float32 rollspeed_integ_shadow_no_imax
 float32 rollspeed_integ_raw_drive_accum
 bool rollspeed_integ_update_enabled
@@ -26,3 +27,38 @@ float32 flap_slow_roll_baseline
 float32 flap_slow_roll_total
 bool flap_slow_total_clipped
 uint8 flap_slow_exit_reason
+
+# B2b bumpless Roll-I transfer diagnostics. RAW_I fields are before output scaling.
+uint8 FLAP_B2B_DISABLED = 0
+uint8 FLAP_B2B_ELIGIBLE = 1
+uint8 FLAP_B2B_TRANSFER_IN = 2
+uint8 FLAP_B2B_TRANSFER_HOLD = 3
+uint8 FLAP_B2B_NORMAL_TRANSFER_OUT = 4
+uint8 FLAP_B2B_SAFETY_EXIT = 5
+uint8 FLAP_B2B_RECOVERY_RECONCILIATION = 6
+
+uint8 flap_b2b_state
+uint8 flap_b2b_reason
+bool flap_b2b_normal_exit
+bool flap_b2b_safety_exit
+bool flap_b2b_recovery
+bool flap_b2b_reset_mismatch
+bool flap_b2b_reset_this_cycle
+bool flap_b2b_transfer_limited
+
+float32 flap_b2b_i_before_raw
+float32 flap_b2b_requested_delta_i_raw
+float32 flap_b2b_accepted_delta_i_raw
+float32 flap_b2b_i_after_transfer_raw
+float32 flap_b2b_transferred_before_raw
+float32 flap_b2b_requested_delta_s_raw
+float32 flap_b2b_accepted_delta_s_raw
+float32 flap_b2b_transferred_raw
+float32 flap_b2b_total_equivalent_raw
+float32 flap_b2b_natural_delta_pre_imax_raw
+float32 flap_b2b_natural_delta_accepted_raw
+float32 flap_b2b_unmatched_delta_raw
+float32 flap_b2b_g_current
+float32 flap_b2b_effective_slow_torque
+float32 flap_b2b_effective_slow_tail
+uint32 flap_b2b_reset_epoch

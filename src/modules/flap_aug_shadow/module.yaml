@@ -15,16 +15,16 @@ parameters:
 
         FLAP_SLOW_EN:
             description:
-                short: Enable fixed-b0 Slow experiment
-                long: Enables the guarded fixed specimen-prior Slow torque experiment. Fast injection and delta_b remain disabled.
+                short: Enable B2b Roll-I transfer experiment
+                long: Enables the guarded B2b Roll-I burden transfer. Transfer authority remains zero while FLAP_B2B_CAP is zero. Fast injection and delta_b remain disabled.
             type: boolean
             default: false
             category: System
 
         FLAP_SLOW_B0:
             description:
-                short: Fixed-b0 tail coordinate
-                long: Fixed specimen prior in the validated tail-roll coordinate; source gate accepts only -0.22 to +0.22.
+                short: Legacy fixed-b0 tail coordinate
+                long: Legacy specimen-prior value retained for audit compatibility. It is not used as a B2b raw-I target and provides no authority in the B2b path.
             type: float
             default: 0.0
             min: -0.22
@@ -34,12 +34,45 @@ parameters:
 
         FLAP_SLOW_SLEW:
             description:
-                short: Fixed-b0 ramp rate
-                long: Bounded tail-coordinate ramp rate for the experiment.
+                short: Legacy fixed-b0 tail ramp rate
+                long: Legacy tail-coordinate value retained for audit compatibility. It is not interpreted as raw-I per second.
             type: float
             default: 0.02
             min: 0.005
             max: 0.05
+            decimal: 3
+            category: System
+
+        FLAP_B2B_CAP:
+            description:
+                short: B2b transferred Roll-I cap
+                long: Maximum existing Roll integrator burden transferable into the B2b raw-I state. Zero disables transfer authority. Nonzero values are test and SITL only, not flight frozen.
+            type: float
+            default: 0.0
+            min: 0.0
+            max: 1.0
+            decimal: 4
+            category: System
+
+        FLAP_B2B_SLEW:
+            description:
+                short: B2b normal raw-I slew
+                long: Normal transfer-in and exact transfer-out rate in raw-I per second. This does not use legacy tail-coordinate units.
+            type: float
+            default: 0.02
+            min: 0.001
+            max: 1.0
+            decimal: 4
+            category: System
+
+        FLAP_B2B_SAFE:
+            description:
+                short: B2b safety raw-I slew
+                long: Safety-exit removal rate in raw-I per second. Continuity is best effort. This value is test and SITL only, not flight frozen.
+            type: float
+            default: 0.20
+            min: 0.01
+            max: 2.0
             decimal: 3
             category: System
 

@@ -39,6 +39,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include <matrix/matrix/math.hpp>
 
 #include <mathlib/mathlib.h>
@@ -48,6 +50,38 @@
 class RateControl
 {
 public:
+	enum class RollITransferMode : uint8_t {
+		TowardZero = 0,
+		PairPreserving = 1
+	};
+
+	enum class RollITransferLimitReason : uint8_t {
+		None = 0,
+		Invalid = 1,
+		WrongDirection = 2,
+		ZeroCrossing = 3,
+		IntegratorLimit = 4,
+		TotalEquivalentLimit = 5
+	};
+
+	struct RollITransferRequest {
+		float requested_delta_raw;
+		float transferred_i_raw;
+		RollITransferMode mode;
+	};
+
+	struct RollITransferResult {
+		float requested_delta_raw{0.f};
+		float accepted_delta_raw{0.f};
+		float residual_before_raw{0.f};
+		float residual_after_raw{0.f};
+		bool valid{false};
+		bool limited_at_zero{false};
+		bool limited_by_imax{false};
+		RollITransferLimitReason reason{RollITransferLimitReason::None};
+		uint32_t reset_epoch{0};
+	};
+
 	RateControl() = default;
 	~RateControl() = default;
 
@@ -64,6 +98,19 @@ public:
 	 * @param integrator_limit limit value for all axes x, y, z
 	 */
 	void setIntegratorLimit(const matrix::Vector3f &integrator_limit) { _lim_int = integrator_limit; };
+
+	/** Apply an explicit Roll integral state transfer in raw-I coordinates. */
+	RollITransferResult applyRollITransfer(const RollITransferRequest &request);
+
+	/** Set the transferred raw-I state used to bound the next natural Roll update. */
+	void setRollITransferContext(float transferred_i_raw, bool enabled)
+	{
+		_roll_i_transfer_context_raw = transferred_i_raw;
+		_roll_i_transfer_context_enabled = enabled;
+	}
+
+	uint32_t rollIntegralResetEpoch() const { return _roll_i_reset_epoch; }
+	float rollIntegralRaw() const { return _rate_int(0); }
 
 	/**
 	 * Set direct rate to torque feed forward gain
@@ -106,6 +153,7 @@ public:
 	void resetIntegral()
 	{
 		_rate_int.zero();
+		_roll_i_reset_epoch++;
 		resetRollIntegralDiagnostics();
 	}
 
@@ -120,6 +168,7 @@ public:
 			_rate_int(axis) = 0.f;
 
 			if (axis == 0) {
+				_roll_i_reset_epoch++;
 				resetRollIntegralDiagnostics();
 			}
 		}
@@ -147,9 +196,13 @@ private:
 	float _roll_rate_error{0.f};
 	float _roll_i_delta_raw{0.f};
 	float _roll_i_delta_pre_imax{0.f};
+	float _roll_i_delta_accepted{0.f};
 	float _roll_i_shadow_no_imax{0.f};
 	float _roll_i_raw_drive_accum{0.f};
 	bool _roll_i_update_enabled{false};
+	float _roll_i_transfer_context_raw{0.f};
+	bool _roll_i_transfer_context_enabled{false};
+	uint32_t _roll_i_reset_epoch{0};
 
 	// Feedback from control allocation
 	matrix::Vector<bool, 3> _control_allocator_saturation_negative;

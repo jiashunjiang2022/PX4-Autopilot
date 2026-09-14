@@ -40,6 +40,70 @@
 
 using namespace matrix;
 
+RateControl::RollITransferResult RateControl::applyRollITransfer(const RollITransferRequest &request)
+{
+	RollITransferResult result{};
+	result.requested_delta_raw = request.requested_delta_raw;
+	result.residual_before_raw = _rate_int(0);
+	result.residual_after_raw = _rate_int(0);
+	result.reset_epoch = _roll_i_reset_epoch;
+
+	const float limit = _lim_int(0);
+	const float total_before = _rate_int(0) + request.transferred_i_raw;
+
+	if (!PX4_ISFINITE(request.requested_delta_raw) || !PX4_ISFINITE(request.transferred_i_raw)
+	    || !PX4_ISFINITE(_rate_int(0)) || !PX4_ISFINITE(limit) || limit < 0.f
+	    || fabsf(_rate_int(0)) > limit || !PX4_ISFINITE(total_before) || fabsf(total_before) > limit) {
+		result.reason = !PX4_ISFINITE(total_before) || fabsf(total_before) > limit
+				? RollITransferLimitReason::TotalEquivalentLimit : RollITransferLimitReason::Invalid;
+		return result;
+	}
+
+	float accepted_delta = request.requested_delta_raw;
+
+	if (request.mode == RollITransferMode::TowardZero) {
+		if (fabsf(_rate_int(0)) <= FLT_EPSILON && fabsf(accepted_delta) > FLT_EPSILON) {
+			accepted_delta = 0.f;
+			result.limited_at_zero = true;
+			result.reason = RollITransferLimitReason::ZeroCrossing;
+		}
+
+		const bool wrong_direction = (_rate_int(0) > 0.f && accepted_delta > 0.f)
+					     || (_rate_int(0) < 0.f && accepted_delta < 0.f);
+
+		if (wrong_direction) {
+			result.reason = RollITransferLimitReason::WrongDirection;
+			return result;
+		}
+
+		if (fabsf(accepted_delta) > fabsf(_rate_int(0))) {
+			accepted_delta = -_rate_int(0);
+			result.limited_at_zero = true;
+			result.reason = RollITransferLimitReason::ZeroCrossing;
+		}
+	}
+
+	const float unconstrained = _rate_int(0) + accepted_delta;
+
+	if (!PX4_ISFINITE(unconstrained)) {
+		result.reason = RollITransferLimitReason::Invalid;
+		return result;
+	}
+
+	const float constrained = math::constrain(unconstrained, -limit, limit);
+	result.limited_by_imax = constrained < unconstrained || constrained > unconstrained;
+
+	if (result.limited_by_imax) {
+		result.reason = RollITransferLimitReason::IntegratorLimit;
+	}
+
+	_rate_int(0) = constrained;
+	result.accepted_delta_raw = constrained - result.residual_before_raw;
+	result.residual_after_raw = constrained;
+	result.valid = true;
+	return result;
+}
+
 void RateControl::setPidGains(const Vector3f &P, const Vector3f &I, const Vector3f &D)
 {
 	_gain_p = P;
@@ -76,6 +140,7 @@ Vector3f RateControl::update(const Vector3f &rate, const Vector3f &rate_sp, cons
 	_roll_rate_error = PX4_ISFINITE(rate_error(0)) ? rate_error(0) : 0.f;
 	_roll_i_delta_raw = 0.f;
 	_roll_i_delta_pre_imax = 0.f;
+	_roll_i_delta_accepted = 0.f;
 	_roll_i_update_enabled = false;
 
 	// PID control with feed forward
@@ -150,7 +215,20 @@ void RateControl::updateIntegral(Vector3f &rate_error, const float dt)
 				_roll_i_update_enabled = true;
 			}
 
-			_rate_int(i) = math::constrain(rate_i, -_lim_int(i), _lim_int(i));
+			if (i == 0 && _roll_i_transfer_context_enabled) {
+				if (PX4_ISFINITE(_roll_i_transfer_context_raw)) {
+					const float lower = math::max(-_lim_int(i), -_lim_int(i) - _roll_i_transfer_context_raw);
+					const float upper = math::min(_lim_int(i), _lim_int(i) - _roll_i_transfer_context_raw);
+					_rate_int(i) = math::constrain(rate_i, lower, upper);
+				}
+
+			} else {
+				_rate_int(i) = math::constrain(rate_i, -_lim_int(i), _lim_int(i));
+			}
+
+			if (i == 0) {
+				_roll_i_delta_accepted = _rate_int(i) - (rate_i - _roll_i_delta_pre_imax);
+			}
 		}
 	}
 }
@@ -160,6 +238,7 @@ void RateControl::resetRollIntegralDiagnostics()
 	_roll_rate_error = 0.f;
 	_roll_i_delta_raw = 0.f;
 	_roll_i_delta_pre_imax = 0.f;
+	_roll_i_delta_accepted = 0.f;
 	_roll_i_shadow_no_imax = 0.f;
 	_roll_i_raw_drive_accum = 0.f;
 	_roll_i_update_enabled = false;
@@ -173,6 +252,7 @@ void RateControl::getRateControlStatus(rate_ctrl_status_s &rate_ctrl_status)
 	rate_ctrl_status.rollspeed_error = _roll_rate_error;
 	rate_ctrl_status.rollspeed_integ_delta_raw = _roll_i_delta_raw;
 	rate_ctrl_status.rollspeed_integ_delta_pre_imax = _roll_i_delta_pre_imax;
+	rate_ctrl_status.rollspeed_integ_delta_accepted = _roll_i_delta_accepted;
 	rate_ctrl_status.rollspeed_integ_shadow_no_imax = _roll_i_shadow_no_imax;
 	rate_ctrl_status.rollspeed_integ_raw_drive_accum = _roll_i_raw_drive_accum;
 	rate_ctrl_status.rollspeed_integ_update_enabled = _roll_i_update_enabled;

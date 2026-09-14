@@ -46,3 +46,8 @@ px4_add_module(
 px4_add_unit_gtest(
 	SRC tests/FixedB0ExperimentTest.cpp
 )
+
+px4_add_unit_gtest(
+	SRC tests/BumplessRollITransferTest.cpp
+	LINKLIBS RateControl
+)
