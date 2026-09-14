@@ -2,7 +2,13 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <cfloat>
+#include <fstream>
+#include <iomanip>
 #include <random>
+#include <string>
+#include <vector>
 
 #include <lib/rate_control/rate_control.hpp>
 
@@ -12,11 +18,23 @@ using matrix::Vector3f;
 
 struct BumplessRollITransferTestAccess
 {
-	static void setState(BumplessRollITransfer &transfer, float transferred_raw, uint32_t reset_epoch)
+	template<typename T>
+	static auto setHeadroom(T &transfer, float ratio, int)
+	-> decltype(transfer._latched_headroom_release_ratio = ratio, void())
+	{
+		transfer._latched_headroom_release_ratio = ratio;
+	}
+
+	template<typename T>
+	static void setHeadroom(T &, float, long) {}
+
+	static void setState(BumplessRollITransfer &transfer, float transferred_raw, uint32_t reset_epoch,
+			     float headroom_ratio = 0.f)
 	{
 		transfer._transferred_i_raw = transferred_raw;
 		transfer._expected_reset_epoch = reset_epoch;
 		transfer._state = BumplessRollITransfer::State::TransferHold;
+		setHeadroom(transfer, headroom_ratio, 0);
 	}
 };
 
@@ -24,6 +42,126 @@ namespace
 {
 constexpr float StateTolerance = 2e-7f;
 constexpr float AccumulatedTolerance = 2e-6f;
+
+struct ReplayRow {
+	int cycle;
+	float time_s;
+	BumplessRollITransfer::State state;
+	BumplessRollITransfer::Reason reason;
+	float rate_error;
+	float residual_i;
+	float transferred_s;
+	float total_i;
+	float gamma_param;
+	float gamma_latched;
+	float gamma_effective;
+	float total_limit;
+	float residual_lower;
+	float residual_upper;
+	float natural_i_delta_pre_limit;
+	float natural_i_delta_accepted;
+	float requested_transfer_i;
+	float accepted_transfer_i;
+	float requested_transfer_s;
+	float accepted_transfer_s;
+	float exit_authority_decay;
+	bool recovery;
+	bool reset_required;
+};
+
+const char *state_name(BumplessRollITransfer::State state)
+{
+	switch (state) {
+	case BumplessRollITransfer::State::Disabled: return "Disabled";
+	case BumplessRollITransfer::State::Eligible: return "Eligible";
+	case BumplessRollITransfer::State::TransferIn: return "TransferIn";
+	case BumplessRollITransfer::State::TransferHold: return "TransferHold";
+	case BumplessRollITransfer::State::NormalTransferOut: return "NormalTransferOut";
+	case BumplessRollITransfer::State::SafetyExit: return "SafetyExit";
+	case BumplessRollITransfer::State::RecoveryReconciliation: return "RecoveryReconciliation";
+	}
+
+	return "Unknown";
+}
+
+void write_replay_csv(const char *filename, const std::vector<ReplayRow> &rows)
+{
+	const char *directory = std::getenv("B2B_HR_REPLAY_DIR");
+
+	if (directory == nullptr) {
+		return;
+	}
+
+	std::ofstream output(std::string(directory) + "/" + filename);
+	ASSERT_TRUE(output.is_open());
+	output << "cycle,time_s,state,reason,rate_error,residual_i,transferred_s,total_i,"
+	       << "gamma_param,gamma_latched,gamma_effective,total_limit,residual_lower,residual_upper,"
+	       << "natural_i_delta_pre_limit,natural_i_delta_accepted,requested_transfer_i,accepted_transfer_i,"
+	       << "requested_transfer_s,accepted_transfer_s,exit_authority_decay,recovery,reset_required\n";
+	output << std::fixed << std::setprecision(9);
+
+	for (const ReplayRow &row : rows) {
+		output << row.cycle << ',' << row.time_s << ',' << state_name(row.state) << ','
+		       << static_cast<unsigned>(row.reason) << ',' << row.rate_error << ',' << row.residual_i << ','
+		       << row.transferred_s << ',' << row.total_i << ',' << row.gamma_param << ',' << row.gamma_latched << ','
+		       << row.gamma_effective << ',' << row.total_limit << ',' << row.residual_lower << ','
+		       << row.residual_upper << ',' << row.natural_i_delta_pre_limit << ',' << row.natural_i_delta_accepted << ','
+		       << row.requested_transfer_i << ',' << row.accepted_transfer_i << ',' << row.requested_transfer_s << ','
+		       << row.accepted_transfer_s << ',' << row.exit_authority_decay << ',' << row.recovery << ','
+		       << row.reset_required << '\n';
+	}
+}
+
+template<typename T>
+auto set_headroom_ratio(T &input, float ratio, int)
+-> decltype(input.headroom_release_ratio = ratio, void())
+{
+	input.headroom_release_ratio = ratio;
+}
+
+template<typename T>
+void set_headroom_ratio(T &, float, long) {}
+
+template<typename T>
+auto effective_headroom_ratio(const T &result, int) -> decltype(result.headroom_release_ratio_effective)
+{
+	return result.headroom_release_ratio_effective;
+}
+
+template<typename T>
+float effective_headroom_ratio(const T &, long) { return 0.f; }
+
+template<typename T>
+auto latched_headroom_ratio(const T &result, int) -> decltype(result.headroom_release_ratio_latched)
+{
+	return result.headroom_release_ratio_latched;
+}
+
+template<typename T>
+float latched_headroom_ratio(const T &, long) { return 0.f; }
+
+template<typename T>
+auto exit_authority_decay(const T &result, int) -> decltype(result.exit_authority_decay_raw)
+{
+	return result.exit_authority_decay_raw;
+}
+
+template<typename T>
+float exit_authority_decay(const T &, long) { return 0.f; }
+
+template<typename T>
+auto set_headroom_context(T &rate_control, float transferred_raw, float ratio, int)
+-> decltype(rate_control.setRollITransferContext(transferred_raw, ratio, true), void())
+{
+	rate_control.setRollITransferContext(transferred_raw, ratio, true);
+}
+
+template<typename T>
+void set_headroom_context(T &rate_control, float transferred_raw, float ratio, long)
+{
+	(void)ratio;
+	rate_control.setRollITransferContext(transferred_raw, true);
+}
 
 void configure(RateControl &rate_control, float imax = 0.2f)
 {
@@ -41,6 +179,116 @@ float roll_i(RateControl &rate_control)
 	rate_ctrl_status_s status{};
 	rate_control.getRateControlStatus(status);
 	return status.rollspeed_integ;
+}
+
+ReplayRow run_replay_cycle(BumplessRollITransfer &transfer, RateControl &rate_control,
+			   const BumplessRollITransfer::Inputs &in, int cycle, float rate_error,
+			   std::vector<ReplayRow> &history)
+{
+	const auto result = transfer.update(in, rate_control);
+	const bool context_enabled = std::fabs(result.transferred_i_raw) > FLT_EPSILON;
+	rate_control.setRollITransferContext(result.transferred_i_raw,
+			result.headroom_release_ratio_effective, context_enabled);
+	rate_control.update(Vector3f(), Vector3f(rate_error, 0.f, 0.f), Vector3f(), in.dt, false);
+	rate_ctrl_status_s status{};
+	rate_control.getRateControlStatus(status);
+	const auto limits = RateControl::computeRollILimits(in.imax_raw, result.transferred_i_raw,
+			    result.headroom_release_ratio_effective);
+
+	ReplayRow row{
+		cycle,
+		cycle * in.dt,
+		result.state,
+		result.reason,
+		rate_error,
+		status.rollspeed_integ,
+		result.transferred_i_raw,
+		status.rollspeed_integ + result.transferred_i_raw,
+		in.headroom_release_ratio,
+		result.headroom_release_ratio_latched,
+		result.headroom_release_ratio_effective,
+		limits.total_limit,
+		limits.lower,
+		limits.upper,
+		status.rollspeed_integ_delta_pre_imax,
+		status.rollspeed_integ_delta_accepted,
+		result.requested_delta_i_raw,
+		result.accepted_delta_i_raw,
+		result.requested_delta_s_raw,
+		result.accepted_delta_s_raw,
+		result.exit_authority_decay_raw,
+		result.recovery,
+		result.reset_required
+	};
+	history.push_back(row);
+
+	EXPECT_TRUE(std::isfinite(row.residual_i));
+	EXPECT_TRUE(std::isfinite(row.transferred_s));
+	EXPECT_TRUE(std::isfinite(row.total_i));
+	EXPECT_TRUE(limits.valid);
+	EXPECT_GE(row.residual_i, limits.lower - AccumulatedTolerance);
+	EXPECT_LE(row.residual_i, limits.upper + AccumulatedTolerance);
+	EXPECT_LE(std::fabs(row.residual_i), in.imax_raw + AccumulatedTolerance);
+	EXPECT_LE(std::fabs(row.total_i), limits.total_limit + AccumulatedTolerance);
+	EXPECT_FALSE(row.recovery);
+	EXPECT_FALSE(row.reset_required);
+	return row;
+}
+
+ReplayRow advance_replay_to_hold(BumplessRollITransfer &transfer, RateControl &rate_control,
+				 const BumplessRollITransfer::Inputs &in, int &cycle,
+				 std::vector<ReplayRow> &history)
+{
+	ReplayRow row{};
+	bool reached_hold = false;
+	float entry_total = 0.f;
+
+	for (int iteration = 0; iteration < 40; ++iteration) {
+		row = run_replay_cycle(transfer, rate_control, in, cycle++, 0.f, history);
+
+		if (iteration == 0) {
+			entry_total = row.total_i;
+		}
+
+		EXPECT_NEAR(row.total_i, entry_total, AccumulatedTolerance);
+
+		if (row.state == BumplessRollITransfer::State::TransferIn) {
+			EXPECT_FLOAT_EQ(row.gamma_effective, 0.f);
+		}
+
+		if (row.state == BumplessRollITransfer::State::TransferHold) {
+			reached_hold = true;
+			break;
+		}
+	}
+
+	EXPECT_TRUE(reached_hold);
+	return row;
+}
+
+void finish_normal_replay_exit(BumplessRollITransfer &transfer, RateControl &rate_control,
+			       BumplessRollITransfer::Inputs &in, int &cycle,
+			       std::vector<ReplayRow> &history, bool &authority_decay_observed)
+{
+	in.enabled = false;
+	bool disabled = false;
+	float previous_total_magnitude = std::fabs(rate_control.rollIntegralRaw() + transfer.transferredRaw());
+
+	for (int iteration = 0; iteration < 40; ++iteration) {
+		const ReplayRow row = run_replay_cycle(transfer, rate_control, in, cycle++, 0.f, history);
+		authority_decay_observed = authority_decay_observed
+					 || std::fabs(row.exit_authority_decay) > StateTolerance;
+		EXPECT_LE(std::fabs(row.total_i), previous_total_magnitude + AccumulatedTolerance);
+		previous_total_magnitude = std::fabs(row.total_i);
+
+		if (row.state == BumplessRollITransfer::State::Disabled) {
+			disabled = true;
+			break;
+		}
+	}
+
+	EXPECT_TRUE(disabled);
+	EXPECT_NEAR(history.back().transferred_s, 0.f, StateTolerance);
 }
 
 BumplessRollITransfer::Inputs enabled_inputs(float dt = 0.02f)
@@ -108,6 +356,313 @@ void expect_normal_exit_to_disabled(BumplessRollITransfer &transfer, RateControl
 
 	EXPECT_TRUE(observed_disabled);
 }
+
+void seed_residual(RateControl &rate_control, float value)
+{
+	const auto seeded = rate_control.applyRollITransfer({value, 0.f, RateControl::RollITransferMode::PairPreserving});
+	ASSERT_TRUE(seeded.valid);
+	ASSERT_NEAR(roll_i(rate_control), value, StateTolerance);
+}
+
+void drive_natural_roll_i(RateControl &rate_control, float sign)
+{
+	for (int cycle = 0; cycle < 40; ++cycle) {
+		rate_control.update(Vector3f(), Vector3f(sign, 0.f, 0.f), Vector3f(), 0.02f, false);
+	}
+}
+}
+
+TEST(BumplessRollITransfer, TransferInConservesTotalWithHeadroomConfigured)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.1f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.cap_raw = 0.03f;
+	set_headroom_ratio(in, 1.f, 0);
+	enter_transfer(transfer, rate_control, in);
+	const float initial_total = roll_i(rate_control);
+
+	while (transfer.state() != BumplessRollITransfer::State::TransferHold) {
+		const auto result = transfer.update(in, rate_control);
+		EXPECT_NEAR(result.total_equivalent_i_raw, initial_total, StateTolerance);
+		EXPECT_NEAR(result.accepted_delta_i_raw + result.accepted_delta_s_raw, 0.f, StateTolerance);
+
+		if (result.state == BumplessRollITransfer::State::TransferIn) {
+			EXPECT_FLOAT_EQ(effective_headroom_ratio(result, 0), 0.f);
+		}
+	}
+
+	EXPECT_FLOAT_EQ(effective_headroom_ratio(transfer.lastResult(), 0), 1.f);
+}
+
+TEST(BumplessRollITransfer, HeadroomActivatesOnlyInTransferHold)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.1f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	set_headroom_ratio(in, 0.5f, 0);
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+	EXPECT_FLOAT_EQ(effective_headroom_ratio(transfer.update(in, rate_control), 0), 0.f);
+	EXPECT_FLOAT_EQ(effective_headroom_ratio(transfer.update(in, rate_control), 0), 0.f);
+
+	while (transfer.state() != BumplessRollITransfer::State::TransferHold) {
+		transfer.update(in, rate_control);
+	}
+
+	EXPECT_FLOAT_EQ(effective_headroom_ratio(transfer.lastResult(), 0), 0.5f);
+}
+
+TEST(BumplessRollITransfer, HeadroomRatioLatchedForEpisode)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.1f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	set_headroom_ratio(in, 0.5f, 0);
+	enter_transfer(transfer, rate_control, in);
+	set_headroom_ratio(in, 1.f, 0);
+
+	while (transfer.state() != BumplessRollITransfer::State::TransferHold) {
+		transfer.update(in, rate_control);
+	}
+
+	EXPECT_FLOAT_EQ(latched_headroom_ratio(transfer.lastResult(), 0), 0.5f);
+	EXPECT_FLOAT_EQ(effective_headroom_ratio(transfer.lastResult(), 0), 0.5f);
+	in.enabled = false;
+
+	while (transfer.state() != BumplessRollITransfer::State::Disabled) {
+		transfer.update(in, rate_control);
+	}
+
+	in.enabled = true;
+	EXPECT_EQ(transfer.update(in, rate_control).state, BumplessRollITransfer::State::Eligible);
+	EXPECT_FLOAT_EQ(latched_headroom_ratio(transfer.lastResult(), 0), 1.f);
+}
+
+TEST(BumplessRollITransfer, HalfHeadroomAllowsNaturalResidualGrowth)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.2f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.cap_raw = 0.03f;
+	set_headroom_ratio(in, 0.5f, 0);
+	enter_transfer(transfer, rate_control, in);
+
+	while (transfer.state() != BumplessRollITransfer::State::TransferHold) {
+		transfer.update(in, rate_control);
+	}
+
+	set_headroom_context(rate_control, transfer.transferredRaw(), effective_headroom_ratio(transfer.lastResult(), 0), 0);
+	drive_natural_roll_i(rate_control, 1.f);
+	EXPECT_NEAR(roll_i(rate_control), 0.185f, AccumulatedTolerance);
+}
+
+TEST(BumplessRollITransfer, FullHeadroomAllowsNaturalResidualGrowthToImax)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.2f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.cap_raw = 0.03f;
+	set_headroom_ratio(in, 1.f, 0);
+	enter_transfer(transfer, rate_control, in);
+
+	while (transfer.state() != BumplessRollITransfer::State::TransferHold) {
+		transfer.update(in, rate_control);
+	}
+
+	set_headroom_context(rate_control, transfer.transferredRaw(), effective_headroom_ratio(transfer.lastResult(), 0), 0);
+	drive_natural_roll_i(rate_control, 1.f);
+	EXPECT_NEAR(roll_i(rate_control), 0.2f, AccumulatedTolerance);
+}
+
+TEST(BumplessRollITransfer, PositiveAndNegativeHeadroomAreSymmetric)
+{
+	for (const float sign : {1.f, -1.f}) {
+		RateControl rate_control;
+		configure(rate_control);
+		seed_residual(rate_control, sign * 0.2f);
+		BumplessRollITransfer transfer;
+		auto in = enabled_inputs();
+		in.cap_raw = 0.03f;
+		set_headroom_ratio(in, 0.5f, 0);
+		enter_transfer(transfer, rate_control, in);
+
+		while (transfer.state() != BumplessRollITransfer::State::TransferHold) {
+			transfer.update(in, rate_control);
+		}
+
+		set_headroom_context(rate_control, transfer.transferredRaw(), effective_headroom_ratio(transfer.lastResult(), 0), 0);
+		drive_natural_roll_i(rate_control, sign);
+		EXPECT_NEAR(roll_i(rate_control), sign * 0.185f, AccumulatedTolerance);
+	}
+}
+
+TEST(BumplessRollITransfer, NormalExitExactWhenFeasibleWithHeadroom)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.18f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	set_headroom_ratio(in, 1.f, 0);
+	BumplessRollITransferTestAccess::setState(transfer, 0.03f, rate_control.rollIntegralResetEpoch(), 1.f);
+	in.enabled = false;
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_EQ(result.state, BumplessRollITransfer::State::NormalTransferOut);
+	EXPECT_FALSE(result.recovery);
+	EXPECT_NEAR(result.accepted_delta_i_raw, 0.01f, StateTolerance);
+	EXPECT_NEAR(result.accepted_delta_s_raw, -0.01f, StateTolerance);
+	EXPECT_NEAR(result.total_equivalent_i_raw, 0.21f, StateTolerance);
+}
+
+TEST(BumplessRollITransfer, NormalExitDecaysAuthorityWhenExactTransferBecomesImpossible)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.2f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	set_headroom_ratio(in, 1.f, 0);
+	BumplessRollITransferTestAccess::setState(transfer, 0.01f, rate_control.rollIntegralResetEpoch(), 1.f);
+	in.enabled = false;
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_EQ(result.state, BumplessRollITransfer::State::Disabled);
+	EXPECT_FALSE(result.recovery);
+	EXPECT_FALSE(result.reset_required);
+	EXPECT_NEAR(result.residual_i_raw, 0.2f, StateTolerance);
+	EXPECT_NEAR(result.transferred_i_raw, 0.f, StateTolerance);
+	EXPECT_NEAR(result.total_equivalent_i_raw, 0.2f, StateTolerance);
+	EXPECT_NEAR(exit_authority_decay(result, 0), -0.01f, StateTolerance);
+}
+
+TEST(BumplessRollITransfer, HalfHeadroomBoundaryExitDoesNotRecover)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.185f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	set_headroom_ratio(in, 0.5f, 0);
+	BumplessRollITransferTestAccess::setState(transfer, 0.03f, rate_control.rollIntegralResetEpoch(), 0.5f);
+	in.enabled = false;
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_EQ(result.state, BumplessRollITransfer::State::NormalTransferOut);
+	EXPECT_FALSE(result.recovery);
+	EXPECT_FALSE(result.reset_required);
+}
+
+TEST(BumplessRollITransfer, GammaZeroNormalExitRemainsExact)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.17f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	BumplessRollITransferTestAccess::setState(transfer, 0.03f, rate_control.rollIntegralResetEpoch());
+	in.enabled = false;
+
+	while (transfer.state() != BumplessRollITransfer::State::Disabled) {
+		const auto result = transfer.update(in, rate_control);
+		EXPECT_NEAR(result.accepted_delta_i_raw + result.accepted_delta_s_raw, 0.f, StateTolerance);
+		EXPECT_NEAR(result.total_equivalent_i_raw, 0.2f, StateTolerance);
+	}
+}
+
+TEST(BumplessRollITransfer, HeadroomLegalTotalAboveImaxIsNotRecovery)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.19f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	set_headroom_ratio(in, 1.f, 0);
+	BumplessRollITransferTestAccess::setState(transfer, 0.03f, rate_control.rollIntegralResetEpoch(), 1.f);
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_EQ(result.state, BumplessRollITransfer::State::TransferHold);
+	EXPECT_FALSE(result.recovery);
+	EXPECT_FALSE(result.reset_required);
+}
+
+TEST(BumplessRollITransfer, HeadroomLegalTotalSafetyExitDoesNotRecover)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.2f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	set_headroom_ratio(in, 1.f, 0);
+	BumplessRollITransferTestAccess::setState(transfer, 0.03f, rate_control.rollIntegralResetEpoch(), 1.f);
+	in.pilot_abort = true;
+	const auto first = transfer.update(in, rate_control);
+	EXPECT_EQ(first.state, BumplessRollITransfer::State::SafetyExit);
+	EXPECT_FALSE(first.recovery);
+	EXPECT_FALSE(first.reset_required);
+	EXPECT_LE(std::fabs(first.total_equivalent_i_raw), first.total_limit_raw + StateTolerance);
+
+	BumplessRollITransfer::Result completed{};
+
+	for (int cycle = 0; cycle < 3 && transfer.state() != BumplessRollITransfer::State::Disabled; ++cycle) {
+		completed = transfer.update(in, rate_control);
+		EXPECT_FALSE(completed.recovery);
+		EXPECT_FALSE(completed.reset_required);
+	}
+
+	EXPECT_EQ(completed.state, BumplessRollITransfer::State::Disabled);
+	EXPECT_NEAR(completed.residual_i_raw, 0.2f, StateTolerance);
+	EXPECT_NEAR(completed.transferred_i_raw, 0.f, StateTolerance);
+}
+
+TEST(BumplessRollITransfer, TotalBeyondHeadroomEnvelopeIsRecovery)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.19f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	set_headroom_ratio(in, 0.5f, 0);
+	BumplessRollITransferTestAccess::setState(transfer, 0.03f, rate_control.rollIntegralResetEpoch(), 0.5f);
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_EQ(result.state, BumplessRollITransfer::State::RecoveryReconciliation);
+	EXPECT_TRUE(result.recovery);
+	EXPECT_TRUE(result.reset_required);
+}
+
+TEST(BumplessRollITransfer, ExitCompletesBeforeReentryWithHeadroom)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.2f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.cap_raw = 0.03f;
+	set_headroom_ratio(in, 1.f, 0);
+	enter_transfer(transfer, rate_control, in);
+
+	while (transfer.state() != BumplessRollITransfer::State::TransferHold) {
+		transfer.update(in, rate_control);
+	}
+
+	set_headroom_context(rate_control, transfer.transferredRaw(), 1.f, 0);
+	drive_natural_roll_i(rate_control, 1.f);
+	in.enabled = false;
+	ASSERT_EQ(transfer.update(in, rate_control).state, BumplessRollITransfer::State::NormalTransferOut);
+	in.enabled = true;
+
+	while (transfer.state() != BumplessRollITransfer::State::Disabled) {
+		EXPECT_EQ(transfer.update(in, rate_control).state == BumplessRollITransfer::State::Disabled
+			  || transfer.state() == BumplessRollITransfer::State::NormalTransferOut, true);
+	}
+
+	EXPECT_EQ(transfer.update(in, rate_control).state, BumplessRollITransfer::State::Eligible);
 }
 
 TEST(BumplessRollITransfer, TransferInPositiveResidualReachesZero)
@@ -616,4 +1171,321 @@ TEST(BumplessRollITransfer, SlewIsConsistentAtFiftyAndOneHundredHertz)
 		return transfer.transferredRaw();
 	};
 	EXPECT_NEAR(run(0.02f, 50), run(0.01f, 100), AccumulatedTolerance);
+}
+
+TEST(BumplessRollITransfer, NegativeHeadroomNormalExitExactWhenFeasible)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, -0.18f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.headroom_release_ratio = 1.f;
+	BumplessRollITransferTestAccess::setState(transfer, -0.03f,
+			rate_control.rollIntegralResetEpoch(), 1.f);
+	in.enabled = false;
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_EQ(result.state, BumplessRollITransfer::State::NormalTransferOut);
+	EXPECT_TRUE(result.normal_exit);
+	EXPECT_FALSE(result.recovery);
+	EXPECT_FALSE(result.reset_required);
+	EXPECT_NEAR(result.accepted_delta_i_raw, -0.01f, StateTolerance);
+	EXPECT_NEAR(result.accepted_delta_s_raw, 0.01f, StateTolerance);
+	EXPECT_NEAR(result.total_equivalent_i_raw, -0.21f, StateTolerance);
+	EXPECT_NEAR(result.exit_authority_decay_raw, 0.f, StateTolerance);
+}
+
+TEST(BumplessRollITransfer, NegativeHeadroomNormalExitDecaysAuthorityAtNegativeImax)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, -0.2f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.headroom_release_ratio = 1.f;
+	BumplessRollITransferTestAccess::setState(transfer, -0.01f,
+			rate_control.rollIntegralResetEpoch(), 1.f);
+	in.enabled = false;
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_EQ(result.state, BumplessRollITransfer::State::Disabled);
+	EXPECT_FALSE(result.recovery);
+	EXPECT_FALSE(result.reset_required);
+	EXPECT_NEAR(result.residual_i_raw, -0.2f, StateTolerance);
+	EXPECT_NEAR(result.transferred_i_raw, 0.f, StateTolerance);
+	EXPECT_NEAR(result.total_equivalent_i_raw, -0.2f, StateTolerance);
+	EXPECT_NEAR(result.exit_authority_decay_raw, 0.01f, StateTolerance);
+}
+
+TEST(BumplessRollITransfer, NegativeHalfHeadroomBoundaryExitDoesNotRecover)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, -0.185f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.headroom_release_ratio = 0.5f;
+	BumplessRollITransferTestAccess::setState(transfer, -0.03f,
+			rate_control.rollIntegralResetEpoch(), 0.5f);
+	in.enabled = false;
+
+	while (transfer.state() != BumplessRollITransfer::State::Disabled) {
+		const auto result = transfer.update(in, rate_control);
+		EXPECT_FALSE(result.recovery);
+		EXPECT_FALSE(result.reset_required);
+		EXPECT_GE(result.residual_i_raw, -0.2f - StateTolerance);
+	}
+
+	EXPECT_NEAR(transfer.transferredRaw(), 0.f, StateTolerance);
+	EXPECT_GE(roll_i(rate_control), -0.2f - StateTolerance);
+}
+
+TEST(BumplessRollITransfer, NegativeHeadroomSafetyExitDoesNotRecover)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, -0.19f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.headroom_release_ratio = 1.f;
+	BumplessRollITransferTestAccess::setState(transfer, -0.03f,
+			rate_control.rollIntegralResetEpoch(), 1.f);
+	in.pilot_abort = true;
+	const auto first = transfer.update(in, rate_control);
+	EXPECT_EQ(first.state, BumplessRollITransfer::State::SafetyExit);
+	EXPECT_FALSE(first.recovery);
+	EXPECT_FALSE(first.reset_required);
+
+	while (transfer.state() != BumplessRollITransfer::State::Disabled) {
+		const auto result = transfer.update(in, rate_control);
+		EXPECT_FALSE(result.recovery);
+		EXPECT_FALSE(result.reset_required);
+	}
+
+	EXPECT_NEAR(transfer.transferredRaw(), 0.f, StateTolerance);
+	EXPECT_LE(std::fabs(roll_i(rate_control)), 0.2f + StateTolerance);
+}
+
+TEST(BumplessRollITransfer, NegativeTotalBeyondHeadroomEnvelopeStillRecovers)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, -0.19f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.headroom_release_ratio = 0.5f;
+	BumplessRollITransferTestAccess::setState(transfer, -0.03f,
+			rate_control.rollIntegralResetEpoch(), 0.5f);
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_EQ(result.state, BumplessRollITransfer::State::RecoveryReconciliation);
+	EXPECT_TRUE(result.recovery);
+	EXPECT_TRUE(result.reset_required);
+	EXPECT_EQ(result.reason, BumplessRollITransfer::Reason::TotalEquivalentLimit);
+}
+
+TEST(BumplessRollITransfer, MultiCyclePositiveHalfHeadroomEpisode)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.2f);
+	BumplessRollITransfer transfer;
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+	auto in = enabled_inputs();
+	in.cap_raw = 0.02f;
+	in.slew_raw_per_s = 0.1f;
+	in.headroom_release_ratio = 0.5f;
+	std::vector<ReplayRow> history;
+	int cycle = 0;
+	const ReplayRow hold_entry = advance_replay_to_hold(transfer, rate_control, in, cycle, history);
+	EXPECT_NEAR(hold_entry.transferred_s, 0.02f, AccumulatedTolerance);
+	EXPECT_NEAR(hold_entry.residual_i, 0.18f, AccumulatedTolerance);
+	EXPECT_NEAR(hold_entry.total_i, 0.2f, AccumulatedTolerance);
+	const float residual_at_hold = hold_entry.residual_i;
+
+	for (int iteration = 0; iteration < 6; ++iteration) {
+		run_replay_cycle(transfer, rate_control, in, cycle++, 1.f, history);
+	}
+
+	EXPECT_GT(roll_i(rate_control), residual_at_hold + StateTolerance);
+	EXPECT_NEAR(roll_i(rate_control), 0.19f, AccumulatedTolerance);
+	bool authority_decay_observed = false;
+	finish_normal_replay_exit(transfer, rate_control, in, cycle, history, authority_decay_observed);
+	EXPECT_TRUE(authority_decay_observed);
+	write_replay_csv("R1_positive_half.csv", history);
+}
+
+TEST(BumplessRollITransfer, MultiCycleNegativeHalfHeadroomEpisode)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, -0.2f);
+	BumplessRollITransfer transfer;
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+	auto in = enabled_inputs();
+	in.cap_raw = 0.02f;
+	in.slew_raw_per_s = 0.1f;
+	in.headroom_release_ratio = 0.5f;
+	std::vector<ReplayRow> history;
+	int cycle = 0;
+	const ReplayRow hold_entry = advance_replay_to_hold(transfer, rate_control, in, cycle, history);
+	EXPECT_NEAR(hold_entry.transferred_s, -0.02f, AccumulatedTolerance);
+	EXPECT_NEAR(hold_entry.residual_i, -0.18f, AccumulatedTolerance);
+	EXPECT_NEAR(hold_entry.total_i, -0.2f, AccumulatedTolerance);
+	const float residual_at_hold = hold_entry.residual_i;
+
+	for (int iteration = 0; iteration < 6; ++iteration) {
+		run_replay_cycle(transfer, rate_control, in, cycle++, -1.f, history);
+	}
+
+	EXPECT_LT(roll_i(rate_control), residual_at_hold - StateTolerance);
+	EXPECT_NEAR(roll_i(rate_control), -0.19f, AccumulatedTolerance);
+	bool authority_decay_observed = false;
+	finish_normal_replay_exit(transfer, rate_control, in, cycle, history, authority_decay_observed);
+	EXPECT_TRUE(authority_decay_observed);
+	write_replay_csv("R2_negative_half.csv", history);
+}
+
+TEST(BumplessRollITransfer, MultiCycleFullHeadroomRestoresResidualImax)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.2f);
+	BumplessRollITransfer transfer;
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+	auto in = enabled_inputs();
+	in.cap_raw = 0.02f;
+	in.slew_raw_per_s = 0.1f;
+	in.headroom_release_ratio = 1.f;
+	std::vector<ReplayRow> history;
+	int cycle = 0;
+	advance_replay_to_hold(transfer, rate_control, in, cycle, history);
+
+	for (int iteration = 0; iteration < 6; ++iteration) {
+		run_replay_cycle(transfer, rate_control, in, cycle++, 1.f, history);
+	}
+
+	EXPECT_NEAR(roll_i(rate_control), 0.2f, AccumulatedTolerance);
+	EXPECT_NEAR(history.back().total_i, 0.22f, AccumulatedTolerance);
+	bool authority_decay_observed = false;
+	finish_normal_replay_exit(transfer, rate_control, in, cycle, history, authority_decay_observed);
+	EXPECT_TRUE(authority_decay_observed);
+	write_replay_csv("R3_full_release.csv", history);
+}
+
+TEST(BumplessRollITransfer, MultiCycleGammaZeroMatchesLegacyBehavior)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.2f);
+	BumplessRollITransfer transfer;
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+	auto in = enabled_inputs();
+	in.cap_raw = 0.02f;
+	in.slew_raw_per_s = 0.1f;
+	in.headroom_release_ratio = 0.f;
+	std::vector<ReplayRow> history;
+	int cycle = 0;
+	const ReplayRow hold_entry = advance_replay_to_hold(transfer, rate_control, in, cycle, history);
+
+	for (int iteration = 0; iteration < 6; ++iteration) {
+		run_replay_cycle(transfer, rate_control, in, cycle++, 1.f, history);
+	}
+
+	EXPECT_NEAR(roll_i(rate_control), hold_entry.residual_i, AccumulatedTolerance);
+	bool authority_decay_observed = false;
+	finish_normal_replay_exit(transfer, rate_control, in, cycle, history, authority_decay_observed);
+	EXPECT_FALSE(authority_decay_observed);
+	EXPECT_NEAR(history.back().total_i, 0.2f, AccumulatedTolerance);
+	write_replay_csv("R4_gamma_zero.csv", history);
+}
+
+TEST(BumplessRollITransfer, MultiCyclePilotAbortFromReleasedHeadroom)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.2f);
+	BumplessRollITransfer transfer;
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+	auto in = enabled_inputs();
+	in.cap_raw = 0.02f;
+	in.slew_raw_per_s = 0.1f;
+	in.safety_slew_raw_per_s = 0.2f;
+	in.headroom_release_ratio = 1.f;
+	std::vector<ReplayRow> history;
+	int cycle = 0;
+	advance_replay_to_hold(transfer, rate_control, in, cycle, history);
+
+	for (int iteration = 0; iteration < 6; ++iteration) {
+		run_replay_cycle(transfer, rate_control, in, cycle++, 1.f, history);
+	}
+
+	ASSERT_GT(std::fabs(history.back().total_i), in.imax_raw + StateTolerance);
+	in.pilot_abort = true;
+	bool safety_exit_observed = false;
+	bool disabled = false;
+	float previous_total_magnitude = std::fabs(history.back().total_i);
+	float previous_transferred_magnitude = std::fabs(history.back().transferred_s);
+
+	for (int iteration = 0; iteration < 20; ++iteration) {
+		const ReplayRow row = run_replay_cycle(transfer, rate_control, in, cycle++, 0.f, history);
+		safety_exit_observed = safety_exit_observed || row.state == BumplessRollITransfer::State::SafetyExit;
+		EXPECT_LE(std::fabs(row.total_i), previous_total_magnitude + AccumulatedTolerance);
+		EXPECT_LE(std::fabs(row.transferred_s), previous_transferred_magnitude + AccumulatedTolerance);
+		previous_total_magnitude = std::fabs(row.total_i);
+		previous_transferred_magnitude = std::fabs(row.transferred_s);
+
+		if (row.state == BumplessRollITransfer::State::Disabled) {
+			disabled = true;
+			break;
+		}
+	}
+
+	EXPECT_TRUE(safety_exit_observed);
+	EXPECT_TRUE(disabled);
+	EXPECT_NEAR(history.back().transferred_s, 0.f, StateTolerance);
+	write_replay_csv("R5_pilot_abort.csv", history);
+}
+
+TEST(BumplessRollITransfer, MultiCycleHeadroomDoesNotBypassAllocatorAntiWindup)
+{
+	std::vector<ReplayRow> history;
+	int cycle = 0;
+
+	for (const float sign : {1.f, -1.f}) {
+		RateControl rate_control;
+		configure(rate_control);
+		seed_residual(rate_control, sign * 0.2f);
+		BumplessRollITransfer transfer;
+		transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+		auto in = enabled_inputs();
+		in.cap_raw = 0.02f;
+		in.slew_raw_per_s = 0.1f;
+		in.headroom_release_ratio = 1.f;
+		advance_replay_to_hold(transfer, rate_control, in, cycle, history);
+		const float residual_before_saturation = roll_i(rate_control);
+
+		if (sign > 0.f) {
+			rate_control.setPositiveSaturationFlag(0, true);
+
+		} else {
+			rate_control.setNegativeSaturationFlag(0, true);
+		}
+
+		for (int iteration = 0; iteration < 5; ++iteration) {
+			run_replay_cycle(transfer, rate_control, in, cycle++, sign, history);
+		}
+
+		EXPECT_NEAR(roll_i(rate_control), residual_before_saturation, StateTolerance);
+
+		if (sign > 0.f) {
+			rate_control.setPositiveSaturationFlag(0, false);
+
+		} else {
+			rate_control.setNegativeSaturationFlag(0, false);
+		}
+
+		run_replay_cycle(transfer, rate_control, in, cycle++, sign, history);
+		EXPECT_GT(sign * (roll_i(rate_control) - residual_before_saturation), StateTolerance);
+	}
+
+	write_replay_csv("R6_antiwindup.csv", history);
 }

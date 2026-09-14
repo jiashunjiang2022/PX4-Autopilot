@@ -58,6 +58,15 @@ float32 flap_b2b_total_equivalent_raw
 float32 flap_b2b_natural_delta_pre_imax_raw
 float32 flap_b2b_natural_delta_accepted_raw
 float32 flap_b2b_unmatched_delta_raw
+float32 b2b_hr_param
+float32 b2b_hr_latched
+float32 b2b_hr_effective
+float32 b2b_total_limit
+float32 b2b_i_lower
+float32 b2b_i_upper
+float32 b2b_hr_pos
+float32 b2b_hr_neg
+float32 b2b_exit_decay
 float32 flap_b2b_g_current
 float32 flap_b2b_effective_slow_torque
 float32 flap_b2b_effective_slow_tail

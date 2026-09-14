@@ -46,6 +46,7 @@ public:
 		float slew_raw_per_s{0.f};
 		float safety_slew_raw_per_s{0.f};
 		float g_current{0.f};
+		float headroom_release_ratio{0.f};
 	};
 
 	struct Result {
@@ -67,6 +68,14 @@ public:
 		float fast_actual_roll{0.f};
 		float fast_actual_pitch{0.f};
 		float delta_b{0.f};
+		float headroom_release_ratio_latched{0.f};
+		float headroom_release_ratio_effective{0.f};
+		float total_limit_raw{0.f};
+		float residual_lower_raw{0.f};
+		float residual_upper_raw{0.f};
+		float headroom_positive_raw{0.f};
+		float headroom_negative_raw{0.f};
+		float exit_authority_decay_raw{0.f};
 		bool normal_exit{false};
 		bool safety_exit{false};
 		bool recovery{false};
@@ -81,6 +90,7 @@ public:
 	{
 		_transferred_i_raw = 0.f;
 		_latched_target_raw = 0.f;
+		_latched_headroom_release_ratio = 0.f;
 		_expected_reset_epoch = reset_epoch;
 		_state = State::Disabled;
 		_last_result = {};
@@ -94,16 +104,20 @@ public:
 		out.transferred_i_before_raw = _transferred_i_raw;
 		out.transferred_i_raw = _transferred_i_raw;
 		out.g_current = PX4_ISFINITE(in.g_current) ? in.g_current : 0.f;
+		_last_imax_raw = in.imax_raw;
 
 		if (rate_control.rollIntegralResetEpoch() != _expected_reset_epoch) {
 			return enterRecovery(out, Reason::ResetMismatch, true);
 		}
 
+		const float effective_headroom_ratio = effectiveHeadroomReleaseRatio();
 		const bool state_finite = PX4_ISFINITE(out.residual_i_before_raw) && PX4_ISFINITE(_transferred_i_raw)
 					  && PX4_ISFINITE(in.imax_raw) && in.imax_raw >= 0.f;
 		const float total_before = out.residual_i_before_raw + _transferred_i_raw;
+		const RateControl::RollILimits current_limits = RateControl::computeRollILimits(in.imax_raw,
+				_transferred_i_raw, effective_headroom_ratio);
 
-		if (!state_finite || !PX4_ISFINITE(total_before)) {
+		if (!state_finite || !PX4_ISFINITE(total_before) || !current_limits.valid) {
 			return enterRecovery(out, Reason::Nonfinite, false);
 		}
 
@@ -111,7 +125,7 @@ public:
 			return enterRecovery(out, Reason::ResidualLimit, false);
 		}
 
-		if (fabsf(total_before) > in.imax_raw) {
+		if (fabsf(total_before) > current_limits.total_limit + StateEpsilon) {
 			return enterRecovery(out, Reason::TotalEquivalentLimit, false);
 		}
 
@@ -129,13 +143,15 @@ public:
 					     && in.slew_raw_per_s >= 0.f && PX4_ISFINITE(in.safety_slew_raw_per_s)
 					     && in.safety_slew_raw_per_s >= 0.f && PX4_ISFINITE(in.g_current)
 					     && in.g_current > 0.f;
+		const bool headroom_parameter_valid = PX4_ISFINITE(in.headroom_release_ratio)
+				&& in.headroom_release_ratio >= 0.f && in.headroom_release_ratio <= 1.f;
 		const bool urgent_exit = in.pilot_abort || in.failsafe || !in.rates_enabled || !in.config_valid;
 
 		if (urgent_exit) {
 			if (fabsf(_transferred_i_raw) > 0.f) {
 				_state = State::SafetyExit;
 				out.reason = in.pilot_abort ? Reason::PilotAbort : (in.failsafe ? Reason::Failsafe : Reason::ControlInvalid);
-				applyTransfer(out, rate_control, -towardZeroStep(_transferred_i_raw,
+				applyTransfer(out, rate_control, towardZeroStep(_transferred_i_raw,
 						in.safety_slew_raw_per_s * positiveDt(in.dt)), true);
 			} else {
 				_state = State::Disabled;
@@ -144,14 +160,15 @@ public:
 			return finalize(out);
 		}
 
-		if (!parameter_valid && (in.enabled || fabsf(_transferred_i_raw) > 0.f)) {
+		if ((!parameter_valid || (_state == State::Disabled && !headroom_parameter_valid))
+		    && (in.enabled || fabsf(_transferred_i_raw) > 0.f)) {
 			return enterRecovery(out, Reason::Nonfinite, false);
 		}
 
 		if (_state == State::NormalTransferOut) {
 			out.reason = Reason::NormalDisable;
 			const float requested_delta_s = towardZeroStep(_transferred_i_raw, in.slew_raw_per_s * in.dt);
-			applyTransfer(out, rate_control, -requested_delta_s, false);
+			applyTransfer(out, rate_control, requested_delta_s, false);
 
 			if (fabsf(_transferred_i_raw) <= StateEpsilon) {
 				_transferred_i_raw = 0.f;
@@ -163,7 +180,7 @@ public:
 
 		if (_state == State::SafetyExit) {
 			out.reason = _last_result.reason;
-			applyTransfer(out, rate_control, -towardZeroStep(_transferred_i_raw,
+			applyTransfer(out, rate_control, towardZeroStep(_transferred_i_raw,
 					in.safety_slew_raw_per_s * in.dt), true);
 
 			if (fabsf(_transferred_i_raw) <= StateEpsilon) {
@@ -179,6 +196,7 @@ public:
 		if (active_gate) {
 			if (_state == State::Disabled) {
 				_latched_target_raw = signedMinimum(out.residual_i_before_raw, in.cap_raw);
+				_latched_headroom_release_ratio = math::constrain(in.headroom_release_ratio, 0.f, 1.f);
 				_state = State::Eligible;
 				return finalize(out);
 			}
@@ -196,7 +214,7 @@ public:
 
 				const float requested_delta_s = towardTargetStep(_transferred_i_raw, _latched_target_raw,
 								in.slew_raw_per_s * in.dt);
-				applyTransfer(out, rate_control, -requested_delta_s, false);
+				applyTransfer(out, rate_control, requested_delta_s, false);
 
 				if (fabsf(_latched_target_raw - _transferred_i_raw) <= StateEpsilon) {
 					_state = State::TransferHold;
@@ -215,17 +233,18 @@ public:
 			if (in.enabled && !in.eligible) {
 				_state = State::SafetyExit;
 				out.reason = Reason::ControlInvalid;
-				applyTransfer(out, rate_control, -towardZeroStep(_transferred_i_raw,
+				applyTransfer(out, rate_control, towardZeroStep(_transferred_i_raw,
 						in.safety_slew_raw_per_s * in.dt), true);
 
 			} else {
 				_state = State::NormalTransferOut;
 				out.reason = Reason::NormalDisable;
 				const float requested_delta_s = towardZeroStep(_transferred_i_raw, in.slew_raw_per_s * in.dt);
-				applyTransfer(out, rate_control, -requested_delta_s, false);
+				applyTransfer(out, rate_control, requested_delta_s, false);
 
 				if (fabsf(_transferred_i_raw) <= StateEpsilon) {
 					_transferred_i_raw = 0.f;
+					_state = State::Disabled;
 				}
 			}
 
@@ -276,6 +295,12 @@ private:
 		       || (first < -StateEpsilon && second > StateEpsilon);
 	}
 
+	float effectiveHeadroomReleaseRatio() const
+	{
+		return _state == State::TransferHold || _state == State::NormalTransferOut || _state == State::SafetyExit
+		       ? _latched_headroom_release_ratio : 0.f;
+	}
+
 	Result cancelTransferEpisode(Result &out)
 	{
 		_latched_target_raw = 0.f;
@@ -292,13 +317,17 @@ private:
 		return finalize(out);
 	}
 
-	void applyTransfer(Result &out, RateControl &rate_control, float requested_delta_i, bool safety)
+	void applyTransfer(Result &out, RateControl &rate_control, float requested_delta_s, bool safety)
 	{
+		const float requested_delta_i = -requested_delta_s;
 		out.requested_delta_i_raw = requested_delta_i;
-		out.requested_delta_s_raw = -requested_delta_i;
+		out.requested_delta_s_raw = requested_delta_s;
 		const RateControl::RollITransferMode mode = _state == State::TransferIn
 				? RateControl::RollITransferMode::TowardZero : RateControl::RollITransferMode::PairPreserving;
-		const auto accepted = rate_control.applyRollITransfer({requested_delta_i, _transferred_i_raw, mode});
+		const float headroom_release_ratio = effectiveHeadroomReleaseRatio();
+		const float transferred_after_requested = _transferred_i_raw + requested_delta_s;
+		const auto accepted = rate_control.applyRollITransfer({requested_delta_i, _transferred_i_raw, mode,
+				headroom_release_ratio, transferred_after_requested, true});
 		out.accepted_delta_i_raw = accepted.accepted_delta_raw;
 		out.transfer_limited = accepted.limited_at_zero || accepted.limited_by_imax || !accepted.valid;
 
@@ -310,9 +339,14 @@ private:
 			return;
 		}
 
-		out.accepted_delta_s_raw = safety ? out.requested_delta_s_raw : -accepted.accepted_delta_raw;
+		out.accepted_delta_s_raw = _state == State::TransferIn ? -accepted.accepted_delta_raw : out.requested_delta_s_raw;
 		_transferred_i_raw += out.accepted_delta_s_raw;
 		out.unmatched_delta_raw = accepted.accepted_delta_raw + out.accepted_delta_s_raw;
+
+		if (_state == State::NormalTransferOut) {
+			out.exit_authority_decay_raw = out.unmatched_delta_raw;
+			out.normal_limited = fabsf(out.unmatched_delta_raw) > StateEpsilon;
+		}
 	}
 
 	Result enterRecovery(Result &out, Reason reason, bool reset_mismatch)
@@ -331,6 +365,20 @@ private:
 		out.residual_i_raw = out.residual_i_before_raw + out.accepted_delta_i_raw;
 		out.transferred_i_raw = PX4_ISFINITE(_transferred_i_raw) ? _transferred_i_raw : 0.f;
 		out.total_equivalent_i_raw = out.residual_i_raw + out.transferred_i_raw;
+		out.headroom_release_ratio_latched = _latched_headroom_release_ratio;
+		out.headroom_release_ratio_effective = effectiveHeadroomReleaseRatio();
+		const RateControl::RollILimits limits = RateControl::computeRollILimits(
+				_last_imax_raw, out.transferred_i_raw, out.headroom_release_ratio_effective);
+
+		if (limits.valid) {
+			out.total_limit_raw = limits.total_limit;
+			out.residual_lower_raw = limits.lower;
+			out.residual_upper_raw = limits.upper;
+			const RateControl::RollILimits legacy_limits = RateControl::computeRollILimits(
+					_last_imax_raw, out.transferred_i_raw, 0.f);
+			out.headroom_positive_raw = limits.upper - legacy_limits.upper;
+			out.headroom_negative_raw = legacy_limits.lower - limits.lower;
+		}
 		out.effective_slow_torque = out.g_current * out.transferred_i_raw;
 		out.effective_slow_tail = out.effective_slow_torque / TorquePerTail;
 		out.normal_exit = _state == State::NormalTransferOut;
@@ -343,6 +391,8 @@ private:
 	State _state{State::Disabled};
 	float _transferred_i_raw{0.f};
 	float _latched_target_raw{0.f};
+	float _latched_headroom_release_ratio{0.f};
+	float _last_imax_raw{0.f};
 	uint32_t _expected_reset_epoch{0};
 	Result _last_result{};
 };

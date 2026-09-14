@@ -390,6 +390,7 @@ void FixedwingRateControl::Run()
 			transfer_inputs.slew_raw_per_s = _param_flap_b2b_slew.get();
 			transfer_inputs.safety_slew_raw_per_s = _param_flap_b2b_safe.get();
 			transfer_inputs.g_current = _b2b_g_current;
+			transfer_inputs.headroom_release_ratio = _param_flap_b2b_hr.get();
 			_bumpless_roll_i_result = _bumpless_roll_i_transfer.update(transfer_inputs, _rate_control);
 
 			if (_bumpless_roll_i_result.reset_required) {
@@ -398,6 +399,7 @@ void FixedwingRateControl::Run()
 
 			const float transferred_roll_i_raw = _bumpless_roll_i_transfer.transferredRaw();
 			_rate_control.setRollITransferContext(transferred_roll_i_raw,
+					_bumpless_roll_i_result.headroom_release_ratio_effective,
 					std::fabs(transferred_roll_i_raw) > FLT_EPSILON);
 
 			/* bi-linear interpolation over airspeed for actuator trim scheduling */
@@ -562,6 +564,15 @@ void FixedwingRateControl::Run()
 		rate_ctrl_status.flap_b2b_natural_delta_pre_imax_raw = rate_ctrl_status.rollspeed_integ_delta_pre_imax;
 		rate_ctrl_status.flap_b2b_natural_delta_accepted_raw = rate_ctrl_status.rollspeed_integ_delta_accepted;
 		rate_ctrl_status.flap_b2b_unmatched_delta_raw = _bumpless_roll_i_result.unmatched_delta_raw;
+		rate_ctrl_status.b2b_hr_param = _param_flap_b2b_hr.get();
+		rate_ctrl_status.b2b_hr_latched = _bumpless_roll_i_result.headroom_release_ratio_latched;
+		rate_ctrl_status.b2b_hr_effective = _bumpless_roll_i_result.headroom_release_ratio_effective;
+		rate_ctrl_status.b2b_total_limit = _bumpless_roll_i_result.total_limit_raw;
+		rate_ctrl_status.b2b_i_lower = _bumpless_roll_i_result.residual_lower_raw;
+		rate_ctrl_status.b2b_i_upper = _bumpless_roll_i_result.residual_upper_raw;
+		rate_ctrl_status.b2b_hr_pos = _bumpless_roll_i_result.headroom_positive_raw;
+		rate_ctrl_status.b2b_hr_neg = _bumpless_roll_i_result.headroom_negative_raw;
+		rate_ctrl_status.b2b_exit_decay = _bumpless_roll_i_result.exit_authority_decay_raw;
 		rate_ctrl_status.flap_b2b_g_current = _b2b_g_current;
 		rate_ctrl_status.flap_b2b_effective_slow_torque = effective_slow_torque;
 		rate_ctrl_status.flap_b2b_effective_slow_tail = effective_slow_torque / 1.1f;

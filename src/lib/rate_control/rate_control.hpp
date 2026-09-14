@@ -68,6 +68,16 @@ public:
 		float requested_delta_raw;
 		float transferred_i_raw;
 		RollITransferMode mode;
+		float headroom_release_ratio{0.f};
+		float transferred_i_after_raw{0.f};
+		bool validate_post_state{false};
+	};
+
+	struct RollILimits {
+		float lower{0.f};
+		float upper{0.f};
+		float total_limit{0.f};
+		bool valid{false};
 	};
 
 	struct RollITransferResult {
@@ -102,11 +112,21 @@ public:
 	/** Apply an explicit Roll integral state transfer in raw-I coordinates. */
 	RollITransferResult applyRollITransfer(const RollITransferRequest &request);
 
-	/** Set the transferred raw-I state used to bound the next natural Roll update. */
-	void setRollITransferContext(float transferred_i_raw, bool enabled)
+	/** Compute residual Roll-I bounds for the transferred state and headroom ratio. */
+	static RollILimits computeRollILimits(float imax_raw, float transferred_i_raw,
+			float headroom_release_ratio);
+
+	/** Set the transferred raw-I state and effective headroom used by natural Roll integration. */
+	void setRollITransferContext(float transferred_i_raw, float headroom_release_ratio, bool enabled)
 	{
 		_roll_i_transfer_context_raw = transferred_i_raw;
+		_roll_i_headroom_release_ratio = headroom_release_ratio;
 		_roll_i_transfer_context_enabled = enabled;
+	}
+
+	void setRollITransferContext(float transferred_i_raw, bool enabled)
+	{
+		setRollITransferContext(transferred_i_raw, 0.f, enabled);
 	}
 
 	uint32_t rollIntegralResetEpoch() const { return _roll_i_reset_epoch; }
@@ -201,6 +221,7 @@ private:
 	float _roll_i_raw_drive_accum{0.f};
 	bool _roll_i_update_enabled{false};
 	float _roll_i_transfer_context_raw{0.f};
+	float _roll_i_headroom_release_ratio{0.f};
 	bool _roll_i_transfer_context_enabled{false};
 	uint32_t _roll_i_reset_epoch{0};
 

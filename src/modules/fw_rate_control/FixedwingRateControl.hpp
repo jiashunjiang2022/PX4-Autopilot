@@ -219,6 +219,7 @@ private:
 		(ParamFloat<px4::params::FLAP_B2B_CAP>) _param_flap_b2b_cap,
 		(ParamFloat<px4::params::FLAP_B2B_SLEW>) _param_flap_b2b_slew,
 		(ParamFloat<px4::params::FLAP_B2B_SAFE>) _param_flap_b2b_safe,
+		(ParamFloat<px4::params::FLAP_B2B_HR>) _param_flap_b2b_hr,
 		(ParamInt<px4::params::CA_AIRFRAME>) _param_ca_airframe,
 		(ParamInt<px4::params::CA_METHOD>) _param_ca_method,
 		(ParamInt<px4::params::CA_SV_CS_COUNT>) _param_ca_sv_cs_count,

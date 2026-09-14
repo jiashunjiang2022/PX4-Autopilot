@@ -54,6 +54,85 @@ rate_ctrl_status_s status_of(RateControl &rate_control)
 	rate_control.getRateControlStatus(status);
 	return status;
 }
+
+template<typename T>
+auto set_headroom_context(T &rate_control, float transferred_raw, float ratio, int)
+-> decltype(rate_control.setRollITransferContext(transferred_raw, ratio, true), void())
+{
+	rate_control.setRollITransferContext(transferred_raw, ratio, true);
+}
+
+template<typename T>
+void set_headroom_context(T &rate_control, float transferred_raw, float ratio, long)
+{
+	(void)ratio;
+	rate_control.setRollITransferContext(transferred_raw, true);
+}
+
+void drive_roll_integral_to_limit(RateControl &rate_control, float sign)
+{
+	for (int cycle = 0; cycle < 40; ++cycle) {
+		rate_control.update(Vector3f(), Vector3f(sign, 0.f, 0.f), Vector3f(), 0.02f, false);
+	}
+}
+}
+
+TEST(RateControlTest, HeadroomRatioZeroMatchesLegacyBounds)
+{
+	RateControl rate_control;
+	configure_transfer_test(rate_control);
+	set_headroom_context(rate_control, 0.03f, 0.f, 0);
+	drive_roll_integral_to_limit(rate_control, 1.f);
+	EXPECT_NEAR(status_of(rate_control).rollspeed_integ, 0.17f, TransferTolerance);
+}
+
+TEST(RateControlTest, HalfHeadroomPositiveTransferredState)
+{
+	RateControl rate_control;
+	configure_transfer_test(rate_control);
+	set_headroom_context(rate_control, 0.03f, 0.5f, 0);
+	drive_roll_integral_to_limit(rate_control, 1.f);
+	EXPECT_NEAR(status_of(rate_control).rollspeed_integ, 0.185f, TransferTolerance);
+}
+
+TEST(RateControlTest, HalfHeadroomNegativeTransferredState)
+{
+	RateControl rate_control;
+	configure_transfer_test(rate_control);
+	set_headroom_context(rate_control, -0.03f, 0.5f, 0);
+	drive_roll_integral_to_limit(rate_control, -1.f);
+	EXPECT_NEAR(status_of(rate_control).rollspeed_integ, -0.185f, TransferTolerance);
+}
+
+TEST(RateControlTest, FullHeadroomRestoresResidualImax)
+{
+	for (const float sign : {1.f, -1.f}) {
+		RateControl rate_control;
+		configure_transfer_test(rate_control);
+		set_headroom_context(rate_control, sign * 0.03f, 1.f, 0);
+		drive_roll_integral_to_limit(rate_control, sign);
+		EXPECT_NEAR(status_of(rate_control).rollspeed_integ, sign * 0.2f, TransferTolerance);
+	}
+}
+
+TEST(RateControlTest, HeadroomDoesNotBypassPositiveAntiWindup)
+{
+	RateControl rate_control;
+	configure_transfer_test(rate_control);
+	set_headroom_context(rate_control, 0.03f, 1.f, 0);
+	rate_control.setPositiveSaturationFlag(0, true);
+	drive_roll_integral_to_limit(rate_control, 1.f);
+	EXPECT_FLOAT_EQ(status_of(rate_control).rollspeed_integ, 0.f);
+}
+
+TEST(RateControlTest, HeadroomDoesNotBypassNegativeAntiWindup)
+{
+	RateControl rate_control;
+	configure_transfer_test(rate_control);
+	set_headroom_context(rate_control, -0.03f, 1.f, 0);
+	rate_control.setNegativeSaturationFlag(0, true);
+	drive_roll_integral_to_limit(rate_control, -1.f);
+	EXPECT_FLOAT_EQ(status_of(rate_control).rollspeed_integ, 0.f);
 }
 
 TEST(RateControlTest, AllZeroCase)

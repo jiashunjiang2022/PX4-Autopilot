@@ -40,6 +40,25 @@
 
 using namespace matrix;
 
+RateControl::RollILimits RateControl::computeRollILimits(float imax_raw, float transferred_i_raw,
+		float headroom_release_ratio)
+{
+	RollILimits limits{};
+
+	if (!PX4_ISFINITE(imax_raw) || imax_raw < 0.f || !PX4_ISFINITE(transferred_i_raw)
+	    || !PX4_ISFINITE(headroom_release_ratio) || headroom_release_ratio < 0.f
+	    || headroom_release_ratio > 1.f) {
+		return limits;
+	}
+
+	limits.total_limit = imax_raw + headroom_release_ratio * fabsf(transferred_i_raw);
+	limits.lower = math::max(-imax_raw, -limits.total_limit - transferred_i_raw);
+	limits.upper = math::min(imax_raw, limits.total_limit - transferred_i_raw);
+	limits.valid = PX4_ISFINITE(limits.total_limit) && PX4_ISFINITE(limits.lower)
+		       && PX4_ISFINITE(limits.upper) && limits.lower <= limits.upper;
+	return limits;
+}
+
 RateControl::RollITransferResult RateControl::applyRollITransfer(const RollITransferRequest &request)
 {
 	RollITransferResult result{};
@@ -49,12 +68,18 @@ RateControl::RollITransferResult RateControl::applyRollITransfer(const RollITran
 	result.reset_epoch = _roll_i_reset_epoch;
 
 	const float limit = _lim_int(0);
+	const RollILimits current_limits = computeRollILimits(limit, request.transferred_i_raw,
+			request.headroom_release_ratio);
 	const float total_before = _rate_int(0) + request.transferred_i_raw;
+	constexpr float StateTolerance = 4.f * FLT_EPSILON;
 
 	if (!PX4_ISFINITE(request.requested_delta_raw) || !PX4_ISFINITE(request.transferred_i_raw)
-	    || !PX4_ISFINITE(_rate_int(0)) || !PX4_ISFINITE(limit) || limit < 0.f
-	    || fabsf(_rate_int(0)) > limit || !PX4_ISFINITE(total_before) || fabsf(total_before) > limit) {
-		result.reason = !PX4_ISFINITE(total_before) || fabsf(total_before) > limit
+	    || !PX4_ISFINITE(_rate_int(0)) || !current_limits.valid
+	    || _rate_int(0) < current_limits.lower - StateTolerance
+	    || _rate_int(0) > current_limits.upper + StateTolerance
+	    || !PX4_ISFINITE(total_before) || fabsf(total_before) > current_limits.total_limit + StateTolerance) {
+		result.reason = !PX4_ISFINITE(total_before) || (current_limits.valid
+				&& fabsf(total_before) > current_limits.total_limit + StateTolerance)
 				? RollITransferLimitReason::TotalEquivalentLimit : RollITransferLimitReason::Invalid;
 		return result;
 	}
@@ -90,11 +115,22 @@ RateControl::RollITransferResult RateControl::applyRollITransfer(const RollITran
 		return result;
 	}
 
-	const float constrained = math::constrain(unconstrained, -limit, limit);
+	const float transferred_after = request.validate_post_state ? request.transferred_i_after_raw
+					: request.transferred_i_raw;
+	const RollILimits post_limits = computeRollILimits(limit, transferred_after,
+			request.headroom_release_ratio);
+
+	if (!post_limits.valid) {
+		result.reason = RollITransferLimitReason::Invalid;
+		return result;
+	}
+
+	const float constrained = math::constrain(unconstrained, post_limits.lower, post_limits.upper);
 	result.limited_by_imax = constrained < unconstrained || constrained > unconstrained;
 
 	if (result.limited_by_imax) {
-		result.reason = RollITransferLimitReason::IntegratorLimit;
+		result.reason = fabsf(unconstrained) > limit ? RollITransferLimitReason::IntegratorLimit
+				: RollITransferLimitReason::TotalEquivalentLimit;
 	}
 
 	_rate_int(0) = constrained;
@@ -216,10 +252,11 @@ void RateControl::updateIntegral(Vector3f &rate_error, const float dt)
 			}
 
 			if (i == 0 && _roll_i_transfer_context_enabled) {
-				if (PX4_ISFINITE(_roll_i_transfer_context_raw)) {
-					const float lower = math::max(-_lim_int(i), -_lim_int(i) - _roll_i_transfer_context_raw);
-					const float upper = math::min(_lim_int(i), _lim_int(i) - _roll_i_transfer_context_raw);
-					_rate_int(i) = math::constrain(rate_i, lower, upper);
+				const RollILimits limits = computeRollILimits(_lim_int(i), _roll_i_transfer_context_raw,
+						_roll_i_headroom_release_ratio);
+
+				if (limits.valid) {
+					_rate_int(i) = math::constrain(rate_i, limits.lower, limits.upper);
 				}
 
 			} else {
