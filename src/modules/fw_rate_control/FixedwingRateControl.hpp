@@ -59,6 +59,7 @@
 #include <uORB/topics/airspeed_validated.h>
 #include <uORB/topics/battery_status.h>
 #include <uORB/topics/control_allocator_status.h>
+#include <uORB/topics/flap_b2b_adaptive.h>
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/normalized_unsigned_setpoint.h>
 #include <uORB/topics/parameter_update.h>
@@ -121,6 +122,7 @@ private:
 	uORB::Publication<vehicle_rates_setpoint_s>	_rate_sp_pub{ORB_ID(vehicle_rates_setpoint)};
 	uORB::PublicationMulti<rate_ctrl_status_s>	_rate_ctrl_status_pub{ORB_ID(rate_ctrl_status)};
 	uORB::Publication<rate_ctrl_terms_s>	_rate_ctrl_terms_pub{ORB_ID(rate_ctrl_terms)};
+	uORB::Publication<flap_b2b_adaptive_s> _flap_b2b_adaptive_pub{ORB_ID(flap_b2b_adaptive)};
 	uORB::Publication<vehicle_thrust_setpoint_s>	_vehicle_thrust_setpoint_pub;
 	uORB::Publication<vehicle_torque_setpoint_s>	_vehicle_torque_setpoint_pub;
 	uORB::Publication<normalized_unsigned_setpoint_s> _flaps_setpoint_pub{ORB_ID(flaps_setpoint)};
@@ -220,6 +222,15 @@ private:
 		(ParamFloat<px4::params::FLAP_B2B_SLEW>) _param_flap_b2b_slew,
 		(ParamFloat<px4::params::FLAP_B2B_SAFE>) _param_flap_b2b_safe,
 		(ParamFloat<px4::params::FLAP_B2B_HR>) _param_flap_b2b_hr,
+		(ParamBool<px4::params::FLAP_B2B_ADAPT>) _param_flap_b2b_adapt,
+		(ParamFloat<px4::params::FLAP_B2B_HCAP>) _param_flap_b2b_hcap,
+		(ParamFloat<px4::params::FLAP_B2B_RSVD>) _param_flap_b2b_rsvd,
+		(ParamFloat<px4::params::FLAP_B2B_TAU>) _param_flap_b2b_tau,
+		(ParamFloat<px4::params::FLAP_B2B_ASLW>) _param_flap_b2b_aslw,
+		(ParamFloat<px4::params::FLAP_B2B_EWIN>) _param_flap_b2b_ewin,
+		(ParamFloat<px4::params::FLAP_B2B_GWIN>) _param_flap_b2b_gwin,
+		(ParamFloat<px4::params::FLAP_B2B_GSTD>) _param_flap_b2b_gstd,
+		(ParamFloat<px4::params::FLAP_B2B_GSIGN>) _param_flap_b2b_gsign,
 		(ParamInt<px4::params::CA_AIRFRAME>) _param_ca_airframe,
 		(ParamInt<px4::params::CA_METHOD>) _param_ca_method,
 		(ParamInt<px4::params::CA_SV_CS_COUNT>) _param_ca_sv_cs_count,

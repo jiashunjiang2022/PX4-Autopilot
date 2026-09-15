@@ -123,6 +123,104 @@ template<typename T>
 void set_headroom_ratio(T &, float, long) {}
 
 template<typename T>
+auto set_adaptive_defaults(T &input, int)
+-> decltype(input.adapt_enabled = true,
+		input.hold_cap_raw = 0.10f,
+		input.residual_reserve_raw = 0.05f,
+		input.adapt_tau_s = 5.f,
+		input.adapt_slew_raw_per_s = 0.01f,
+		input.entry_window_s = 5.f,
+		input.gate_window_s = 3.f,
+		input.gate_std_raw = 0.025f,
+		input.gate_same_sign_fraction = 0.90f, void())
+{
+	input.adapt_enabled = true;
+	input.hold_cap_raw = 0.10f;
+	input.residual_reserve_raw = 0.05f;
+	input.adapt_tau_s = 5.f;
+	input.adapt_slew_raw_per_s = 0.01f;
+	input.entry_window_s = 5.f;
+	input.gate_window_s = 3.f;
+	input.gate_std_raw = 0.025f;
+	input.gate_same_sign_fraction = 0.90f;
+}
+
+template<typename T>
+void set_adaptive_defaults(T &, long) {}
+
+template<typename T>
+auto adaptive_enabled(const T &result, int) -> decltype(result.adapt_enabled)
+{
+	return result.adapt_enabled;
+}
+
+template<typename T>
+bool adaptive_enabled(const T &, long) { return false; }
+
+template<typename T>
+auto adaptive_entry_valid(const T &result, int) -> decltype(result.entry_est_valid)
+{
+	return result.entry_est_valid;
+}
+
+template<typename T>
+bool adaptive_entry_valid(const T &, long) { return false; }
+
+template<typename T>
+auto adaptive_target(const T &result, int) -> decltype(result.adapt_target_raw)
+{
+	return result.adapt_target_raw;
+}
+
+template<typename T>
+float adaptive_target(const T &, long) { return 0.f; }
+
+template<typename T>
+auto adaptive_t_hat(const T &result, int) -> decltype(result.adapt_t_hat_raw)
+{
+	return result.adapt_t_hat_raw;
+}
+
+template<typename T>
+float adaptive_t_hat(const T &, long) { return 0.f; }
+
+template<typename T>
+auto adaptive_gate(const T &result, int) -> decltype(result.adapt_gate)
+{
+	return result.adapt_gate;
+}
+
+template<typename T>
+bool adaptive_gate(const T &, long) { return false; }
+
+template<typename T>
+auto adaptive_limited(const T &result, int) -> decltype(result.adapt_limited)
+{
+	return result.adapt_limited;
+}
+
+template<typename T>
+bool adaptive_limited(const T &, long) { return false; }
+
+template<typename T>
+auto adaptive_releasing(const T &result, int) -> decltype(result.adapt_releasing)
+{
+	return result.adapt_releasing;
+}
+
+template<typename T>
+bool adaptive_releasing(const T &, long) { return false; }
+
+template<typename T>
+auto adaptive_reversal(const T &result, int) -> decltype(result.adapt_reversal)
+{
+	return result.adapt_reversal;
+}
+
+template<typename T>
+bool adaptive_reversal(const T &, long) { return false; }
+
+template<typename T>
 auto effective_headroom_ratio(const T &result, int) -> decltype(result.headroom_release_ratio_effective)
 {
 	return result.headroom_release_ratio_effective;
@@ -1488,4 +1586,235 @@ TEST(BumplessRollITransfer, MultiCycleHeadroomDoesNotBypassAllocatorAntiWindup)
 	}
 
 	write_replay_csv("R6_antiwindup.csv", history);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3StableLargePositiveBurden)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.18f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.cap_raw = 0.03f;
+	set_adaptive_defaults(in, 0);
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+
+	for (int cycle = 0; cycle < 5; ++cycle) {
+		transfer.update(in, rate_control);
+	}
+
+	for (int cycle = 0; cycle < 800; ++cycle) {
+		const auto result = transfer.update(in, rate_control);
+		EXPECT_NEAR(result.accepted_delta_i_raw + result.accepted_delta_s_raw, 0.f, AccumulatedTolerance);
+	}
+
+	EXPECT_NEAR(transfer.transferredRaw(), 0.10f, 2e-3f);
+	EXPECT_NEAR(roll_i(rate_control), 0.08f, 2e-3f);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3StableLargeNegativeBurden)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, -0.18f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.cap_raw = 0.03f;
+	set_adaptive_defaults(in, 0);
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+
+	for (int cycle = 0; cycle < 805; ++cycle) {
+		const auto result = transfer.update(in, rate_control);
+		EXPECT_NEAR(result.accepted_delta_i_raw + result.accepted_delta_s_raw, 0.f, AccumulatedTolerance);
+	}
+
+	EXPECT_NEAR(transfer.transferredRaw(), -0.10f, 2e-3f);
+	EXPECT_NEAR(roll_i(rate_control), -0.08f, 2e-3f);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3DiagnosticsAreAvailable)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.18f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	set_adaptive_defaults(in, 0);
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_TRUE(adaptive_enabled(result, 0));
+	EXPECT_TRUE(std::isfinite(adaptive_t_hat(result, 0)));
+	EXPECT_TRUE(std::isfinite(adaptive_target(result, 0)));
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3InsufficientEntryHistoryFallsBackConservatively)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.12f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.cap_raw = 0.03f;
+	set_adaptive_defaults(in, 0);
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_TRUE(adaptive_enabled(result, 0));
+	EXPECT_FALSE(adaptive_entry_valid(result, 0));
+	EXPECT_NEAR(adaptive_target(result, 0), 0.f, 1e-6f);
+	EXPECT_FLOAT_EQ(transfer.latchedTargetRaw(), 0.03f);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3GrowthWaitsForPersistenceGate)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.18f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.cap_raw = 0.03f;
+	set_adaptive_defaults(in, 0);
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+	for (int cycle = 0; cycle < 5; ++cycle) {
+		transfer.update(in, rate_control);
+	}
+	const float hold_start = transfer.transferredRaw();
+	for (int cycle = 0; cycle < 40; ++cycle) {
+		const auto result = transfer.update(in, rate_control);
+		EXPECT_FALSE(adaptive_gate(result, 0));
+	}
+	EXPECT_FLOAT_EQ(transfer.transferredRaw(), hold_start);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3InvalidParametersDoNotMoveState)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.12f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs();
+	in.cap_raw = 0.03f;
+	set_adaptive_defaults(in, 0);
+	in.adapt_tau_s = NAN;
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_FALSE(adaptive_enabled(result, 0));
+	EXPECT_FLOAT_EQ(transfer.transferredRaw(), 0.f);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3GoldenVectorExport)
+{
+	const char *directory = std::getenv("B2B_ADAPTIVE_GOLDEN_DIR");
+
+	if (directory == nullptr) {
+		GTEST_SKIP() << "B2B_ADAPTIVE_GOLDEN_DIR is not set";
+	}
+
+	std::ofstream output(std::string(directory) + "/adaptive_v3_cpp.csv");
+	ASSERT_TRUE(output.is_open());
+	output << "case,step,input_total,state,residual,transferred,total,t_hat,entry,entry_valid,target,std,sign_fraction,gate,limited,releasing,reversal,delta_i,delta_s\n";
+	output << std::fixed << std::setprecision(9);
+
+	struct Trace {
+		const char *name;
+		float entry_value;
+		int entry_cycles;
+		std::vector<float> hold;
+	};
+
+	std::vector<Trace> traces;
+	const auto stable = [](float value, int count) { return std::vector<float>(count, value); };
+	traces.push_back({"stable_pos_018", 0.18f, 300, stable(0.18f, 80)});
+	traces.push_back({"stable_neg_018", -0.18f, 300, stable(-0.18f, 80)});
+	traces.push_back({"small_pos_007", 0.07f, 300, stable(0.07f, 20)});
+	traces.push_back({"below_reserve", 0.04f, 300, stable(0.04f, 20)});
+	{
+		std::vector<float> values = stable(0.10f, 65);
+		for (int i = 0; i < 25; ++i) { values[40 + i] = 0.20f; }
+		traces.push_back({"gust_05s", 0.10f, 300, values});
+	}
+	{
+		std::vector<float> values = stable(0.10f, 130);
+		for (int i = 0; i < 100; ++i) { values[30 + i] = 0.20f; }
+		traces.push_back({"gust_2s", 0.10f, 300, values});
+	}
+	{
+		std::vector<float> values = stable(0.10f, 22);
+		for (size_t i = 20; i < values.size(); ++i) { values[i] = (i % 2 == 0) ? 0.18f : 0.02f; }
+		traces.push_back({"high_variance", 0.10f, 300, values});
+	}
+	{
+		std::vector<float> values = stable(0.10f, 45);
+		for (size_t i = 40; i < values.size(); ++i) { values[i] = (i % 2 == 0) ? 0.15f : -0.15f; }
+		traces.push_back({"sign_changing", 0.10f, 300, values});
+	}
+	{
+		std::vector<float> values = stable(0.18f, 75);
+		for (size_t i = 70; i < values.size(); ++i) { values[i] = 0.f; }
+		traces.push_back({"bias_to_zero", 0.18f, 300, values});
+	}
+	{
+		std::vector<float> values = stable(0.18f, 75);
+		for (size_t i = 70; i < values.size(); ++i) { values[i] = -0.18f; }
+		traces.push_back({"bias_to_negative", 0.18f, 300, values});
+	}
+	traces.push_back({"insufficient_history", 0.12f, 40, stable(0.12f, 100)});
+	traces.push_back({"safety_exit", 0.18f, 300, stable(0.18f, 8)});
+
+	for (const Trace &trace : traces) {
+		RateControl rate_control;
+		configure(rate_control);
+		seed_residual(rate_control, trace.entry_value);
+		BumplessRollITransfer transfer;
+		auto in = enabled_inputs();
+		in.cap_raw = 0.03f;
+		set_adaptive_defaults(in, 0);
+		transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+
+		auto set_total = [&](float total) {
+			const float delta = total - (rate_control.rollIntegralRaw() + transfer.transferredRaw());
+			if (std::fabs(delta) > StateTolerance) {
+				const auto applied = rate_control.applyRollITransfer({delta, transfer.transferredRaw(),
+						RateControl::RollITransferMode::PairPreserving, 0.f,
+						transfer.transferredRaw(), true});
+				ASSERT_TRUE(applied.valid);
+			}
+		};
+
+		auto write_row = [&](int step, float input_total, const BumplessRollITransfer::Result &result) {
+			output << trace.name << ',' << step << ',' << input_total << ',' << static_cast<unsigned>(result.state) << ','
+			       << result.residual_i_raw << ',' << result.transferred_i_raw << ','
+			       << result.total_equivalent_i_raw << ',' << result.adapt_t_hat_raw << ','
+			       << result.entry_est_raw << ',' << result.entry_est_valid << ','
+			       << result.adapt_target_raw << ',' << result.adapt_std_raw << ','
+			       << result.adapt_sign_fraction << ',' << result.adapt_gate << ','
+			       << result.adapt_limited << ',' << result.adapt_releasing << ','
+			       << result.adapt_reversal << ',' << result.accepted_delta_i_raw << ','
+			       << result.accepted_delta_s_raw << '\n';
+		};
+
+		int step = 0;
+		in.eligible = false;
+		for (int i = 0; i < trace.entry_cycles; ++i) {
+			set_total(trace.entry_value);
+			const float input_total = rate_control.rollIntegralRaw() + transfer.transferredRaw();
+			write_row(step++, input_total, transfer.update(in, rate_control));
+		}
+
+		in.eligible = true;
+		write_row(step++, rate_control.rollIntegralRaw() + transfer.transferredRaw(), transfer.update(in, rate_control));
+		write_row(step++, rate_control.rollIntegralRaw() + transfer.transferredRaw(), transfer.update(in, rate_control));
+
+		for (const float total : trace.hold) {
+			set_total(total);
+			const float input_total = rate_control.rollIntegralRaw() + transfer.transferredRaw();
+			write_row(step++, input_total, transfer.update(in, rate_control));
+		}
+
+		if (std::strcmp(trace.name, "safety_exit") == 0) {
+			in.failsafe = true;
+			in.eligible = false;
+			set_total(0.18f);
+			write_row(step++, rate_control.rollIntegralRaw() + transfer.transferredRaw(), transfer.update(in, rate_control));
+		}
+	}
 }

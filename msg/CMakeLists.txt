@@ -91,6 +91,7 @@ set(msg_files
 	FigureEightStatus.msg
 	FailsafeFlags.msg
 	FailureDetectorStatus.msg
+	FlapB2bAdaptive.msg
 	FlapAugShadow.msg
 	FlapAugV4Shadow.msg
 	FlapFrequency.msg

@@ -389,8 +389,17 @@ void FixedwingRateControl::Run()
 			transfer_inputs.cap_raw = _param_flap_b2b_cap.get();
 			transfer_inputs.slew_raw_per_s = _param_flap_b2b_slew.get();
 			transfer_inputs.safety_slew_raw_per_s = _param_flap_b2b_safe.get();
-			transfer_inputs.g_current = _b2b_g_current;
-			transfer_inputs.headroom_release_ratio = _param_flap_b2b_hr.get();
+				transfer_inputs.g_current = _b2b_g_current;
+				transfer_inputs.headroom_release_ratio = _param_flap_b2b_hr.get();
+				transfer_inputs.adapt_enabled = _param_flap_b2b_adapt.get();
+				transfer_inputs.hold_cap_raw = _param_flap_b2b_hcap.get();
+				transfer_inputs.residual_reserve_raw = _param_flap_b2b_rsvd.get();
+				transfer_inputs.adapt_tau_s = _param_flap_b2b_tau.get();
+				transfer_inputs.adapt_slew_raw_per_s = _param_flap_b2b_aslw.get();
+				transfer_inputs.entry_window_s = _param_flap_b2b_ewin.get();
+				transfer_inputs.gate_window_s = _param_flap_b2b_gwin.get();
+				transfer_inputs.gate_std_raw = _param_flap_b2b_gstd.get();
+				transfer_inputs.gate_same_sign_fraction = _param_flap_b2b_gsign.get();
 			_bumpless_roll_i_result = _bumpless_roll_i_transfer.update(transfer_inputs, _rate_control);
 
 			if (_bumpless_roll_i_result.reset_required) {
@@ -577,6 +586,25 @@ void FixedwingRateControl::Run()
 		rate_ctrl_status.flap_b2b_effective_slow_torque = effective_slow_torque;
 		rate_ctrl_status.flap_b2b_effective_slow_tail = effective_slow_torque / 1.1f;
 		rate_ctrl_status.flap_b2b_reset_epoch = _rate_control.rollIntegralResetEpoch();
+		flap_b2b_adaptive_s adaptive_status{};
+		adaptive_status.timestamp = rate_ctrl_status.timestamp;
+		adaptive_status.enabled = _bumpless_roll_i_result.adapt_enabled;
+		adaptive_status.entry_est_valid = _bumpless_roll_i_result.entry_est_valid;
+		adaptive_status.gate = _bumpless_roll_i_result.adapt_gate;
+		adaptive_status.limited = _bumpless_roll_i_result.adapt_limited;
+		adaptive_status.releasing = _bumpless_roll_i_result.adapt_releasing;
+		adaptive_status.reversal = _bumpless_roll_i_result.adapt_reversal;
+		adaptive_status.entry_est_raw = _bumpless_roll_i_result.entry_est_raw;
+		adaptive_status.t_hat_raw = _bumpless_roll_i_result.adapt_t_hat_raw;
+		adaptive_status.target_raw = _bumpless_roll_i_result.adapt_target_raw;
+		adaptive_status.std_raw = _bumpless_roll_i_result.adapt_std_raw;
+		adaptive_status.sign_fraction = _bumpless_roll_i_result.adapt_sign_fraction;
+		adaptive_status.hold_cap_raw = _bumpless_roll_i_result.adapt_hold_cap_raw;
+		adaptive_status.reserve_raw = _bumpless_roll_i_result.adapt_reserve_raw;
+		adaptive_status.transferred_i_raw = transferred_roll_i_raw;
+		adaptive_status.residual_i_raw = _bumpless_roll_i_result.residual_i_raw;
+		adaptive_status.total_equivalent_i_raw = _bumpless_roll_i_result.total_equivalent_i_raw;
+		_flap_b2b_adaptive_pub.publish(adaptive_status);
 		_rate_ctrl_status_pub.publish(rate_ctrl_status);
 
 	/* Only publish if any of the proper modes are enabled */
