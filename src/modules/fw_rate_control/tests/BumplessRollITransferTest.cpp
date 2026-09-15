@@ -2061,6 +2061,118 @@ TEST(BumplessRollITransfer, AdaptiveV3PartialAcceptanceKeepsTransferMatched)
 	EXPECT_NEAR(result.accepted_delta_i_raw + result.accepted_delta_s_raw, 0.f, StateTolerance);
 }
 
+static void verifyAdaptiveReversalTrajectory(bool check_fresh_gate)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.18f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs(0.02f);
+	in.cap_raw = 0.03f;
+	set_adaptive_defaults(in, 0);
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+	for (int i = 0; i < 230; ++i) { transfer.update(in, rate_control); }
+	ASSERT_EQ(transfer.state(), BumplessRollITransfer::State::TransferHold);
+	ASSERT_GT(transfer.transferredRaw(), 0.04f);
+	bool reversal_seen = false;
+	bool zero_seen = false;
+	bool waited_at_zero = false;
+	bool negative_growth = false;
+	int direction_change_cycle = -1;
+	float previous_hat = transfer.lastResult().adapt_t_hat_raw;
+	for (int i = 0; i < 1400; ++i) {
+		// Allow natural release first, then accelerate LPF direction detection
+		// while S is positive but can reach zero before the fresh gate opens.
+		if (i == 200) { BumplessRollITransferTestAccess::setAdaptiveTHat(transfer, -0.06f, true); }
+		const float before = transfer.transferredRaw();
+		set_residual(rate_control, -0.10f - before, before);
+		const auto out = transfer.update(in, rate_control);
+		SCOPED_TRACE(::testing::Message() << "cycle=" << i << " S=" << out.transferred_i_raw
+			<< " I=" << out.residual_i_raw << " T=" << out.total_equivalent_i_raw
+			<< " T_hat=" << out.adapt_t_hat_raw << " target=" << out.adapt_target_raw
+			<< " gate=" << out.adapt_gate << " reversal=" << out.adapt_reversal);
+		if (!check_fresh_gate) { EXPECT_EQ(out.state, BumplessRollITransfer::State::TransferHold); }
+		EXPECT_NEAR(out.accepted_delta_i_raw + out.accepted_delta_s_raw, 0.f, StateTolerance);
+		if (previous_hat > 0.f && out.adapt_t_hat_raw < 0.f && direction_change_cycle < 0) {
+			direction_change_cycle = i;
+		}
+		previous_hat = out.adapt_t_hat_raw;
+		reversal_seen |= out.adapt_reversal;
+		if (reversal_seen && before > StateTolerance) {
+			EXPECT_LE(out.transferred_i_raw, before + StateTolerance);
+			EXPECT_GE(out.transferred_i_raw, -StateTolerance);
+		}
+		if (fabsf(out.transferred_i_raw) <= StateTolerance) { zero_seen = true; }
+		if (check_fresh_gate) {
+			if (direction_change_cycle >= 0 && (i - direction_change_cycle + 1) * in.dt < 2.99f) {
+				EXPECT_FALSE(out.adapt_gate);
+			}
+			if (!negative_growth && !out.adapt_gate) { EXPECT_GE(out.transferred_i_raw, -StateTolerance); }
+			waited_at_zero |= zero_seen && !out.adapt_gate && fabsf(out.transferred_i_raw) <= StateTolerance;
+		}
+		if (out.transferred_i_raw < -StateTolerance && !negative_growth) {
+			EXPECT_TRUE(zero_seen);
+			EXPECT_TRUE(out.adapt_gate);
+			negative_growth = true;
+		}
+	}
+	EXPECT_TRUE(reversal_seen);
+	EXPECT_TRUE(zero_seen);
+	EXPECT_TRUE(negative_growth);
+	if (check_fresh_gate) { EXPECT_TRUE(waited_at_zero); }
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3ReversalStaysInHoldUntilFreshOppositeGate)
+{
+	verifyAdaptiveReversalTrajectory(false);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3OppositeGrowthRequiresFreshFullGate)
+{
+	verifyAdaptiveReversalTrajectory(true);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3BiasDecayDoesNotTriggerLegacyCancel)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.18f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs(0.02f);
+	in.cap_raw = 0.03f;
+	set_adaptive_defaults(in, 0);
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+	for (int i = 0; i < 230; ++i) { transfer.update(in, rate_control); }
+	ASSERT_GT(transfer.transferredRaw(), 0.04f);
+	bool released = false;
+	for (int i = 0; i < 1200; ++i) {
+		const float before = transfer.transferredRaw();
+		set_residual(rate_control, -before, before);
+		const auto out = transfer.update(in, rate_control);
+		EXPECT_EQ(out.state, BumplessRollITransfer::State::TransferHold);
+		EXPECT_NEAR(out.accepted_delta_i_raw + out.accepted_delta_s_raw, 0.f, StateTolerance);
+		if (out.adapt_releasing) { EXPECT_LE(out.transferred_i_raw, before + StateTolerance); released = true; }
+	}
+	EXPECT_TRUE(released);
+	EXPECT_NEAR(transfer.transferredRaw(), 0.f, StateTolerance);
+}
+
+TEST(BumplessRollITransfer, LegacyNonAdaptiveOppositionCancellationStillWorks)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.18f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs(0.02f);
+	in.cap_raw = 0.03f;
+	in.adapt_enabled = false;
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+	for (int i = 0; i < 20; ++i) { transfer.update(in, rate_control); }
+	ASSERT_EQ(transfer.state(), BumplessRollITransfer::State::TransferHold);
+	set_residual(rate_control, -0.01f, transfer.transferredRaw());
+	EXPECT_EQ(transfer.update(in, rate_control).state, BumplessRollITransfer::State::NormalTransferOut);
+}
+
 TEST(BumplessRollITransfer, AdaptiveV3GoldenVectorExport)
 {
 	const char *directory = std::getenv("B2B_ADAPTIVE_GOLDEN_DIR");
@@ -2135,6 +2247,11 @@ TEST(BumplessRollITransfer, AdaptiveV3GoldenVectorExport)
 		traces.push_back({"positive_to_negative_reversal", 0.18f, 250, values});
 	}
 	traces.push_back({"10s_window", 0.18f, 500, stable(0.18f, 550), 0.02f, NAN, 10.f, 10.f});
+	{
+		std::vector<float> values = stable(0.18f, 230);
+		values.insert(values.end(), 1400, -0.10f);
+		traces.push_back({"adaptive_reversal_no_episode_cancel", 0.18f, 250, values});
+	}
 
 	for (const Trace &trace : traces) {
 		RateControl rate_control;

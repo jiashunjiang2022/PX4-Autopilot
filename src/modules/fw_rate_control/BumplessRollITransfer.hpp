@@ -289,6 +289,7 @@ public:
 			}
 
 			if (_state == State::TransferHold
+			    && !_adaptive_episode_enabled
 			    && valuesOppose(out.residual_i_before_raw, _transferred_i_raw)) {
 				return cancelTransferEpisode(out);
 			}
