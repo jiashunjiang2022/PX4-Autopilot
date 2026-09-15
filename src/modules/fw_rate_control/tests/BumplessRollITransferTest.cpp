@@ -36,6 +36,22 @@ struct BumplessRollITransferTestAccess
 		transfer._state = BumplessRollITransfer::State::TransferHold;
 		setHeadroom(transfer, headroom_ratio, 0);
 	}
+
+	static void setAdaptiveTHat(BumplessRollITransfer &transfer, float value, bool valid)
+	{
+		transfer._adapt_t_hat_raw = value;
+		transfer._adapt_t_hat_valid = valid;
+	}
+
+	static void configureAdaptiveHold(BumplessRollITransfer &transfer, float transferred_raw, uint32_t reset_epoch,
+			float t_hat_raw, float headroom_ratio)
+	{
+		setState(transfer, transferred_raw, reset_epoch, headroom_ratio);
+		transfer._adaptive_episode_enabled = true;
+		transfer._adapt_t_hat_raw = t_hat_raw;
+		transfer._adapt_t_hat_valid = true;
+		transfer._gate_reference_raw = t_hat_raw;
+	}
 };
 
 namespace
@@ -219,6 +235,15 @@ auto adaptive_reversal(const T &result, int) -> decltype(result.adapt_reversal)
 
 template<typename T>
 bool adaptive_reversal(const T &, long) { return false; }
+
+template<typename T>
+auto adaptive_sign_fraction(const T &result, int) -> decltype(result.adapt_sign_fraction)
+{
+	return result.adapt_sign_fraction;
+}
+
+template<typename T>
+float adaptive_sign_fraction(const T &, long) { return 0.f; }
 
 template<typename T>
 auto effective_headroom_ratio(const T &result, int) -> decltype(result.headroom_release_ratio_effective)
@@ -459,6 +484,15 @@ void seed_residual(RateControl &rate_control, float value)
 {
 	const auto seeded = rate_control.applyRollITransfer({value, 0.f, RateControl::RollITransferMode::PairPreserving});
 	ASSERT_TRUE(seeded.valid);
+	ASSERT_NEAR(roll_i(rate_control), value, StateTolerance);
+}
+
+void set_residual(RateControl &rate_control, float value, float transferred_raw = 0.f)
+{
+	const float delta = value - rate_control.rollIntegralRaw();
+	const auto result = rate_control.applyRollITransfer({delta, transferred_raw,
+			RateControl::RollITransferMode::PairPreserving, 0.f, transferred_raw, true});
+	ASSERT_TRUE(result.valid);
 	ASSERT_NEAR(roll_i(rate_control), value, StateTolerance);
 }
 
@@ -1701,6 +1735,332 @@ TEST(BumplessRollITransfer, AdaptiveV3InvalidParametersDoNotMoveState)
 	EXPECT_FLOAT_EQ(transfer.transferredRaw(), 0.f);
 }
 
+TEST(BumplessRollITransfer, AdaptiveV3EntryMedianDrivesLatchedTarget)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.02f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs(0.02f);
+	in.cap_raw = 0.03f;
+	set_adaptive_defaults(in, 0);
+	in.eligible = false;
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+
+	// 300 cycles gives the old implementation enough (100) samples, while
+	// still making the instantaneous entry residual intentionally different.
+	for (int cycle = 0; cycle < 300; ++cycle) {
+		transfer.update(in, rate_control);
+	}
+
+	set_residual(rate_control, 0.18f);
+	in.eligible = true;
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_TRUE(result.entry_est_valid);
+	EXPECT_NEAR(result.entry_est_raw, 0.02f, 1e-4f);
+	EXPECT_NEAR(transfer.latchedTargetRaw(), 0.02f, 1e-4f);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3NegativeEntryMedianDrivesLatchedTarget)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, -0.02f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs(0.02f);
+	in.cap_raw = 0.03f;
+	set_adaptive_defaults(in, 0);
+	in.eligible = false;
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+
+	for (int cycle = 0; cycle < 300; ++cycle) {
+		transfer.update(in, rate_control);
+	}
+
+	set_residual(rate_control, -0.18f);
+	in.eligible = true;
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_TRUE(result.entry_est_valid);
+	EXPECT_NEAR(result.entry_est_raw, -0.02f, 1e-4f);
+	EXPECT_NEAR(transfer.latchedTargetRaw(), -0.02f, 1e-4f);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3EntryMedianRejectsOppositeSignInstantSpike)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.02f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs(0.02f);
+	in.cap_raw = 0.03f;
+	set_adaptive_defaults(in, 0);
+	in.eligible = false;
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+
+	for (int cycle = 0; cycle < 300; ++cycle) {
+		transfer.update(in, rate_control);
+	}
+
+	set_residual(rate_control, -0.18f);
+	in.eligible = true;
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_TRUE(result.entry_est_valid);
+	EXPECT_NEAR(result.entry_est_raw, 0.02f, 1e-4f);
+	EXPECT_NEAR(transfer.latchedTargetRaw(), 0.02f, 1e-4f);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3EntryWindowUsesWallClockAtMultipleControllerRates)
+{
+	for (const float dt : {0.004f, 0.010f, 0.020f, 0.040f}) {
+		auto run = [dt](float duration_s) {
+			RateControl rate_control;
+			configure(rate_control);
+			seed_residual(rate_control, 0.02f);
+			BumplessRollITransfer transfer;
+			auto in = enabled_inputs(dt);
+			in.cap_raw = 0.03f;
+			set_adaptive_defaults(in, 0);
+			in.eligible = false;
+			transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+			const int cycles = static_cast<int>(ceilf(duration_s / dt));
+			for (int cycle = 0; cycle < cycles; ++cycle) {
+				transfer.update(in, rate_control);
+			}
+			in.eligible = true;
+			return transfer.update(in, rate_control);
+		};
+
+		EXPECT_FALSE(run(4.8f).entry_est_valid) << "dt=" << dt;
+		EXPECT_TRUE(run(5.0f).entry_est_valid) << "dt=" << dt;
+	}
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3GateWindowUsesWallClockAtMultipleControllerRates)
+{
+	for (const float dt : {0.004f, 0.010f, 0.020f, 0.040f}) {
+		RateControl rate_control;
+		configure(rate_control);
+		seed_residual(rate_control, 0.18f);
+		BumplessRollITransfer transfer;
+		auto in = enabled_inputs(dt);
+		in.cap_raw = 0.03f;
+		set_adaptive_defaults(in, 0);
+		transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+
+		bool reached_hold = false;
+		for (int cycle = 0; cycle < 200 && !reached_hold; ++cycle) {
+			reached_hold = transfer.update(in, rate_control).state == BumplessRollITransfer::State::TransferHold;
+		}
+		ASSERT_TRUE(reached_hold) << "dt=" << dt;
+
+		bool gate_before_three_seconds = false;
+		const int early_cycles = static_cast<int>(ceilf(2.5f / dt));
+		for (int cycle = 0; cycle < early_cycles; ++cycle) {
+			gate_before_three_seconds = gate_before_three_seconds || adaptive_gate(transfer.update(in, rate_control), 0);
+		}
+		EXPECT_FALSE(gate_before_three_seconds) << "dt=" << dt;
+
+		bool gate_after_three_seconds = false;
+		const int late_cycles = static_cast<int>(ceilf(0.8f / dt));
+		for (int cycle = 0; cycle < late_cycles; ++cycle) {
+			gate_after_three_seconds = gate_after_three_seconds || adaptive_gate(transfer.update(in, rate_control), 0);
+		}
+		EXPECT_TRUE(gate_after_three_seconds) << "dt=" << dt;
+	}
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3TenSecondWindowsAreNotCapacityClipped)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.02f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs(0.02f);
+	in.cap_raw = 0.10f;
+	in.entry_window_s = 10.f;
+	in.gate_window_s = 10.f;
+	set_adaptive_defaults(in, 0);
+	in.entry_window_s = 10.f;
+	in.gate_window_s = 10.f;
+	in.eligible = false;
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+
+	for (int cycle = 0; cycle < 500; ++cycle) {
+		set_residual(rate_control, 0.02f);
+		transfer.update(in, rate_control);
+	}
+
+	for (int cycle = 0; cycle < 250; ++cycle) {
+		set_residual(rate_control, 0.04f);
+		transfer.update(in, rate_control);
+	}
+
+	set_residual(rate_control, 0.18f);
+	in.eligible = true;
+	const auto entry = transfer.update(in, rate_control);
+	EXPECT_TRUE(entry.entry_est_valid);
+	EXPECT_NEAR(entry.entry_est_raw, 0.03f, 1e-3f);
+	EXPECT_NEAR(transfer.latchedTargetRaw(), 0.03f, 1e-3f);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3TenSecondGateWindowRequiresTenSeconds)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.18f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs(0.02f);
+	in.cap_raw = 0.03f;
+	in.gate_window_s = 10.f;
+	set_adaptive_defaults(in, 0);
+	in.gate_window_s = 10.f;
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+
+	bool reached_hold = false;
+	for (int cycle = 0; cycle < 100 && !reached_hold; ++cycle) {
+		reached_hold = transfer.update(in, rate_control).state == BumplessRollITransfer::State::TransferHold;
+	}
+	ASSERT_TRUE(reached_hold);
+
+	bool early_gate = false;
+	for (int cycle = 0; cycle < 450; ++cycle) {
+		early_gate = early_gate || adaptive_gate(transfer.update(in, rate_control), 0);
+	}
+	EXPECT_FALSE(early_gate);
+
+	bool late_gate = false;
+	for (int cycle = 0; cycle < 100; ++cycle) {
+		late_gate = late_gate || adaptive_gate(transfer.update(in, rate_control), 0);
+	}
+	EXPECT_TRUE(late_gate);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3ReversalClearsPersistenceEvidence)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.18f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs(0.02f);
+	in.cap_raw = 0.03f;
+	set_adaptive_defaults(in, 0);
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+
+	bool reached_hold = false;
+	for (int cycle = 0; cycle < 100 && !reached_hold; ++cycle) {
+		reached_hold = transfer.update(in, rate_control).state == BumplessRollITransfer::State::TransferHold;
+	}
+	ASSERT_TRUE(reached_hold);
+	for (int cycle = 0; cycle < 180; ++cycle) {
+		transfer.update(in, rate_control);
+	}
+	ASSERT_GT(transfer.transferredRaw(), 0.03f);
+
+	BumplessRollITransferTestAccess::setAdaptiveTHat(transfer, -0.18f, true);
+	const float transferred_before = transfer.transferredRaw();
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_TRUE(result.adapt_reversal);
+	EXPECT_FALSE(result.adapt_gate);
+	EXPECT_LT(adaptive_sign_fraction(result, 0), 0.1f);
+	EXPECT_GE(transfer.transferredRaw(), -StateTolerance);
+	EXPECT_LE(transfer.transferredRaw(), transferred_before);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3OppositeDirectionUnwindsBeforeGrowth)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.18f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs(0.02f);
+	in.cap_raw = 0.03f;
+	set_adaptive_defaults(in, 0);
+	transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
+
+	bool reached_hold = false;
+	for (int cycle = 0; cycle < 100 && !reached_hold; ++cycle) {
+		reached_hold = transfer.update(in, rate_control).state == BumplessRollITransfer::State::TransferHold;
+	}
+	ASSERT_TRUE(reached_hold);
+	for (int cycle = 0; cycle < 180; ++cycle) {
+		transfer.update(in, rate_control);
+	}
+	ASSERT_GT(transfer.transferredRaw(), 0.03f);
+
+	BumplessRollITransferTestAccess::setAdaptiveTHat(transfer, -0.18f, true);
+	set_residual(rate_control, -0.10f - transfer.transferredRaw(), transfer.transferredRaw());
+	const float transferred_before = transfer.transferredRaw();
+	const auto first_reversal = transfer.update(in, rate_control);
+	EXPECT_TRUE(first_reversal.adapt_reversal);
+	EXPECT_GE(transfer.transferredRaw(), -StateTolerance);
+	EXPECT_LE(transfer.transferredRaw(), transferred_before);
+	EXPECT_NEAR(first_reversal.accepted_delta_i_raw + first_reversal.accepted_delta_s_raw, 0.f, StateTolerance);
+	EXPECT_NE(first_reversal.state, BumplessRollITransfer::State::RecoveryReconciliation);
+
+	bool crossed_zero = false;
+	bool grew_beyond_entry_cap_before_new_gate = false;
+	bool new_gate_observed = false;
+	for (int cycle = 0; cycle < 1000; ++cycle) {
+		set_residual(rate_control, -0.10f - transfer.transferredRaw(), transfer.transferredRaw());
+		const auto result = transfer.update(in, rate_control);
+		EXPECT_NEAR(result.accepted_delta_i_raw + result.accepted_delta_s_raw, 0.f, StateTolerance);
+		if (!crossed_zero && transfer.transferredRaw() <= StateTolerance) {
+			crossed_zero = true;
+		}
+		if (!result.adapt_gate && transfer.transferredRaw() < -in.cap_raw - StateTolerance) {
+			grew_beyond_entry_cap_before_new_gate = true;
+		}
+		new_gate_observed = new_gate_observed || result.adapt_gate;
+		if (new_gate_observed && transfer.transferredRaw() < -in.cap_raw - 1e-3f) {
+			break;
+		}
+	}
+	EXPECT_TRUE(crossed_zero);
+	EXPECT_FALSE(grew_beyond_entry_cap_before_new_gate);
+	EXPECT_TRUE(new_gate_observed);
+	EXPECT_LT(transfer.transferredRaw(), -in.cap_raw - 1e-3f);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3ReleaseDoesNotRequireGrowthGate)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.15f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs(0.02f);
+	in.cap_raw = 0.03f;
+	set_adaptive_defaults(in, 0);
+	BumplessRollITransferTestAccess::configureAdaptiveHold(
+		transfer, 0.03f, rate_control.rollIntegralResetEpoch(), 0.f, 1.f);
+
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_FALSE(result.adapt_gate);
+	EXPECT_TRUE(result.adapt_releasing);
+	EXPECT_LT(transfer.transferredRaw(), 0.03f);
+	EXPECT_NEAR(result.accepted_delta_i_raw + result.accepted_delta_s_raw, 0.f, StateTolerance);
+}
+
+TEST(BumplessRollITransfer, AdaptiveV3PartialAcceptanceKeepsTransferMatched)
+{
+	RateControl rate_control;
+	configure(rate_control);
+	seed_residual(rate_control, 0.20f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs(0.02f);
+	in.cap_raw = 0.03f;
+	set_adaptive_defaults(in, 0);
+	BumplessRollITransferTestAccess::configureAdaptiveHold(
+		transfer, 0.05f, rate_control.rollIntegralResetEpoch(), 0.f, 1.f);
+
+	const auto result = transfer.update(in, rate_control);
+	EXPECT_TRUE(result.adapt_releasing);
+	EXPECT_TRUE(result.adapt_limited);
+	EXPECT_LT(result.requested_delta_s_raw, 0.f);
+	EXPECT_NEAR(result.accepted_delta_i_raw, 0.f, StateTolerance);
+	EXPECT_NEAR(result.accepted_delta_s_raw, 0.f, StateTolerance);
+	EXPECT_NEAR(result.accepted_delta_i_raw + result.accepted_delta_s_raw, 0.f, StateTolerance);
+}
+
 TEST(BumplessRollITransfer, AdaptiveV3GoldenVectorExport)
 {
 	const char *directory = std::getenv("B2B_ADAPTIVE_GOLDEN_DIR");
@@ -1711,7 +2071,7 @@ TEST(BumplessRollITransfer, AdaptiveV3GoldenVectorExport)
 
 	std::ofstream output(std::string(directory) + "/adaptive_v3_cpp.csv");
 	ASSERT_TRUE(output.is_open());
-	output << "case,step,input_total,state,residual,transferred,total,t_hat,entry,entry_valid,target,std,sign_fraction,gate,limited,releasing,reversal,delta_i,delta_s\n";
+	output << "case,step,dt,input_total,state,residual,transferred,total,t_hat,entry,entry_valid,target,std,sign_fraction,gate,limited,releasing,reversal,delta_i,delta_s\n";
 	output << std::fixed << std::setprecision(9);
 
 	struct Trace {
@@ -1719,6 +2079,10 @@ TEST(BumplessRollITransfer, AdaptiveV3GoldenVectorExport)
 		float entry_value;
 		int entry_cycles;
 		std::vector<float> hold;
+		float dt{0.02f};
+		float entry_instant{NAN};
+		float entry_window_s{5.f};
+		float gate_window_s{3.f};
 	};
 
 	std::vector<Trace> traces;
@@ -1759,15 +2123,29 @@ TEST(BumplessRollITransfer, AdaptiveV3GoldenVectorExport)
 	}
 	traces.push_back({"insufficient_history", 0.12f, 40, stable(0.12f, 100)});
 	traces.push_back({"safety_exit", 0.18f, 300, stable(0.18f, 8)});
+	traces.push_back({"entry_instant_spike", 0.02f, 250, stable(0.18f, 20), 0.02f, 0.18f});
+	traces.push_back({"entry_opposite_sign_spike", 0.02f, 250, stable(-0.18f, 5), 0.02f, -0.18f});
+	traces.push_back({"dt_004", 0.18f, 1250, stable(0.18f, 875), 0.004f});
+	traces.push_back({"dt_010", 0.18f, 500, stable(0.18f, 350), 0.010f});
+	traces.push_back({"dt_020", 0.18f, 250, stable(0.18f, 175), 0.020f});
+	traces.push_back({"dt_040", 0.18f, 125, stable(0.18f, 88), 0.040f});
+	{
+		std::vector<float> values = stable(0.18f, 250);
+		values.insert(values.end(), 500, -0.10f);
+		traces.push_back({"positive_to_negative_reversal", 0.18f, 250, values});
+	}
+	traces.push_back({"10s_window", 0.18f, 500, stable(0.18f, 550), 0.02f, NAN, 10.f, 10.f});
 
 	for (const Trace &trace : traces) {
 		RateControl rate_control;
 		configure(rate_control);
 		seed_residual(rate_control, trace.entry_value);
 		BumplessRollITransfer transfer;
-		auto in = enabled_inputs();
+		auto in = enabled_inputs(trace.dt);
 		in.cap_raw = 0.03f;
 		set_adaptive_defaults(in, 0);
+		in.entry_window_s = trace.entry_window_s;
+		in.gate_window_s = trace.gate_window_s;
 		transfer.synchronizeReset(rate_control.rollIntegralResetEpoch());
 
 		auto set_total = [&](float total) {
@@ -1781,7 +2159,8 @@ TEST(BumplessRollITransfer, AdaptiveV3GoldenVectorExport)
 		};
 
 		auto write_row = [&](int step, float input_total, const BumplessRollITransfer::Result &result) {
-			output << trace.name << ',' << step << ',' << input_total << ',' << static_cast<unsigned>(result.state) << ','
+			output << trace.name << ',' << step << ',' << trace.dt << ',' << input_total << ','
+			       << static_cast<unsigned>(result.state) << ','
 			       << result.residual_i_raw << ',' << result.transferred_i_raw << ','
 			       << result.total_equivalent_i_raw << ',' << result.adapt_t_hat_raw << ','
 			       << result.entry_est_raw << ',' << result.entry_est_valid << ','
@@ -1800,6 +2179,9 @@ TEST(BumplessRollITransfer, AdaptiveV3GoldenVectorExport)
 			write_row(step++, input_total, transfer.update(in, rate_control));
 		}
 
+		if (std::isfinite(trace.entry_instant)) {
+			set_total(trace.entry_instant);
+		}
 		in.eligible = true;
 		write_row(step++, rate_control.rollIntegralRaw() + transfer.transferredRaw(), transfer.update(in, rate_control));
 		write_row(step++, rate_control.rollIntegralRaw() + transfer.transferredRaw(), transfer.update(in, rate_control));

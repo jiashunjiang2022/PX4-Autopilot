@@ -241,10 +241,10 @@ public:
 
 		if (active_gate) {
 			if (_state == State::Disabled) {
-				_latched_target_raw = signedMinimum(out.residual_i_before_raw, in.cap_raw);
 				_latched_headroom_release_ratio = math::constrain(in.headroom_release_ratio, 0.f, 1.f);
 				_adaptive_episode_enabled = in.adapt_enabled && adaptive_valid;
 				if (!_adaptive_episode_enabled) {
+					_latched_target_raw = signedMinimum(out.residual_i_before_raw, in.cap_raw);
 					_entry_estimate_valid = false;
 					_entry_estimate_raw = 0.f;
 				}
@@ -254,6 +254,7 @@ public:
 					if (!_entry_estimate_valid) {
 						_entry_estimate_raw = signedMinimum(out.residual_i_before_raw, in.cap_raw);
 					}
+					_latched_target_raw = signedMinimum(_entry_estimate_raw, in.cap_raw);
 					clearEntryHistory();
 				}
 				_state = State::Eligible;
@@ -382,12 +383,8 @@ private:
 	{
 		_gate_sample_count = 0;
 		_gate_sample_head = 0;
-		_gate_sum = 0.f;
-		_gate_sum_sq = 0.f;
-		_gate_same_sign_count = 0;
-		for (bool &value : _gate_same_sign) {
-			value = false;
-		}
+		_gate_sample_elapsed = 0.f;
+		_gate_reference_raw = 0.f;
 		_last_adapt_std_raw = 0.f;
 		_last_adapt_sign_fraction = 0.f;
 	}
@@ -407,14 +404,13 @@ private:
 
 	size_t entrySampleCountRequired(const Inputs &in) const
 	{
-		const float count = in.entry_window_s * 20.f;
+		const float count = ceilf(in.entry_window_s * AdaptiveSampleRate);
 		return static_cast<size_t>(math::constrain(count, 1.f, static_cast<float>(EntryHistoryCapacity)));
 	}
 
 	size_t gateSampleCountRequired(const Inputs &in) const
 	{
-		const float dt = PX4_ISFINITE(in.dt) && in.dt > 0.f ? in.dt : 0.02f;
-		const float count = in.gate_window_s / dt;
+		const float count = ceilf(in.gate_window_s * AdaptiveSampleRate);
 		return static_cast<size_t>(math::constrain(ceilf(count), 1.f, static_cast<float>(GateHistoryCapacity)));
 	}
 
@@ -425,11 +421,14 @@ private:
 		}
 
 		_entry_sample_elapsed += dt;
-		if (_entry_sample_elapsed < 0.05f) {
+		if (_entry_sample_elapsed + SampleTimeEpsilon < AdaptiveSamplePeriod) {
 			return;
 		}
 
-		_entry_sample_elapsed = 0.f;
+		_entry_sample_elapsed = fmaxf(0.f, _entry_sample_elapsed - AdaptiveSamplePeriod);
+		if (_entry_sample_elapsed >= AdaptiveSamplePeriod) {
+			_entry_sample_elapsed = fmodf(_entry_sample_elapsed, AdaptiveSamplePeriod);
+		}
 		_entry_samples[_entry_sample_head] = sample;
 		_entry_sample_head = (_entry_sample_head + 1) % EntryHistoryCapacity;
 		_entry_sample_count = math::min(_entry_sample_count + 1, EntryHistoryCapacity);
@@ -442,11 +441,13 @@ private:
 			return 0.f;
 		}
 
+		const size_t sample_count = math::min(_entry_sample_count, entrySampleCountRequired(in));
 		float sorted[EntryHistoryCapacity]{};
-		for (size_t i = 0; i < _entry_sample_count; i++) {
-			sorted[i] = _entry_samples[i];
+		for (size_t i = 0; i < sample_count; i++) {
+			const size_t index = (_entry_sample_head + EntryHistoryCapacity - sample_count + i) % EntryHistoryCapacity;
+			sorted[i] = _entry_samples[index];
 		}
-		for (size_t i = 1; i < _entry_sample_count; i++) {
+		for (size_t i = 1; i < sample_count; i++) {
 			const float value = sorted[i];
 			size_t j = i;
 			while (j > 0 && sorted[j - 1] > value) {
@@ -455,53 +456,75 @@ private:
 			}
 			sorted[j] = value;
 		}
-		const size_t middle = _entry_sample_count / 2;
-		const float median = (_entry_sample_count % 2 == 0)
+		const size_t middle = sample_count / 2;
+		const float median = (sample_count % 2 == 0)
 				? 0.5f * (sorted[middle - 1] + sorted[middle]) : sorted[middle];
-		(void)in;
 		return PX4_ISFINITE(median) ? median : 0.f;
 	}
 
-	void addGateSample(float sample, float reference)
+	void addGateSample(float sample)
 	{
-		if (!PX4_ISFINITE(sample) || !PX4_ISFINITE(reference)) {
+		if (!PX4_ISFINITE(sample)) {
 			return;
 		}
-		const bool same_sign = fabsf(reference) <= StateEpsilon || sample * reference >= 0.f;
-		if (_gate_sample_count == GateHistoryCapacity) {
-			const float old = _gate_samples[_gate_sample_head];
-			_gate_sum -= old;
-			_gate_sum_sq -= old * old;
-			if (_gate_same_sign[_gate_sample_head] && _gate_same_sign_count > 0) {
-				_gate_same_sign_count--;
-			}
-		} else {
+		if (_gate_sample_count < GateHistoryCapacity) {
 			_gate_sample_count++;
 		}
 		_gate_samples[_gate_sample_head] = sample;
-		_gate_same_sign[_gate_sample_head] = same_sign;
 		_gate_sample_head = (_gate_sample_head + 1) % GateHistoryCapacity;
-		_gate_sum += sample;
-		_gate_sum_sq += sample * sample;
-		if (same_sign) {
-			_gate_same_sign_count++;
-		}
 	}
 
-	float computeGateStd() const
+	void observeGateSample(float sample, float dt)
 	{
-		if (_gate_sample_count == 0) {
+		if (!PX4_ISFINITE(sample) || !PX4_ISFINITE(dt) || dt <= 0.f) {
+			return;
+		}
+
+		_gate_sample_elapsed += dt;
+		if (_gate_sample_elapsed + SampleTimeEpsilon < AdaptiveSamplePeriod) {
+			return;
+		}
+
+		_gate_sample_elapsed = fmaxf(0.f, _gate_sample_elapsed - AdaptiveSamplePeriod);
+		if (_gate_sample_elapsed >= AdaptiveSamplePeriod) {
+			_gate_sample_elapsed = fmodf(_gate_sample_elapsed, AdaptiveSamplePeriod);
+		}
+		addGateSample(sample);
+	}
+
+	float computeGateStd(size_t sample_count) const
+	{
+		if (sample_count == 0) {
 			return 0.f;
 		}
-		const float n = static_cast<float>(_gate_sample_count);
-		const float variance = fmaxf(0.f, _gate_sum_sq / n - (_gate_sum / n) * (_gate_sum / n));
-		return sqrtf(variance);
+
+		float sum = 0.f;
+		float sum_sq = 0.f;
+		for (size_t i = 0; i < sample_count; i++) {
+			const size_t index = (_gate_sample_head + GateHistoryCapacity - sample_count + i) % GateHistoryCapacity;
+			const float sample = _gate_samples[index];
+			sum += sample;
+			sum_sq += sample * sample;
+		}
+		const float n = static_cast<float>(sample_count);
+		const float mean = sum / n;
+		return sqrtf(fmaxf(0.f, sum_sq / n - mean * mean));
 	}
 
-	float computeGateSignFraction() const
+	float computeGateSignFraction(size_t sample_count, float reference) const
 	{
-		return _gate_sample_count > 0 ? static_cast<float>(_gate_same_sign_count)
-			       / static_cast<float>(_gate_sample_count) : 0.f;
+		if (sample_count == 0 || !PX4_ISFINITE(reference) || fabsf(reference) <= StateEpsilon) {
+			return 0.f;
+		}
+
+		size_t same_sign_count = 0;
+		for (size_t i = 0; i < sample_count; i++) {
+			const size_t index = (_gate_sample_head + GateHistoryCapacity - sample_count + i) % GateHistoryCapacity;
+			if (_gate_samples[index] * reference > 0.f) {
+				same_sign_count++;
+			}
+		}
+		return static_cast<float>(same_sign_count) / static_cast<float>(sample_count);
 	}
 
 	void initializeAdaptiveHold(float residual_raw, float transferred_raw)
@@ -509,6 +532,7 @@ private:
 		_adapt_t_hat_raw = _entry_estimate_valid ? _entry_estimate_raw : residual_raw + transferred_raw;
 		_adapt_t_hat_valid = PX4_ISFINITE(_adapt_t_hat_raw);
 		clearGateHistory();
+		_gate_reference_raw = _adapt_t_hat_raw;
 		_last_adapt_target_raw = transferred_raw;
 	}
 
@@ -537,14 +561,22 @@ private:
 		const float alpha = dt / (in.adapt_tau_s + dt);
 		_adapt_t_hat_raw += alpha * (total - _adapt_t_hat_raw);
 		_adapt_t_hat_valid = PX4_ISFINITE(_adapt_t_hat_raw);
-		addGateSample(total, _adapt_t_hat_raw);
-		_last_adapt_std_raw = computeGateStd();
-		_last_adapt_sign_fraction = computeGateSignFraction();
+		if (valuesOppose(_adapt_t_hat_raw, _gate_reference_raw)) {
+			clearGateHistory();
+		}
+		if (fabsf(_adapt_t_hat_raw) > StateEpsilon) {
+			_gate_reference_raw = _adapt_t_hat_raw;
+		}
+		observeGateSample(total, dt);
+		const size_t required_samples = gateSampleCountRequired(in);
+		const size_t window_samples = math::min(_gate_sample_count, required_samples);
+		_last_adapt_std_raw = computeGateStd(window_samples);
+		_last_adapt_sign_fraction = computeGateSignFraction(window_samples, _adapt_t_hat_raw);
 		_last_adapt_hold_cap_raw = in.hold_cap_raw;
 		_last_adapt_reserve_raw = in.residual_reserve_raw;
 		const float target = adaptiveTarget(in);
 		_last_adapt_target_raw = target;
-		out.adapt_gate = _gate_sample_count >= gateSampleCountRequired(in)
+		out.adapt_gate = _gate_sample_count >= required_samples
 				&& _last_adapt_std_raw <= in.gate_std_raw
 				&& _last_adapt_sign_fraction >= in.gate_same_sign_fraction;
 
@@ -675,8 +707,11 @@ private:
 	}
 
 	State _state{State::Disabled};
-	static constexpr size_t EntryHistoryCapacity = 100;
-	static constexpr size_t GateHistoryCapacity = 60;
+	static constexpr float AdaptiveSamplePeriod = 0.05f;
+	static constexpr float AdaptiveSampleRate = 20.f;
+	static constexpr float SampleTimeEpsilon = 1e-6f;
+	static constexpr size_t EntryHistoryCapacity = 200;
+	static constexpr size_t GateHistoryCapacity = 200;
 	float _entry_samples[EntryHistoryCapacity]{};
 	size_t _entry_sample_count{0};
 	size_t _entry_sample_head{0};
@@ -684,10 +719,8 @@ private:
 	float _gate_samples[GateHistoryCapacity]{};
 	size_t _gate_sample_count{0};
 	size_t _gate_sample_head{0};
-	float _gate_sum{0.f};
-	float _gate_sum_sq{0.f};
-	size_t _gate_same_sign_count{0};
-	bool _gate_same_sign[GateHistoryCapacity]{};
+	float _gate_sample_elapsed{0.f};
+	float _gate_reference_raw{0.f};
 	float _entry_estimate_raw{0.f};
 	bool _entry_estimate_valid{false};
 	bool _adaptive_episode_enabled{false};
