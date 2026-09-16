@@ -436,30 +436,29 @@ private:
 		(void)in;
 	}
 
-	float computeEntryMedian(const Inputs &in) const
+	float computeEntryMedian(const Inputs &in)
 	{
 		if (_entry_sample_count == 0) {
 			return 0.f;
 		}
 
 		const size_t sample_count = math::min(_entry_sample_count, entrySampleCountRequired(in));
-		float sorted[EntryHistoryCapacity]{};
 		for (size_t i = 0; i < sample_count; i++) {
 			const size_t index = (_entry_sample_head + EntryHistoryCapacity - sample_count + i) % EntryHistoryCapacity;
-			sorted[i] = _entry_samples[index];
+			_entry_sort_scratch[i] = _entry_samples[index];
 		}
 		for (size_t i = 1; i < sample_count; i++) {
-			const float value = sorted[i];
+			const float value = _entry_sort_scratch[i];
 			size_t j = i;
-			while (j > 0 && sorted[j - 1] > value) {
-				sorted[j] = sorted[j - 1];
+			while (j > 0 && _entry_sort_scratch[j - 1] > value) {
+				_entry_sort_scratch[j] = _entry_sort_scratch[j - 1];
 				j--;
 			}
-			sorted[j] = value;
+			_entry_sort_scratch[j] = value;
 		}
 		const size_t middle = sample_count / 2;
 		const float median = (sample_count % 2 == 0)
-				? 0.5f * (sorted[middle - 1] + sorted[middle]) : sorted[middle];
+				? 0.5f * (_entry_sort_scratch[middle - 1] + _entry_sort_scratch[middle]) : _entry_sort_scratch[middle];
 		return PX4_ISFINITE(median) ? median : 0.f;
 	}
 
@@ -714,6 +713,7 @@ private:
 	static constexpr size_t EntryHistoryCapacity = 200;
 	static constexpr size_t GateHistoryCapacity = 200;
 	float _entry_samples[EntryHistoryCapacity]{};
+	float _entry_sort_scratch[EntryHistoryCapacity]{};
 	size_t _entry_sample_count{0};
 	size_t _entry_sample_head{0};
 	float _entry_sample_elapsed{0.f};
