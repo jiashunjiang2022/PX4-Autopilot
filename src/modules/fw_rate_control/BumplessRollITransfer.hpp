@@ -382,6 +382,7 @@ private:
 
 	void clearGateHistory()
 	{
+		_reversal_waiting_for_zero = false;
 		_gate_sample_count = 0;
 		_gate_sample_head = 0;
 		_gate_sample_elapsed = 0.f;
@@ -567,6 +568,9 @@ private:
 		if (fabsf(_adapt_t_hat_raw) > StateEpsilon) {
 			_gate_reference_raw = _adapt_t_hat_raw;
 		}
+		if (valuesOppose(_transferred_i_raw, _adapt_t_hat_raw)) {
+			_reversal_waiting_for_zero = true;
+		}
 		observeGateSample(total, dt);
 		const size_t required_samples = gateSampleCountRequired(in);
 		const size_t window_samples = math::min(_gate_sample_count, required_samples);
@@ -587,6 +591,7 @@ private:
 		if (reversal && fabsf(_transferred_i_raw) > StateEpsilon) {
 			const float requested = towardZeroStep(_transferred_i_raw, in.adapt_slew_raw_per_s * dt);
 			applyTransfer(out, rate_control, requested, false, true);
+			clearReversalGateAtZero(out);
 			return;
 		}
 		if (!releasing && !_adapt_t_hat_valid) {
@@ -598,6 +603,17 @@ private:
 		const float requested = towardTargetStep(_transferred_i_raw, target, in.adapt_slew_raw_per_s * dt);
 		if (fabsf(requested) > StateEpsilon) {
 			applyTransfer(out, rate_control, requested, false, true);
+		}
+		clearReversalGateAtZero(out);
+	}
+
+	void clearReversalGateAtZero(Result &out)
+	{
+		if (_reversal_waiting_for_zero && fabsf(_transferred_i_raw) <= StateEpsilon) {
+			// Discard all evidence collected during unwind. Sampling restarts
+			// on the next update, after the accepted transfer reached zero.
+			clearGateHistory();
+			out.adapt_gate = false;
 		}
 	}
 
@@ -722,6 +738,7 @@ private:
 	size_t _gate_sample_head{0};
 	float _gate_sample_elapsed{0.f};
 	float _gate_reference_raw{0.f};
+	bool _reversal_waiting_for_zero{false};
 	float _entry_estimate_raw{0.f};
 	bool _entry_estimate_valid{false};
 	bool _adaptive_episode_enabled{false};

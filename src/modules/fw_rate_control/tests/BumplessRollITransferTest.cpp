@@ -2173,6 +2173,52 @@ TEST(BumplessRollITransfer, LegacyNonAdaptiveOppositionCancellationStillWorks)
 	EXPECT_EQ(transfer.update(in, rate_control).state, BumplessRollITransfer::State::NormalTransferOut);
 }
 
+TEST(BumplessRollITransfer, AdaptiveV3ReversalRequiresFreshFullGateAfterZero)
+{
+	RateControl rc;
+	configure(rc);
+	seed_residual(rc, 0.18f);
+	BumplessRollITransfer transfer;
+	auto in = enabled_inputs(0.02f);
+	in.cap_raw = 0.03f;
+	set_adaptive_defaults(in, 0);
+	transfer.synchronizeReset(rc.rollIntegralResetEpoch());
+	for (int i = 0; i < 800; ++i) { transfer.update(in, rc); }
+	ASSERT_GT(transfer.transferredRaw(), 0.09f);
+	int zero_cycle = -1;
+	int first_gate_cycle = -1;
+	bool grew = false;
+	bool reversed = false;
+	for (int i = 0; i < 1600; ++i) {
+		const float before = transfer.transferredRaw();
+		set_residual(rc, -0.10f - before, before);
+		const auto out = transfer.update(in, rc);
+		SCOPED_TRACE(i);
+		EXPECT_EQ(out.state, BumplessRollITransfer::State::TransferHold);
+		EXPECT_NEAR(out.accepted_delta_i_raw + out.accepted_delta_s_raw, 0.f, StateTolerance);
+		reversed |= out.adapt_reversal;
+		if (out.adapt_reversal) {
+			EXPECT_LE(out.transferred_i_raw, before);
+			EXPECT_GE(out.transferred_i_raw, -StateTolerance);
+		}
+		if (zero_cycle < 0 && fabsf(out.transferred_i_raw) <= 1e-7f) { zero_cycle = i; }
+		if (zero_cycle >= 0 && i - zero_cycle < 150) {
+			EXPECT_FALSE(out.adapt_gate);
+			EXPECT_NEAR(out.transferred_i_raw, 0.f, 1e-7f);
+		}
+		if (zero_cycle >= 0 && first_gate_cycle < 0 && out.adapt_gate) { first_gate_cycle = i; }
+		if (out.transferred_i_raw < -StateTolerance) {
+			EXPECT_TRUE(out.adapt_gate);
+			EXPECT_GE(i - zero_cycle, 150);
+			grew = true;
+		}
+	}
+	EXPECT_TRUE(reversed);
+	EXPECT_GE(zero_cycle, 0);
+	EXPECT_EQ(first_gate_cycle - zero_cycle, 150);
+	EXPECT_TRUE(grew);
+}
+
 TEST(BumplessRollITransfer, AdaptiveV3GoldenVectorExport)
 {
 	const char *directory = std::getenv("B2B_ADAPTIVE_GOLDEN_DIR");
