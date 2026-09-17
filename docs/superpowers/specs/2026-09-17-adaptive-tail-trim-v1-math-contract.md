@@ -1,6 +1,6 @@
 # Adaptive Tail-Trim V1 mathematical contract
 
-Design only. No executable controller. All coordinates PRE_REVERSAL. Physical means normalized command geometry, not measured Nm. Hard conditions apply within specified domains; output safety takes precedence over continuity. No flight parameters are frozen by this document.
+Pure-core stage; no integrated controller. All coordinates PRE_REVERSAL. Physical means normalized command geometry, not measured Nm. Hard conditions apply within specified domains. No flight parameters are frozen by this document. Core-specific rules C19–C26 override integration assumptions where stated.
 
 ## Variables
 
@@ -40,7 +40,7 @@ Design only. No executable controller. All coordinates PRE_REVERSAL. Physical me
 | C6 HARD | conservation uses accepted deltas. Feasible intersection and atomic commit, not clipped I plus requested b. |
 | C7 HARD | valid normal step abs(Δb)<=B_SLEW*h; safety decay <=B_SAFE*h. Reset/corruption removal explicitly exempt, logged. |
 | C8 HARD | without complete growth gate, abs(b) cannot grow. Initial acquisition is growth too. |
-| C9 HARD | magnitude release does not require persistence gate; valid timing/state and exit constraints still apply. |
+| C9 HARD | normal magnitude release does not require persistence gate; it MUST NOT bypass maneuver freeze C21. |
 | C10 HARD | opposite target first unwinds to accepted zero; no one-cycle sign crossing. |
 | C11 HARD | clear ALL history at zero; zero-cycle gate false; next update first new sample. At h=.02/GWIN=3 offsets 0..149 blocked, 150 earliest gate. |
 | C12 HARD | finite abs(I)<=FW_RR_IMAX, including handback. No total-I raw-S cap silently reused as physical cap. |
@@ -87,3 +87,21 @@ Current V3 recovery requires caller handshake; a helper-only retained S before t
 
 Predeclared float32 transaction abs tolerance 2e-6 normalized torque; state comparisons 2e-7; future recursive replay abs tolerance 2e-5. Compare direct transaction delta accounting, not subtraction of unrelated clipped outputs. Near-zero inversion must be gated before arithmetic.
 g_min, h bounds, slew, envelope decay, maneuver thresholds, shared reserve and timeouts require preregistered replay/SITL choices. Mathematical closure is conditional and does not constitute numerical tuning completion, stability proof or deployment approval.
+
+## Pure-core extension C19–C26
+
+| ID / class | Contract |
+|---|---|
+| C19 HARD | g_cycle is an input value snapshot, copied once before transaction; g_used records it. Same snapshot for requested conversion, accepted pair and mismatch; future caller uses it for residual scaling. |
+| C20 HARD | Shared/slew/I limiting precedes commit. g_cycle*accepted_delta_i+K_A*accepted_delta_b is within 2e-6 normal tolerance, not requested deltas. |
+| C21 HARD | maneuver_active OR !learning_allowed freezes b: no growth, ordinary release or target chasing. Estimator/evidence freezing and fresh GWIN are caller obligations. |
+| C22 HARD bounds / BEST_EFFORT continuity | safety_release_required or violated shared reserve overrides freeze. Prior trusted unwind also overrides freeze, only toward zero. Invalid numerical inputs reject; reset clears state explicitly. No I-bound violation to fake continuity. |
+| C23 HARD | R_pos=1-abs(pitch_context)-b; R_neg=1-abs(pitch_context)+b; R_sym=min. Growth respects independently configured positive/negative minima. feasible is never true for a violated interval. |
+| C24 HARD | finite positive config g_safe_min; g_cycle<=g_safe_min or nonfinite => invalid transaction, zero accepted deltas, finite held b and recovery indication; no inverse division. Deployment threshold TO_BE_SELECTED_BY_REPLAY_SITL. |
+| C25 HARD | no new reversal latch accepted during maneuver/untrusted context. Preexisting unwind reaches zero without crossing and reports reversal_reached_zero; stale gate cannot immediately restart growth. |
+| C26 DIAGNOSTIC, integration only | report unconstrained total demand and controller-clipped demand; decide controller-side clipping feedback before flight integration. Core does not implement it. |
+
+Config is explicit, with no usable deployment defaults: b_max in [0,.10], positive b_slew, g_safe_min>0, positive directional reserves <=1 and K_A=1.1 for this geometry. Invalid config refuses transactions. Constructor state must be finite and within cap; invalid initial state becomes zero and requires reset. Config is immutable for the life of a core instance.
+Inputs include current native I and its finite ordered bounds, target, gate/context, validity and reset epoch. C12 means I+accepted_delta_i stays within supplied bounds. These must be the actual native limits at eventual integration.
+Core reset/epoch removal is marked reset_applied, with b_before/b_after; accepted transfer deltas remain zero because no I handback took place. It is exempt from C5/C7, never reported as normal conservation. Caller removes any actuator-visible contribution before output; this core has no output path.
+Numerical arithmetic uses bounded double intermediates and float results. Predeclared test tolerances: 2e-7 state/reserve; 2e-6 physical mismatch. Tests record maximum measured mismatch. Feasible uses actual float output state with no optimistic tolerance enlargement.

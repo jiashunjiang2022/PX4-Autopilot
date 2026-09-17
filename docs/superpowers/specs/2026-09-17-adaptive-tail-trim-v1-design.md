@@ -1,8 +1,8 @@
-# Adaptive Tail-Trim V1 — design only, 2026-09-17
+# Adaptive Tail-Trim V1 — pure-core contract, 2026-09-17
 
 Base: a644ca7868f07004e45658d4ae9a7a8c880c6bb5.
 Branch: adaptive-tail-trim-v1-design-red-20260917.
-No production implementation, parameter changes, firmware build, push or flight authorization.
+Stage update: an unintegrated pure core is authorized; no flight-output integration, parameter changes, push or flight authorization.
 Source references below refer to this base and are repository-relative.
 
 ## 1. Motivation
@@ -38,7 +38,7 @@ Normalized tail-state identity; residual native I; allocator-visible complete de
 
 ## 6. Non-goals
 
-No new Fast/Early estimator, aerodynamic model, runtime ML, servo-layer injection, production edits or tuning. No promise of lower RMS, better path or roll tracking. No automatic replacement of V3. No true wing-asymmetry torque claim.
+No new Fast/Early estimator, aerodynamic model, runtime ML, servo-layer injection, existing control implementation edits or tuning. No promise of lower RMS, better path or roll tracking. No automatic replacement of V3. No true wing-asymmetry torque claim.
 
 ## 7. Coordinates
 
@@ -53,7 +53,7 @@ Recommend torque-coordinate addition AFTER g scaling and BEFORE final total dema
 tau_total_requested = g*(P+D+FF+I) + tau_existing_trim + K_A*b.
 Freeze one pre-update g snapshot across transfer and output composition. Gain compression update affects next cycle only. Do not compensate a next-cycle gain change by silently changing b.
 Allocator receives complete limited torque. Preserve directional saturation feedback from total demand; also account for pre-allocator torque clipping, otherwise allocator cannot report demand it never received. Future integration tests must cover both clipping locations. Native I and trim growth both inhibit worsening saturation; release remains possible.
-g must be finite and g>g_min. g_min is a strictly positive configuration-validation threshold to determine by replay/SITL conditioning and accepted-I capacity, NOT an invented flight number. No division or normal transfer below it. Invalid gain triggers recovery/authority removal.
+g must be finite and g>g_safe_min. Deployment value is TO_BE_SELECTED_BY_REPLAY_SITL. Pure core rejects the transaction, holds finite b, emits recovery_required and accepts zero deltas on invalid/small g, before division. It does not remove actual authority; future integration owns recovery/output handling.
 Gain compression feedback should see complete demand in a defined torque coordinate, without scaling b again; future integration must explicitly compare this loop against baseline. This design does not claim closed-loop gain stability from algebra alone.
 
 ## 9. Estimator (Q6)
@@ -66,7 +66,7 @@ V1 holds constant b across g/airspeed changes. Aerodynamic asymmetry may depend 
 
 ## 10. Gate and maneuver policy (Q5)
 
-Pre-entry evidence, EWIN, elapsed-time GWIN, standard deviation and same-sign fraction remain distinct. Growth needs validity, low maneuver, persistence and actuator reserve. Release needs none of the persistence gate.
+Pre-entry evidence, EWIN, elapsed-time GWIN, standard deviation and same-sign fraction remain distinct. Growth needs validity, low maneuver, persistence and actuator reserve. Release does not require persistence gate, but cannot bypass maneuver freeze (see normative core rules below).
 V1 learns only in straight/low-maneuver windows, holds target and b through sustained Loiter except safety release. p_sp alone cannot identify steady coordinated turn: combine phi_sp/bank context, yaw/turn demand, p_sp, tracking error and saturation; missing/stale context disables learning.
 P/D and FF indicate transient/command components but I itself can absorb sustained maneuver/model demand. Neither allocator output nor I+b identifies structural bias. Alternative maneuver-conditioned subtraction would permit turn learning but needs separate development evidence.
 Thresholds, ages, envelopes and dwell times require replay/SITL selection before implementation acceptance. Current logged gate is not the future gate.
@@ -161,4 +161,26 @@ Falsifiable distinction: hold b numerically constant while varying g in bench/SI
 
 ## 26. Scientific claims
 
-Permitted: formal normalized working-point semantics, conditional physical transfer conservation and tested bounded adaptation. Not permitted: lower RMS/path/tracking guaranteed, calibrated aerodynamic truth, removal of maneuver bias, flight safety from morning replay. Design is mathematically specified subject to stated preconditions; numeric deployment settings and full-loop stability remain review gates. STOP at design/RED.
+Permitted: formal normalized working-point semantics, conditional physical transfer conservation and tested bounded transactions. Not permitted: lower RMS/path/tracking guaranteed, calibrated aerodynamic truth, removal of maneuver bias, flight safety from morning replay. Numeric deployment settings and full-loop stability remain review gates. STOP after pure core; no Task 7 integration.
+
+## 27. Normative pure-core stage rules (supersede broader integration prose)
+
+Allocator routing prerequisite CLOSED at e624a99f2955addbf76681e636c44162a0c03055; subsequent production SITL and FMUv6C builds passed. Existing V3 and the routing fix remain frozen.
+
+NORMAL MANEUVER freezes b exactly: no growth, normal release, target chasing, new reversal evidence or opposite growth. Also freeze if learning_allowed=false. Caller must stop estimator accumulation and discard growth evidence; obtain fresh trusted evidence after maneuver. Core owns no estimator or time history.
+Exceptions: shared-axis violation, pilot abort, failsafe, control invalid, reset/recovery, explicit disable, and reversal unwind already accepted in a trusted pre-maneuver window. Caller aggregates exit reasons in safety_release_required; invalid numeric inputs still reject before arithmetic. Previously latched unwind can only approach zero during maneuver. A newly asserted latch during maneuver is ignored.
+
+g_cycle is copied once by value after current inputs update, before transaction and before next gain-compression update. Conversion, accepted pair, mismatch and future residual scaling must share it. No callable/global gain provider. K_A=1.1 represents verified geometry, not aerodynamic torque.
+
+Core owns only finite b and mechanical reversal/epoch state. It accepts target_b and causal tail_pitch_context, not B_hat or a filter. It returns a value transaction and commits its own b only after all validation; it never mutates RateControl. Future caller must atomically apply the returned accepted I delta to the exact input I snapshot, or roll back the whole core transaction (e.g. compute on a copy). This caller handshake is NOT implemented here.
+
+Ordering: validate config/state/g/input; compute current directional reserves; choose reset/recovery, safety release, previously latched unwind, or normal/freeze; bound target by BMAX; apply gate/freeze; zero-first; intersect with directional shared interval; slew; calculate requested and finally accepted physical deltas using native-I capacity; verify finite mismatch and commit. Reset epoch change clears b before any transfer even with invalid g; result reset_applied identifies removal, not a bumpless delta.
+requested_delta_b/i report the bounded target intent BEFORE shared/slew/I limiting; accepted deltas report final state movement. This exposes partial acceptance without pretending the request was delivered.
+
+Normal transactions reduce b movement if I capacity is insufficient. Safety release keeps bounded b decay even when compensation saturates; finite mismatch is flagged by safety_release_active and bounded by K_A*abs(delta_b) plus float tolerance. This stage uses b_slew for both release and normal transfer, no invented safety gain. Invalid config/input or small g holds finite state and returns transaction_valid=false/recovery_required=true; no claim of finite-time exit while invalid.
+
+Directional interval: room=1-abs(pitch_context), lower=reserve_neg_min-room, upper=room-reserve_pos_min. Intersect with [-b_max,b_max]. Growth requires feasibility; an empty interval or currently violated reserve triggers toward-zero safety release, never a claim of feasibility. Reports R_pos=room-b, R_neg=room+b and R_sym=min(R_pos,R_neg) for the resulting state. Asymmetric reserves can remain infeasible even at zero; report honestly and never grow to solve an unsafe condition.
+
+Reversal latch is accepted only while learning_allowed and not maneuver, with opposite nonzero target/state. Internal unwind persists until accepted zero even if input latch drops. Reaching zero emits reversal_reached_zero, then blocks stale gate/latch reuse. A trusted gate=false/latch=false observation rearms the mechanical handshake; higher-level integration must enforce the full GWIN before raising gate. The core does NOT implement the 3-second estimator.
+
+Pre-allocator clipping is OUT OF SCOPE: future integration must diagnose unconstrained total Roll demand versus controller-clipped demand and decide feedback policy using evidence. This core neither changes nor proposes native anti-windup behavior. Geometry/config mapping, pitch-envelope generation, estimator, parameters, logger, actual injection, closed-loop SITL and bench remain future work.
