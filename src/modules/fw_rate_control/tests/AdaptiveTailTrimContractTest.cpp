@@ -2,20 +2,26 @@
 // unchanged V3 fixtures AND register its 72 regressions in this opt-in binary.
 // Select the 16 probes with --gtest_filter=AdaptiveTailTrimContract.*.
 #include "BumplessRollITransferTest.cpp"
-#include <type_traits>
-#include <utility>
+#define TAIL_TRIM_V3_FIXTURES_INCLUDED
+#if __has_include("../AdaptiveTailTrimCore.hpp")
+#include "../AdaptiveTailTrimCore.hpp"
+using BehaviorCore = AdaptiveTailTrimCore;
+#else
+#include "LegacyTailTrimProbe.hpp"
+using BehaviorCore = LegacyTailTrimProbe;
+#endif
 
 namespace {
 constexpr float KA = 1.1f;
 constexpr float PhysicalTolerance = 2e-6f; // fixed before execution
-template<typename T, typename = void> struct HasReserves : std::false_type {};
-template<typename T> struct HasReserves<T, decltype(void(std::declval<T>().roll_reserve_pos),
-	void(std::declval<T>().roll_reserve_neg))> : std::true_type {};
-template<typename T, typename = void> struct HasManeuver : std::false_type {};
-template<typename T> struct HasManeuver<T, decltype(void(std::declval<T>().learning_allowed))> : std::true_type {};
-template<typename T, typename = void> struct HasGeometry : std::false_type {};
-template<typename T> struct HasGeometry<T, decltype(void(std::declval<T>().tail_pitch_context),
-	void(std::declval<T>().residual_roll_tail))> : std::true_type {};
+BehaviorCore::Config behaviorConfig() { return {.1f, .5f, .01f, .15f, .15f, 1.1f}; }
+BehaviorCore::Inputs behaviorInput(float target) {
+	BehaviorCore::Inputs in{};
+	in.dt = .02f; in.g_cycle = .7f; in.target_b = target;
+	in.native_i_min = -.2f; in.native_i_max = .2f;
+	in.gate = true; in.learning_allowed = true;
+	return in;
+}
 struct Probe {
 	RateControl rc;
 	BumplessRollITransfer transfer;
@@ -62,7 +68,15 @@ TEST(AdaptiveTailTrimContract, RED04_SharedAxisReserveBlocksTrimGrowth)
 	EXPECT_NEAR(p.transfer.transferredRaw(), 0.f, PhysicalTolerance);
 }
 TEST(AdaptiveTailTrimContract, RED05_PositiveNegativeResidualReserveReportedSeparately)
-{ EXPECT_TRUE((HasReserves<BumplessRollITransfer::Result>::value)); }
+{
+	for (float sign : {-1.f, 1.f}) {
+		BehaviorCore core(behaviorConfig(), sign*.1f); auto in = behaviorInput(sign*.1f);
+		in.tail_pitch_context = .3f; const auto r = core.step(in);
+		EXPECT_NEAR(r.roll_reserve_pos, .7f-sign*.1f, PhysicalTolerance);
+		EXPECT_NEAR(r.roll_reserve_neg, .7f+sign*.1f, PhysicalTolerance);
+		EXPECT_NE(r.roll_reserve_pos, r.roll_reserve_neg);
+	}
+}
 TEST(AdaptiveTailTrimContract, RED06_GrowthRequiresGate)
 {
 	Probe p(.18f, 0.f); set_adaptive_defaults(p.in, 0);
@@ -108,7 +122,16 @@ TEST(AdaptiveTailTrimContract, RED09_ReversalRequiresFreshFullGateAfterZero)
 	ASSERT_GE(zero, 0); EXPECT_EQ(gate-zero, 150);
 }
 TEST(AdaptiveTailTrimContract, RED10_ManeuverLearningCanBeDisabledOrFrozen)
-{ EXPECT_TRUE((HasManeuver<BumplessRollITransfer::Inputs>::value)); }
+{
+	for (bool release : {false, true}) {
+		const float b = release ? .06f : .04f;
+		BehaviorCore core(behaviorConfig(), b); auto in = behaviorInput(release ? .02f : .08f);
+		in.maneuver_active = true; in.learning_allowed = false;
+		for (int n = 0; n < 300; ++n) { EXPECT_FLOAT_EQ(core.step(in).b_after, b); }
+		in.tail_pitch_context = .95f;
+		EXPECT_LT(core.step(in).b_after, b);
+	}
+}
 TEST(AdaptiveTailTrimContract, RED11_NormalExitExactHandbackWhenFeasible)
 {
 	Probe p; p.in.enabled = false;
@@ -153,4 +176,12 @@ TEST(AdaptiveTailTrimContract, RED15_NonfiniteGCannotDivide)
 	}
 }
 TEST(AdaptiveTailTrimContract, RED16_NoPhysicalTrimBeyondServoGeometry)
-{ EXPECT_TRUE((HasGeometry<BumplessRollITransfer::Inputs>::value)); }
+{
+	for (float pitch : {.4f, .9f, -.9f}) {
+		BehaviorCore core(behaviorConfig()); auto in = behaviorInput(.08f); in.tail_pitch_context = pitch;
+		const auto r = core.step(in);
+		if (fabsf(pitch) > .8f) { EXPECT_FLOAT_EQ(r.b_after, 0.f); EXPECT_FALSE(r.feasible); }
+		else { EXPECT_GT(r.b_after, 0.f); EXPECT_TRUE(r.feasible); }
+		if (r.feasible) { EXPECT_LE(fabsf(pitch)+fabsf(r.b_after)+.15f, 1.f); }
+	}
+}
