@@ -53,6 +53,7 @@ px4_add_unit_gtest(
 )
 
 option(ADAPTIVE_TAIL_TRIM_CONTRACT_RED "Opt in to intentionally RED future contracts" OFF)
+px4_add_functional_gtest(SRC tests/AllocatorSaturationFeedbackTest.cpp LINKLIBS RateControl)
 if(ADAPTIVE_TAIL_TRIM_CONTRACT_RED)
 	px4_add_unit_gtest(SRC tests/AdaptiveTailTrimContractTest.cpp LINKLIBS RateControl)
 endif()
