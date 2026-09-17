@@ -51,3 +51,8 @@ px4_add_unit_gtest(
 	SRC tests/BumplessRollITransferTest.cpp
 	LINKLIBS RateControl
 )
+
+option(ADAPTIVE_TAIL_TRIM_CONTRACT_RED "Opt in to intentionally RED future contracts" OFF)
+if(ADAPTIVE_TAIL_TRIM_CONTRACT_RED)
+	px4_add_unit_gtest(SRC tests/AdaptiveTailTrimContractTest.cpp LINKLIBS RateControl)
+endif()
