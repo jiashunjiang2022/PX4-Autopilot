@@ -2,7 +2,7 @@
 
 #include <cmath>
 #include <cstdint>
-#include <limits>
+#include <float.h>
 
 // Unintegrated value-snapshot core. No RateControl mutation, uORB or actuator access.
 // Caller must apply accepted I and b as one transaction at eventual integration.
@@ -182,7 +182,7 @@ public:
 			float di_float = static_cast<float>(di);
 
 			if (static_cast<double>(di_float) < i_min_delta || static_cast<double>(di_float) > i_max_delta) {
-				di_float = std::nextafter(di_float, 0.f);
+				di_float = nextafterf(di_float, 0.f);
 			}
 
 			di = static_cast<double>(di_float);
@@ -200,7 +200,7 @@ public:
 				break;
 			}
 
-			after = std::nextafter(after, _b);
+			after = nextafterf(after, _b);
 		}
 
 		if (!accepted) { out.recovery_required = true; return out; }
@@ -233,7 +233,7 @@ public:
 private:
 	static bool finite(float x) { return std::isfinite(x); }
 	static bool representable(double x) {
-		return std::isfinite(x) && std::fabs(x) <= static_cast<double>(std::numeric_limits<float>::max());
+		return std::isfinite(x) && std::fabs(x) <= static_cast<double>(FLT_MAX);
 	}
 	static double clamp(double x, double lo, double hi) { return fmax(lo, fmin(x, hi)); }
 	static bool opposite(double a, double b) { return (a > 0. && b < 0.) || (a < 0. && b > 0.); }

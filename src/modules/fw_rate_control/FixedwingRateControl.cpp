@@ -54,6 +54,7 @@ FixedwingRateControl::FixedwingRateControl(bool vtol) :
 	parameters_update();
 
 	_rate_ctrl_status_pub.advertise();
+	_tail_trim_shadow_pub.advertise(); // allocate diagnostic topic at module construction
 }
 
 FixedwingRateControl::~FixedwingRateControl()
@@ -88,6 +89,10 @@ FixedwingRateControl::parameters_update()
 		param_get(_handle_param_vt_fw_difthr_en, &_param_vt_fw_difthr_en);
 	}
 
+	// Shadow parameters only: reset virtual state on configuration refresh.
+	_tail_trim_shadow.configure({_param_flap_ttr_bmax.get(), _param_flap_ttr_brsv.get(),
+		_param_flap_ttr_bslw.get(), _param_flap_ttr_rrsv.get(), _param_flap_b2b_tau.get(),
+		_param_flap_b2b_gwin.get(), _param_flap_b2b_gstd.get(), _param_flap_b2b_gsign.get()});
 
 	return PX4_OK;
 }
@@ -628,6 +633,9 @@ void FixedwingRateControl::Run()
 			}
 		}
 
+		// All actual torque composition/publication above is complete. LOG ONLY.
+		updateTailTrimShadow(dt, pilot_abort_to_stabilized, angular_velocity.timestamp_sample);
+
 		updateActuatorControlsStatus(dt);
 
 		// Manual flaps/spoilers control, also active in VTOL Hover. Is handled and published in FW Position controller/VTOL module if Auto.
@@ -675,6 +683,100 @@ void FixedwingRateControl::Run()
 	ScheduleDelayed(20_ms);
 
 	perf_end(_loop_perf);
+}
+
+void FixedwingRateControl::updateTailTrimShadow(float dt, bool pilot_abort, uint64_t timestamp_sample)
+{
+	const bool enabled = _param_flap_ttr_shdw.get();
+
+	if (!enabled && !_tail_trim_was_enabled) { return; }
+
+	const hrt_abstime started = hrt_absolute_time();
+	_tail_trim_attitude_sub.update();
+	_tail_trim_servos_sub.update();
+	const auto &attitude = _tail_trim_attitude_sub.get();
+	const auto &servos = _tail_trim_servos_sub.get();
+	const Quatf q(attitude.q_d);
+	const float norm = q.norm();
+	const bool attitude_valid = q.isAllFinite() && fabsf(norm - 1.f) < .01f;
+	AdaptiveTailTrimShadow::Inputs in{};
+	in.now = started;
+	in.actuator_timestamp = servos.timestamp;
+	in.epoch = _rate_control.rollIntegralResetEpoch();
+	in.dt = dt;
+	in.g = _b2b_g_current; // retained PRE gain-compression update snapshot
+	// Both are live end-of-cycle getters; never use the pre-natural-I B2B Result.
+	in.i_actual = _rate_control.rollIntegralRaw();
+	in.s_actual = _bumpless_roll_i_transfer.transferredRaw();
+	in.imax = _param_fw_rr_imax.get();
+	in.phi_sp = attitude_valid ? Eulerf(q).phi() : 0.f;
+	in.p_sp = _rates_sp.roll;
+	in.left = servos.control[0]; // verified PRE_REVERSAL horizontal surfaces
+	in.right = servos.control[1];
+	in.enabled = enabled;
+	in.armed = _vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED;
+	in.landed = _landed;
+	in.control_valid = _vcontrol_mode.flag_control_rates_enabled && _vcontrol_mode.flag_control_attitude_enabled
+		&& _vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING
+		&& !_vehicle_status.is_vtol && !_vehicle_status.in_transition_mode;
+	in.setpoint_valid = attitude_valid && attitude.timestamp > 0 && attitude.timestamp <= started
+		&& started - attitude.timestamp <= CausalTailPitchEnvelope::FreshnessUs
+		&& _rates_sp.timestamp > 0 && _rates_sp.timestamp <= started
+		&& started - _rates_sp.timestamp <= CausalTailPitchEnvelope::FreshnessUs && PX4_ISFINITE(in.p_sp);
+	in.mapping_valid = verify_flap_slow_configuration();
+	in.safety = pilot_abort || _vehicle_status.failsafe;
+	const auto shadow = _tail_trim_shadow.update(in);
+
+	if (started - _tail_trim_last_publish >= 50_ms || !enabled || !_tail_trim_was_enabled) {
+		auto &log = _tail_trim_log;
+		log = {};
+		log.timestamp = started;
+		log.timestamp_sample = timestamp_sample;
+		log.reset_epoch = in.epoch;
+		log.g_cycle = shadow.g;
+		log.i_actual_raw = shadow.i_actual;
+		log.s_actual_raw = shadow.s_actual;
+		log.t_actual_raw = shadow.t_actual;
+		log.b_obs = shadow.b_obs;
+		log.b_hat = shadow.estimate.b_hat;
+		log.b_target = shadow.target;
+		log.b_shadow = shadow.b_shadow;
+		log.virtual_i_offset_raw = shadow.offset;
+		log.i_shadow_raw = shadow.i_shadow;
+		log.b_shadow_total = shadow.b_total;
+		log.requested_delta_b = shadow.transfer.requested_delta_b;
+		log.accepted_delta_b = shadow.transfer.accepted_delta_b;
+		log.accepted_delta_i_virtual = shadow.transfer.accepted_delta_i;
+		log.transfer_mismatch = shadow.transfer.transfer_mismatch;
+		log.tail_pitch_raw = shadow.pitch.raw;
+		log.tail_pitch_envelope = shadow.pitch.envelope;
+		log.roll_reserve_pos = shadow.transfer.roll_reserve_pos;
+		log.roll_reserve_neg = shadow.transfer.roll_reserve_neg;
+		log.roll_reserve_sym = shadow.transfer.roll_reserve_sym;
+		log.estimator_std = shadow.estimate.std;
+		log.same_sign_fraction = shadow.estimate.same_sign_fraction;
+		log.sample_count = shadow.estimate.sample_count;
+		log.pitch_invalid = shadow.pitch.invalid;
+		log.enabled = shadow.enabled;
+		log.valid = shadow.valid;
+		log.learning_allowed = shadow.learning;
+		log.maneuver_active = shadow.maneuver;
+		log.gate = shadow.estimate.gate;
+		log.reversal_unwind = shadow.reversal || shadow.transfer.reversal_unwind_active;
+		log.safety_release = shadow.transfer.safety_release_active;
+		log.limited_by_bmax = shadow.transfer.limited_by_bmax || fabsf(shadow.estimate.b_hat) - _param_flap_ttr_brsv.get() > _param_flap_ttr_bmax.get();
+		log.limited_by_shared_axis = shadow.transfer.limited_by_shared_axis;
+		log.limited_by_i = shadow.transfer.limited_by_i;
+		log.limited_by_slew = shadow.transfer.limited_by_slew;
+		log.pitch_context_valid = shadow.pitch.valid;
+		log.reset = shadow.reset;
+		log.actual_tail_trim_torque = 0.f; // proof field, no actuator connection
+		log.compute_us = static_cast<uint32_t>(hrt_absolute_time() - started);
+		_tail_trim_shadow_pub.publish(log);
+		_tail_trim_last_publish = started;
+	}
+
+	_tail_trim_was_enabled = enabled;
 }
 
 void FixedwingRateControl::updateActuatorControlsStatus(float dt)

@@ -73,6 +73,10 @@
 #include <uORB/topics/vehicle_torque_setpoint.h>
 
 #include "BumplessRollITransfer.hpp"
+#include "AdaptiveTailTrimShadow.hpp"
+#include <uORB/topics/flap_tail_trim_shadow.h>
+#include <uORB/topics/actuator_servos.h>
+#include <uORB/topics/vehicle_attitude_setpoint.h>
 
 using matrix::Eulerf;
 using matrix::Quatf;
@@ -165,6 +169,11 @@ private:
 	int32_t _param_vt_fw_difthr_en{0};
 
 	DEFINE_PARAMETERS(
+		(ParamBool<px4::params::FLAP_TTR_SHDW>) _param_flap_ttr_shdw,
+		(ParamFloat<px4::params::FLAP_TTR_BMAX>) _param_flap_ttr_bmax,
+		(ParamFloat<px4::params::FLAP_TTR_BRSV>) _param_flap_ttr_brsv,
+		(ParamFloat<px4::params::FLAP_TTR_BSLW>) _param_flap_ttr_bslw,
+		(ParamFloat<px4::params::FLAP_TTR_RRSV>) _param_flap_ttr_rrsv,
 		(ParamFloat<px4::params::FW_ACRO_X_MAX>) _param_fw_acro_x_max,
 		(ParamFloat<px4::params::FW_ACRO_Y_MAX>) _param_fw_acro_y_max,
 		(ParamFloat<px4::params::FW_ACRO_Z_MAX>) _param_fw_acro_z_max,
@@ -281,4 +290,13 @@ private:
 	float _b2b_g_current{0.f};
 	float _b2b_roll_baseline{0.f};
 	bool _b2b_total_clipped{false};
+
+	void updateTailTrimShadow(float dt, bool pilot_abort, uint64_t timestamp_sample);
+	AdaptiveTailTrimShadow _tail_trim_shadow{};
+	uORB::SubscriptionData<vehicle_attitude_setpoint_s> _tail_trim_attitude_sub{ORB_ID(vehicle_attitude_setpoint)};
+	uORB::SubscriptionData<actuator_servos_s> _tail_trim_servos_sub{ORB_ID(actuator_servos)};
+	uORB::Publication<flap_tail_trim_shadow_s> _tail_trim_shadow_pub{ORB_ID(flap_tail_trim_shadow)};
+	flap_tail_trim_shadow_s _tail_trim_log{}; // bounded object storage, not flight-loop stack
+	hrt_abstime _tail_trim_last_publish{0};
+	bool _tail_trim_was_enabled{false};
 };

@@ -152,6 +152,14 @@ AdaptiveTailTrimShadow::Result AdaptiveTailTrimShadow::update(Inputs in)
 	r.enabled = in.enabled;
 	r.actual_tail_trim_torque = 0.f;
 	const float total = in.i_actual + in.s_actual;
+	// Preserve finite actual context even on reset/invalid cycles. Zero placeholders
+	// for nonfinite inputs are explicitly marked invalid, never used for inference.
+	r.g = std::isfinite(in.g) ? in.g : 0.f;
+	r.i_actual = std::isfinite(in.i_actual) ? in.i_actual : 0.f;
+	r.s_actual = std::isfinite(in.s_actual) ? in.s_actual : 0.f;
+	r.t_actual = std::isfinite(total) ? total : 0.f;
+	const float observation = r.g * r.t_actual / 1.1f;
+	r.b_obs = std::isfinite(observation) ? observation : 0.f;
 	const bool numeric_valid = validDt(in.dt) && std::isfinite(in.g) && in.g > GMin
 				   && std::isfinite(in.i_actual) && std::isfinite(in.s_actual) && std::isfinite(total)
 				   && positive(in.imax) && std::isfinite(total + _offset)
@@ -166,6 +174,8 @@ AdaptiveTailTrimShadow::Result AdaptiveTailTrimShadow::update(Inputs in)
 		_enabled = in.enabled;
 		_last_time = in.now;
 		r.reset = true;
+		r.i_shadow = r.t_actual;
+		r.b_total = r.b_obs;
 		// Distinguish mapping invalid even when it forces a complete shadow reset.
 		if (!in.mapping_valid) { r.pitch.invalid = CausalTailPitchEnvelope::Mapping; }
 		return r;

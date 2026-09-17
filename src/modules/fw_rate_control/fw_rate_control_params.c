@@ -55,6 +55,64 @@
 PARAM_DEFINE_INT32(FW_USE_AIRSPD, 1);
 
 /**
+ * Automatic Roll trim SHADOW diagnostics only
+ *
+ * Enables virtual state computation and logging, never actual control.
+ * No native integral, RC trim or torque setpoint is modified.
+ * @boolean
+ * @group FW Rate Control
+ */
+PARAM_DEFINE_INT32(FLAP_TTR_SHDW, 0);
+
+/**
+ * SHADOW experimental physical trim bound
+ *
+ * Normalized differential-tail working point. Provisional tuning,
+ * not flight-authority certification. Applies only to virtual trim.
+ * @min 0.0
+ * @max 0.10
+ * @decimal 3
+ * @group FW Rate Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_TTR_BMAX, 0.08f);
+
+/**
+ * SHADOW experimental physical burden reserve
+ *
+ * Physical tail coordinate retained in virtual residual I. Provisional
+ * tuning, not flight-authority certification; not raw B2B reserve units.
+ * @min 0.0
+ * @max 1.0
+ * @decimal 3
+ * @group FW Rate Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_TTR_BRSV, 0.03f);
+
+/**
+ * SHADOW experimental physical trim slew
+ *
+ * Normalized differential-tail coordinate per second. Provisional tuning,
+ * not flight-authority certification; applies to virtual transactions only.
+ * @min 0.001
+ * @max 0.1
+ * @decimal 3
+ * @group FW Rate Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_TTR_BSLW, 0.005f);
+
+/**
+ * SHADOW experimental directional roll reserve
+ *
+ * Minimum virtual positive and negative differential-tail residual reserve.
+ * Diagnostic provisional tuning, not a validated aircraft safety limit.
+ * @min 0.01
+ * @max 1.0
+ * @decimal 3
+ * @group FW Rate Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_TTR_RRSV, 0.15f);
+
+/**
  * Pitch rate proportional gain.
  *
  * @unit %/rad/s

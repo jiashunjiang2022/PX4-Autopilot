@@ -37,6 +37,7 @@ px4_add_module(
 	SRCS
 		FixedwingRateControl.cpp
 		FixedwingRateControl.hpp
+		AdaptiveTailTrimShadow.cpp
 	DEPENDS
 		px4_work_queue
 		RateControl
@@ -72,6 +73,15 @@ if(BUILD_TESTING)
 	string(SUBSTRING "${routing_source}" ${routing_start} ${routing_length} ALLOCATOR_ROUTING_BODY)
 	configure_file(tests/AllocatorRouting.inc.in AllocatorRouting.inc @ONLY)
 	target_include_directories(functional-AllocatorSaturationFeedback PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+	string(FIND "${routing_source}" "const Vector3f gains_before_update" trim_start)
+	string(FIND "${routing_source}" "/* throttle passed through" trim_end)
+	if(trim_start LESS 0 OR trim_end LESS trim_start)
+		message(FATAL_ERROR "Shadow isolation test production extraction anchors missing")
+	endif()
+	math(EXPR trim_length "${trim_end} - ${trim_start}")
+	string(SUBSTRING "${routing_source}" ${trim_start} ${trim_length} TAIL_TRIM_ACTUAL_COMPOSITION)
+	configure_file(tests/TailTrimActualComposition.inc.in TailTrimActualComposition.inc @ONLY)
+	target_include_directories(unit-AdaptiveTailTrimShadow PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 endif()
 if(ADAPTIVE_TAIL_TRIM_CONTRACT_RED)
 	px4_add_unit_gtest(SRC tests/AdaptiveTailTrimContractTest.cpp LINKLIBS RateControl)
