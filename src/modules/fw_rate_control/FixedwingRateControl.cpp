@@ -349,7 +349,9 @@ void FixedwingRateControl::Run()
 
 			// Set saturation flags for VTOL differential thrust feature
 			// If differential thrust is enabled in an axis, assume it's the only torque authority and only update saturation using matrix 0 allocating the motors.
-			if (_control_allocator_status_subs[0].update(&control_allocator_status)) {
+			const bool status0_updated = _control_allocator_status_subs[0].update(&control_allocator_status);
+
+			if (status0_updated) {
 				for (size_t i = 0; i < 3; i++) {
 					if (diffthr_enabled(i)) {
 						_rate_control.setPositiveSaturationFlag(i, control_allocator_status.unallocated_torque[i] > FLT_EPSILON);
@@ -359,7 +361,11 @@ void FixedwingRateControl::Run()
 			}
 
 			// Set saturation flags for control surface controlled axes
-			if (_control_allocator_status_subs[_vehicle_status.is_vtol ? 1 : 0].update(&control_allocator_status)) {
+			// Non-VTOL surfaces share matrix 0: reuse this cycle's read without consuming it again.
+			const bool surface_status_updated = _vehicle_status.is_vtol
+					? _control_allocator_status_subs[1].update(&control_allocator_status) : status0_updated;
+
+			if (surface_status_updated) {
 				for (size_t i = 0; i < 3; i++) {
 					if (!diffthr_enabled(i)) {
 						_rate_control.setPositiveSaturationFlag(i, control_allocator_status.unallocated_torque[i] > FLT_EPSILON);
