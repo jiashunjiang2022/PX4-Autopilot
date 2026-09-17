@@ -1,8 +1,18 @@
 # Adaptive Tail-Trim V1 — future implementation plan
 
-**NOT EXECUTED.** Requires human design review and a separately authorized implementation task.
+**PURE CORE IMPLEMENTED; INTEGRATION NOT EXECUTED.** Stage authorized on 2026-09-17. All integration/flight work still requires separate review and authorization.
 Base design and math contracts are in ../specs/2026-09-17-adaptive-tail-trim-v1-*.md.
-Current branch deliberately contains RED, not a deployable new controller.
+Current branch adaptive-tail-trim-v1-core-20260917 contains an unintegrated core and historical V3 semantic RED probes, not a deployable new controller.
+
+## Current status (historical task numbering retained)
+
+Allocator prerequisite = CLOSED, commit e624a99f2955addbf76681e636c44162a0c03055; production SITL and FMUv6C exit 0, allocator 5/5 regression PASS.
+Tasks 1/2/3/5 are completed for the PURE-CORE subset: physical coordinates, accepted physical transfer, core mode/epoch/mechanical reversal logic, and directional shared admission. Implementation: AdaptiveTailTrimCore.hpp; tests: AdaptiveTailTrimCoreTest.cpp, 30/30 PASS. No RateControl edits.
+Task 3's higher-level evidence/entry state machine and Task 5's causal pitch envelope remain deferred to Task 4/integration. Core receives a causal context snapshot and explicit gate/latch; it does not build them.
+Task 6 has tested bounded release, invalid-input rejection and epoch reset mechanics; complete vehicle-trigger wiring is NOT done.
+Task 7 integration = NOT STARTED. Tasks 4, 8, 10, 11, 13, 14 remain future. Task 9 core unit subset complete; Task 12 build/resource check complete for unintegrated firmware only.
+The concrete current target is unit-AdaptiveTailTrimCore. The commands and proposed filenames below retain the original future integrated-controller plan; they are not claims of completed work.
+Remaining blockers: exact injection ordering, scheduled trim interaction, pre-allocator clipping diagnostics/feedback decision, causal pitch envelope, B_hat/maneuver classifier, parameters, logging, closed-loop SITL and hardware bench.
 
 ## TDD rules and unresolved prerequisites
 
@@ -123,4 +133,4 @@ Interface: human go/no-go; no code implementation in this step.
 Command: git status --short; git rev-parse HEAD; review packet against tests/build/bench hashes.
 Expected: only explicit human authorization can progress. Predefine A OFF, B V3 HR=0, C physical trim; justify D larger IMAX and E fixed manual trim. No claims of better tracking before data.
 
-STOP. This document schedules future work only; no task above was implemented.
+STOP after pure-core review. Only the explicitly marked pure-core subset above is implemented. Do not continue Task 7 integration.

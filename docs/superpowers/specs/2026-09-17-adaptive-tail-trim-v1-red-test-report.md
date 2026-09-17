@@ -1,5 +1,7 @@
 # Adaptive Tail-Trim V1 RED test report — 2026-09-17
 
+Historical report below preserves the original design-stage evidence. Current pure-core stage update: RED05/10/16 now perform numeric behavior checks, not field detection. Before core implementation all three failed against a documented legacy V3 migration adapter. After core implementation those three PASS against AdaptiveTailTrimCore; original RED01–04 still fail against unchanged V3. Current filtered contract suite: 16 tests, 12 PASS / 4 expected RED, exit 1. No claim that V3 acquired physical semantics. See 2026-09-17-adaptive-tail-trim-v1-core-implementation-report.md for the full RED→GREEN trace and scope.
+
 Base a644ca7868f07004e45658d4ae9a7a8c880c6bb5; branch adaptive-tail-trim-v1-design-red-20260917.
 Worktree /Users/jiangjiashun/PX4/PX4-Autopilot-v4-fixed-b0-exp-20260913.
 Production files unchanged. Only docs, one new test translation unit and opt-in test-only CMake changed.
