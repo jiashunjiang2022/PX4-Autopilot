@@ -1,0 +1,128 @@
+[
+  {
+    "flight": 0,
+    "mission_airborne_rows": 5022,
+    "invalid_control_rows": 0,
+    "invalid_setpoint_rows": 0,
+    "invalid_mapping_rows": 0,
+    "maneuver_rows": 5022,
+    "max_trusted_run_s": 0,
+    "g_p05_p50_p95": [
+      0.6345038950443268,
+      0.7653775811195374,
+      0.8691137582063675
+    ]
+  },
+  {
+    "flight": 1,
+    "mission_airborne_rows": 3680,
+    "invalid_control_rows": 0,
+    "invalid_setpoint_rows": 0,
+    "invalid_mapping_rows": 0,
+    "maneuver_rows": 3600,
+    "max_trusted_run_s": 1.6,
+    "g_p05_p50_p95": [
+      0.6359105110168457,
+      0.72831791639328,
+      0.823851466178894
+    ]
+  },
+  {
+    "flight": 2,
+    "mission_airborne_rows": 5293,
+    "invalid_control_rows": 0,
+    "invalid_setpoint_rows": 0,
+    "invalid_mapping_rows": 0,
+    "maneuver_rows": 5281,
+    "max_trusted_run_s": 0,
+    "g_p05_p50_p95": [
+      0.6000230312347412,
+      0.7478891611099243,
+      0.898003876209259
+    ]
+  },
+  {
+    "flight": 3,
+    "mission_airborne_rows": 4940,
+    "invalid_control_rows": 0,
+    "invalid_setpoint_rows": 0,
+    "invalid_mapping_rows": 0,
+    "maneuver_rows": 4940,
+    "max_trusted_run_s": 0,
+    "g_p05_p50_p95": [
+      0.6484875828027725,
+      0.7152311205863953,
+      0.794795235991478
+    ]
+  },
+  {
+    "flight": 4,
+    "mission_airborne_rows": 5334,
+    "invalid_control_rows": 0,
+    "invalid_setpoint_rows": 0,
+    "invalid_mapping_rows": 0,
+    "maneuver_rows": 5334,
+    "max_trusted_run_s": 0,
+    "g_p05_p50_p95": [
+      0.6262485980987549,
+      0.7313960790634155,
+      0.8026566594839095
+    ]
+  },
+  {
+    "flight": 5,
+    "mission_airborne_rows": 4039,
+    "invalid_control_rows": 0,
+    "invalid_setpoint_rows": 1,
+    "invalid_mapping_rows": 0,
+    "maneuver_rows": 4039,
+    "max_trusted_run_s": 0,
+    "g_p05_p50_p95": [
+      0.6244557857513428,
+      0.7399689555168152,
+      0.8222725927829743
+    ]
+  },
+  {
+    "flight": 6,
+    "mission_airborne_rows": 5029,
+    "invalid_control_rows": 0,
+    "invalid_setpoint_rows": 0,
+    "invalid_mapping_rows": 0,
+    "maneuver_rows": 4963,
+    "max_trusted_run_s": 1.32,
+    "g_p05_p50_p95": [
+      0.6040006041526794,
+      0.7197937965393066,
+      0.8005573630332946
+    ]
+  },
+  {
+    "flight": 7,
+    "mission_airborne_rows": 5448,
+    "invalid_control_rows": 0,
+    "invalid_setpoint_rows": 0,
+    "invalid_mapping_rows": 0,
+    "maneuver_rows": 5405,
+    "max_trusted_run_s": 0.8200000000000001,
+    "g_p05_p50_p95": [
+      0.6167578011751175,
+      0.7106122970581055,
+      0.8019098401069641
+    ]
+  },
+  {
+    "flight": 8,
+    "mission_airborne_rows": 5816,
+    "invalid_control_rows": 0,
+    "invalid_setpoint_rows": 0,
+    "invalid_mapping_rows": 0,
+    "maneuver_rows": 5816,
+    "max_trusted_run_s": 0,
+    "g_p05_p50_p95": [
+      0.6305688917636871,
+      0.7201162576675415,
+      0.8199091404676437
+    ]
+  }
+]

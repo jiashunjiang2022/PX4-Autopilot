@@ -16,7 +16,7 @@ Shadow::Inputs input() {
 	in.now = in.actuator_timestamp = 1000000; in.dt = .02f; in.g = .7f;
 	in.i_actual = .15f; in.s_actual = .04f; in.imax = .3f;
 	in.enabled = in.armed = in.control_valid = in.setpoint_valid = in.mapping_valid = true;
-	in.landed = false; return in;
+	in.landed = false; in.mission_eligible = true; return in;
 }
 Shadow::Result tick(Shadow &s, Shadow::Inputs &in, int count = 1) {
 	Shadow::Result r{};

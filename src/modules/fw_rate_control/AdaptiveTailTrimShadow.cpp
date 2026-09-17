@@ -14,15 +14,69 @@ void AdaptiveTailTrimEstimator::reset()
 	_head = _count = 0;
 	_initialized = false;
 	_result = {};
+	_entry_head = _entry_count = 0;
+	_entry_elapsed = 0.f;
+}
+
+void AdaptiveTailTrimEstimator::clearEvidence()
+{
+	_head = _count = 0;
+	_elapsed = 0.f;
+	_result = {};
+	_result.b_hat = _hat;
+	_result.valid = _initialized;
+}
+
+void AdaptiveTailTrimEstimator::observePreEntry(float b, float dt, bool trusted)
+{
+	if (!trusted || !std::isfinite(b) || !validDt(dt)) {
+		_entry_head = _entry_count = 0;
+		_entry_elapsed = 0.f;
+		return;
+	}
+
+	_entry_elapsed += dt;
+	if (_entry_elapsed + 1e-6f < .05f) { return; }
+	_entry_elapsed = fmaxf(0.f, _entry_elapsed - .05f);
+	_entry[_entry_head] = b;
+	_entry_head = (_entry_head + 1) % 200;
+	if (_entry_count < 200) { ++_entry_count; }
+}
+
+void AdaptiveTailTrimEstimator::enterMission(float window_s)
+{
+	if (std::isfinite(window_s) && window_s >= .5f && window_s <= 10.f) {
+		const auto count = static_cast<uint16_t>(ceilf(window_s * 20.f));
+		if (_entry_count >= count) {
+			for (unsigned n = 0; n < count; ++n) { _scratch[n] = _entry[(_entry_head + 200 - count + n) % 200]; }
+			// Same robust median semantics as V3, bounded <=200 elements, entry only.
+			for (unsigned n = 1; n < count; ++n) {
+				const float value = _scratch[n]; unsigned j = n;
+				while (j > 0 && _scratch[j - 1] > value) { _scratch[j] = _scratch[j - 1]; --j; }
+				_scratch[j] = value;
+			}
+			_hat = count % 2 ? _scratch[count / 2] : .5f * (_scratch[count / 2 - 1] + _scratch[count / 2]);
+			_reference = _hat;
+			_initialized = true;
+		}
+	}
+	_entry_head = _entry_count = 0;
+	_entry_elapsed = 0.f;
+	clearEvidence(); // a median never bypasses the fresh normal-growth gate
 }
 
 AdaptiveTailTrimEstimator::Result AdaptiveTailTrimEstimator::update(float b, float dt, bool valid,
 		bool learning, Config cfg)
 {
-	if (!valid || !learning || !std::isfinite(b) || !validDt(dt) || !positive(cfg.tau)
+	if (!valid || !std::isfinite(b) || !validDt(dt) || !positive(cfg.tau)
 	    || !positive(cfg.window) || cfg.window > 10.f || !std::isfinite(cfg.std_limit) || cfg.std_limit < 0.f
 	    || !std::isfinite(cfg.sign_fraction) || cfg.sign_fraction < 0.f || cfg.sign_fraction > 1.f) {
 		reset();
+		return _result;
+	}
+
+	if (!learning) {
+		clearEvidence(); // maneuver/mode exclusion freezes B_hat, not the gate evidence
 		return _result;
 	}
 
@@ -118,6 +172,7 @@ bool AdaptiveTailTrimShadow::validConfig() const
 	       && positive(_config.roll_reserve) && _config.roll_reserve <= 1.f
 	       && positive(_config.tau) && _config.tau <= 30.f
 	       && _config.window >= .5f && _config.window <= 10.f
+	       && _config.entry_window >= .5f && _config.entry_window <= 10.f
 	       && std::isfinite(_config.std_raw) && _config.std_raw >= 0.f
 	       && _config.sign_fraction >= .5f && _config.sign_fraction <= 1.f;
 }
@@ -141,6 +196,7 @@ void AdaptiveTailTrimShadow::reset(uint32_t epoch)
 	_offset = _target = 0.f;
 	_last_time = 0;
 	_enabled = _reversal = _rearm = false;
+	_mission_previous = false;
 	_estimator.reset();
 	_maneuver.reset();
 	_pitch.reset();
@@ -191,10 +247,18 @@ AdaptiveTailTrimShadow::Result AdaptiveTailTrimShadow::update(Inputs in)
 	if (!std::isfinite(r.b_obs)) { reset(in.epoch); r = {}; r.enabled = in.enabled; r.reset = true; return r; }
 
 	r.maneuver = _maneuver.update(in.phi_sp, in.p_sp, in.dt, in.setpoint_valid);
-	r.learning = in.control_valid && in.setpoint_valid && !in.safety && !r.maneuver;
+	const bool trusted = in.control_valid && in.setpoint_valid && !in.safety && !r.maneuver;
+	r.learning = trusted && in.mission_eligible;
+	const bool entering_mission = in.mission_eligible && !_mission_previous;
+	if (entering_mission) {
+		if (!trusted) { _estimator.observePreEntry(0.f, in.dt, false); }
+		_estimator.enterMission(_config.entry_window);
+	}
+	_mission_previous = in.mission_eligible;
 	// Pitch is deliberately absent from detector validity and learning inputs.
-	r.estimate = _estimator.update(r.b_obs, in.dt, in.control_valid, r.learning,
+	r.estimate = _estimator.update(r.b_obs, in.dt, in.control_valid && in.setpoint_valid && !in.safety, r.learning,
 			{_config.tau, _config.window, in.g * _config.std_raw / 1.1f, _config.sign_fraction});
+	_estimator.observePreEntry(r.b_obs, in.dt, trusted && !in.mission_eligible);
 	r.pitch = _pitch.update(in.left, in.right, in.actuator_timestamp, in.now, in.dt, in.mapping_valid);
 
 	if (r.learning && r.estimate.valid) {
@@ -222,8 +286,10 @@ AdaptiveTailTrimShadow::Result AdaptiveTailTrimShadow::update(Inputs in)
 	if (_rearm && core_input.learning_allowed) { _rearm = false; }
 
 	if (r.transfer.reversal_reached_zero) {
-		_estimator.reset();
-		r.estimate = {};
+		_estimator.clearEvidence(); // retain causal LPF through zero; discard persistence only
+		r.estimate.gate = false;
+		r.estimate.sample_count = 0;
+		r.estimate.std = r.estimate.same_sign_fraction = 0.f;
 		_reversal = false;
 		_rearm = true;
 	}
@@ -234,6 +300,6 @@ AdaptiveTailTrimShadow::Result AdaptiveTailTrimShadow::update(Inputs in)
 	r.i_shadow = total + _offset;
 	r.b_total = in.g * r.i_shadow / 1.1f + r.b_shadow;
 	r.reversal = _reversal;
-	r.valid = r.transfer.transaction_valid && r.pitch.valid && in.control_valid;
+	r.valid = r.transfer.transaction_valid && r.pitch.valid && in.control_valid && in.setpoint_valid && !in.safety;
 	return r;
 }

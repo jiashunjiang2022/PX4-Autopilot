@@ -33,6 +33,7 @@ public:
 	struct Config {
 		float bmax{.08f}, reserve{.03f}, slew{.005f}, roll_reserve{.15f};
 		float tau{5.f}, window{3.f}, std_raw{.025f}, sign_fraction{.9f};
+		float entry_window{5.f}; // read-only FLAP_B2B_EWIN time semantics
 	};
 	struct Inputs {
 		uint64_t now{0}, actuator_timestamp{0};
@@ -41,6 +42,7 @@ public:
 		float phi_sp{0.f}, p_sp{0.f}, left{0.f}, right{0.f};
 		bool enabled{false}, armed{false}, landed{true}, control_valid{false};
 		bool setpoint_valid{false}, mapping_valid{false}, safety{false};
+		bool mission_eligible{false}; // observation remains available outside Mission
 	};
 	struct Result {
 		AdaptiveTailTrimCore::Result transfer{};
@@ -66,4 +68,5 @@ private:
 	uint32_t _epoch{0};
 	uint64_t _last_time{0};
 	bool _enabled{false}, _reversal{false}, _rearm{false};
+	bool _mission_previous{false};
 };

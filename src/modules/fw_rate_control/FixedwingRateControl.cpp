@@ -92,7 +92,7 @@ FixedwingRateControl::parameters_update()
 	// Shadow parameters only: reset virtual state on configuration refresh.
 	_tail_trim_shadow.configure({_param_flap_ttr_bmax.get(), _param_flap_ttr_brsv.get(),
 		_param_flap_ttr_bslw.get(), _param_flap_ttr_rrsv.get(), _param_flap_b2b_tau.get(),
-		_param_flap_b2b_gwin.get(), _param_flap_b2b_gstd.get(), _param_flap_b2b_gsign.get()});
+		_param_flap_b2b_gwin.get(), _param_flap_b2b_gstd.get(), _param_flap_b2b_gsign.get(), _param_flap_b2b_ewin.get()});
 
 	return PX4_OK;
 }
@@ -725,6 +725,7 @@ void FixedwingRateControl::updateTailTrimShadow(float dt, bool pilot_abort, uint
 		&& started - _rates_sp.timestamp <= CausalTailPitchEnvelope::FreshnessUs && PX4_ISFINITE(in.p_sp);
 	in.mapping_valid = verify_flap_slow_configuration();
 	in.safety = pilot_abort || _vehicle_status.failsafe;
+	in.mission_eligible = _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION;
 	const auto shadow = _tail_trim_shadow.update(in);
 
 	if (started - _tail_trim_last_publish >= 50_ms || !enabled || !_tail_trim_was_enabled) {

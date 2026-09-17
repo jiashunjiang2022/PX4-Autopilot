@@ -13,6 +13,9 @@ public:
 		bool gate{false}, valid{false};
 	};
 	void reset();
+	void clearEvidence();
+	void observePreEntry(float b, float dt, bool trusted);
+	void enterMission(float window_s);
 	Result update(float b, float dt, bool valid, bool learning, Config cfg);
 private:
 	float _samples[200]{};
@@ -20,4 +23,8 @@ private:
 	uint16_t _head{0}, _count{0};
 	bool _initialized{false};
 	Result _result{};
+	// Separate bounded pre-entry storage; median scratch is never on the work-queue stack.
+	float _entry[200]{}, _scratch[200]{};
+	float _entry_elapsed{0.f};
+	uint16_t _entry_head{0}, _entry_count{0};
 };
