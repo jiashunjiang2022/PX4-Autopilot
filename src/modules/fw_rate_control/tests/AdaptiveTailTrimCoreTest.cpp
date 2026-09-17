@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <limits>
 
-#if __has_include("../AdaptiveTailTrimCore.hpp")
+#if !defined(TAIL_TRIM_LEGACY_PROBE)
 #include "../AdaptiveTailTrimCore.hpp"
 using CoreUnderTest = AdaptiveTailTrimCore;
 #else
@@ -237,5 +237,60 @@ TEST(AdaptiveTailTrimCore, GeometrySweepNeverOptimisticallyFeasible) {
 					  && neg >= static_cast<double>(config().reserve_neg_min));
 			}
 		}
+	}
+}
+
+TEST(AdaptiveTailTrimCore, InvalidConfigAndInitialStateRequireRecovery) {
+	for (int field = 0; field < 6; ++field) {
+		auto cfg = config();
+		float *values[] = {&cfg.b_max, &cfg.b_slew, &cfg.g_safe_min, &cfg.reserve_pos_min, &cfg.reserve_neg_min, &cfg.k_a};
+		*values[field] = NAN;
+		Core core(cfg, .05f); const auto r = core.step(input());
+		EXPECT_FALSE(r.transaction_valid); EXPECT_TRUE(r.recovery_required);
+		EXPECT_TRUE(std::isfinite(r.b_after)); EXPECT_TRUE(std::isfinite(r.tau_trim));
+	}
+	for (float b : {NAN, INFINITY, .11f, -.11f}) {
+		Core core(config(), b); auto in = input();
+		EXPECT_FALSE(core.step(in).transaction_valid); EXPECT_FLOAT_EQ(core.state(), 0.f);
+		in.reset = true; EXPECT_TRUE(core.step(in).reset_applied);
+		in.reset = false; EXPECT_TRUE(core.step(in).transaction_valid);
+	}
+}
+TEST(AdaptiveTailTrimCore, NativeBoundsAndInvalidDtRejectWithoutMovement) {
+	for (int scenario = 0; scenario < 5; ++scenario) {
+		Core core(config(), .04f); auto in = input();
+		if (scenario == 0) { in.native_i_min = .1f; }
+		if (scenario == 1) { in.native_i_max = -.1f; }
+		if (scenario == 2) { in.dt = 0.f; }
+		if (scenario == 3) { in.dt = -.01f; }
+		if (scenario == 4) { in.input_valid = false; }
+		const auto r = core.step(in); EXPECT_FALSE(r.transaction_valid);
+		EXPECT_FLOAT_EQ(r.b_after, .04f); EXPECT_FLOAT_EQ(r.accepted_delta_i, 0.f);
+	}
+}
+TEST(AdaptiveTailTrimCore, NormalReleaseWithoutGateAndLearningDisabledHold) {
+	Core core(config(), .06f); auto in = input(.02f); in.gate = false;
+	const auto r = core.step(in); EXPECT_LT(r.b_after, .06f); invariant(r);
+	Core held(config(), .06f); in.learning_allowed = false;
+	EXPECT_FLOAT_EQ(held.step(in).b_after, .06f);
+}
+TEST(AdaptiveTailTrimCore, ReversalRearmRequiresFreshGateHandshake) {
+	Core core(config(), .004f); auto in = input(-.08f); in.reversal_unwind_latched = true;
+	ASSERT_TRUE(core.step(in).reversal_reached_zero);
+	in.reversal_unwind_latched = false;
+	EXPECT_FLOAT_EQ(core.step(in).b_after, 0.f); // old true gate
+	in.gate = false; EXPECT_FLOAT_EQ(core.step(in).b_after, 0.f);
+	in.gate = true; EXPECT_LT(core.step(in).b_after, 0.f);
+}
+TEST(AdaptiveTailTrimCore, IndependentDirectionalMinimaLimitBothSigns) {
+	auto cfg = config(); cfg.reserve_pos_min = .58f; cfg.reserve_neg_min = .55f;
+	for (float sign : {-1.f, 1.f}) {
+		Core core(cfg); auto in = input(sign*.1f); in.tail_pitch_context = .4f;
+		for (int n = 0; n < 12; ++n) {
+			const auto r = core.step(in); ASSERT_TRUE(r.transaction_valid);
+			in.current_native_i += r.accepted_delta_i;
+			EXPECT_TRUE(r.feasible); invariant(r);
+		}
+		EXPECT_NEAR(core.state(), sign > 0.f ? .02f : -.05f, Tol);
 	}
 }

@@ -3,7 +3,7 @@
 // Select the 16 probes with --gtest_filter=AdaptiveTailTrimContract.*.
 #include "BumplessRollITransferTest.cpp"
 #define TAIL_TRIM_V3_FIXTURES_INCLUDED
-#if __has_include("../AdaptiveTailTrimCore.hpp")
+#if !defined(TAIL_TRIM_LEGACY_PROBE)
 #include "../AdaptiveTailTrimCore.hpp"
 using BehaviorCore = AdaptiveTailTrimCore;
 #else
