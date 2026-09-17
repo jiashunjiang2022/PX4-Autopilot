@@ -1,6 +1,11 @@
 #include <gtest/gtest.h>
+#include <chrono>
+#include <algorithm>
 #include "../AdaptiveTailTrimShadow.hpp"
 #include "../BumplessRollITransfer.hpp"
+#include <uORB/topics/vehicle_torque_setpoint.h>
+#include <uORB/topics/vehicle_control_mode.h>
+#include <uORB/topics/manual_control_setpoint.h>
 
 namespace {
 using Shadow = AdaptiveTailTrimShadow;
@@ -36,6 +41,7 @@ TEST(TailTrimEstimator, FullWindowAndInvalidFreshRestart) {
 TEST(TailTrimEstimator, ManeuverClearsEvidence) {
 	AdaptiveTailTrimEstimator e; AdaptiveTailTrimEstimator::Config c{}; c.window = .5f;
 	for (int n = 0; n < 30; ++n) { e.update(.1f, .02f, true, true, c); }
+	ASSERT_TRUE(e.update(.1f, .02f, true, true, c).gate);
 	EXPECT_EQ(e.update(.1f, .02f, true, false, c).sample_count, 0);
 	EXPECT_FALSE(e.update(.1f, .02f, true, true, c).gate);
 }
@@ -183,4 +189,134 @@ TEST(TailTrimShadow, RealObjectsUnchanged) {
 	in.i_actual = actual_i; in.s_actual = actual_s; tick(s, in, 100);
 	EXPECT_FLOAT_EQ(rc.rollIntegralRaw(), actual_i); EXPECT_FLOAT_EQ(b2b.transferredRaw(), actual_s);
 	EXPECT_EQ(rc.rollIntegralResetEpoch(), epoch);
+}
+
+namespace {
+// Closest-possible module test: genuine RateControl and B2B, production output
+// block extracted at configure time. Gain source and parameter cache are mocks;
+// this tests arithmetic and state isolation, not scheduler/uORB delivery.
+struct CompositionHarness {
+	using Vector3f = matrix::Vector3f;
+	RateControl _rate_control;
+	BumplessRollITransfer b2b;
+	struct Gain {
+		Vector3f value{.7f,.8f,.9f};
+		Vector3f getGains() const { return value; }
+		void update(Vector3f, float) { value(0) = .8f; }
+	} _gain_compression;
+	struct Param { float get() const { return 1.f; } } _param_fw_acro_yaw_en, _param_fw_man_y_sc;
+	vehicle_control_mode_s _vcontrol_mode{};
+	manual_control_setpoint_s _manual_control_setpoint{};
+	vehicle_torque_setpoint_s _vehicle_torque_setpoint{};
+	float _airspeed_scaling{1.f}, _b2b_g_current{0.f}, _b2b_roll_baseline{0.f};
+	bool _b2b_total_clipped{false};
+	void resetIntegralAndTransfer() { _rate_control.resetIntegral(); b2b.synchronizeReset(_rate_control.rollIntegralResetEpoch()); }
+	CompositionHarness() {
+		_rate_control.setIntegratorLimit(Vector3f(.3f,.3f,.3f));
+		_rate_control.setPidGains(Vector3f(.1f,.1f,.1f),Vector3f(.01f,0.f,0.f),Vector3f());
+		RateControl::RollITransferRequest seed{}; seed.requested_delta_raw = .18f;
+		seed.mode = RateControl::RollITransferMode::PairPreserving;
+		_rate_control.applyRollITransfer(seed);
+	}
+	void cycle(bool slow) {
+		BumplessRollITransfer::Inputs in{};
+		in.enabled = in.eligible = slow; in.rates_enabled = in.config_valid = true;
+		in.dt = .02f; in.imax_raw = .3f; in.cap_raw = .05f; in.slew_raw_per_s = .05f;
+		in.safety_slew_raw_per_s = .1f; in.g_current = _gain_compression.getGains()(0);
+		b2b.update(in, _rate_control);
+		const float transferred_roll_i_raw = b2b.transferredRaw();
+		const float dt = .02f, airspeed_scale_squared = _airspeed_scaling*_airspeed_scaling;
+		const Vector3f trim(.01f,.02f,.03f);
+		Vector3f angular_acceleration_setpoint = _rate_control.update(Vector3f(),Vector3f(.05f,0.f,0.f),Vector3f(),dt,false);
+#include "TailTrimActualComposition.inc"
+	}
+};
+}
+
+TEST(TailTrimIsolation, ActualCompositionExactOffOnAndEpoch) {
+	for (bool slow : {false, true}) {
+		CompositionHarness off, on; Shadow a, b; a.configure(config()); b.configure(config());
+		auto ia = input(), ib = input(); ia.enabled = false;
+		float max_shadow = 0.f;
+		for (int n = 0; n < 200; ++n) {
+			off.cycle(slow); on.cycle(slow);
+			const float i_before = on._rate_control.rollIntegralRaw(), s_before = on.b2b.transferredRaw();
+			ia.g = off._b2b_g_current; ib.g = on._b2b_g_current;
+			ia.i_actual = off._rate_control.rollIntegralRaw(); ib.i_actual = i_before;
+			ia.s_actual = off.b2b.transferredRaw(); ib.s_actual = s_before;
+			tick(a, ia); const auto r = tick(b, ib);
+			for (int axis = 0; axis < 3; ++axis) { EXPECT_FLOAT_EQ(on._vehicle_torque_setpoint.xyz[axis], off._vehicle_torque_setpoint.xyz[axis]); }
+			EXPECT_FLOAT_EQ(on._rate_control.rollIntegralRaw(), off._rate_control.rollIntegralRaw());
+			EXPECT_FLOAT_EQ(on._rate_control.rollIntegralRaw(), i_before);
+			EXPECT_FLOAT_EQ(on.b2b.transferredRaw(), s_before);
+			if (!r.reset) { EXPECT_FLOAT_EQ(r.t_actual, i_before+s_before); }
+			max_shadow = fmaxf(max_shadow, r.b_shadow);
+		}
+		EXPECT_GT(max_shadow, .01f);
+		if (slow) { EXPECT_GT(on.b2b.transferredRaw(), 0.f); }
+	}
+}
+
+TEST(TailTrimShadow, PriorReversalCanUnwindDuringManeuver) {
+	Shadow s; s.configure(config()); auto in = input(); tick(s, in, 100);
+	in.i_actual = -.15f; in.s_actual = -.04f; in.imax = 1.f;
+	Shadow::Result r{}; bool latched = false;
+	for (int n = 0; n < 100; ++n) { r = tick(s,in); if (r.reversal) { latched = true; break; } }
+	ASSERT_TRUE(latched); const float before = r.b_shadow; in.phi_sp = .3f;
+	r = tick(s,in); EXPECT_LT(r.b_shadow,before);
+	r = tick(s,in,200); EXPECT_FLOAT_EQ(r.b_shadow,0.f); EXPECT_FALSE(r.estimate.gate);
+}
+TEST(TailTrimShadow, InvalidConfigurationAndTimeGapClearAll) {
+	Shadow s; s.configure(config()); auto in = input(); ASSERT_GT(tick(s,in,100).b_shadow,0.f);
+	in.now += 500000; auto r = tick(s,in); EXPECT_TRUE(r.reset); EXPECT_FLOAT_EQ(r.b_shadow,0.f);
+	tick(s,in,100); auto c = config(); c.bmax = .2f; s.configure(c);
+	r = tick(s,in); EXPECT_TRUE(r.reset); EXPECT_FLOAT_EQ(r.offset,0.f);
+}
+TEST(TailTrimEstimator, CausalPrefixAndControllerRates) {
+	for (float dt : {.002f,.01f,.02f,.04f}) {
+		AdaptiveTailTrimEstimator a,b; AdaptiveTailTrimEstimator::Config c{}; c.window = 1.f;
+		float elapsed = 0.f; AdaptiveTailTrimEstimator::Result r{};
+		while (elapsed < 1.f-1e-5f) {
+			r = a.update(.1f,dt,true,true,c); auto same = b.update(.1f,dt,true,true,c);
+			EXPECT_FLOAT_EQ(r.b_hat,same.b_hat); elapsed += dt;
+			if (elapsed < 1.f-1e-5f) { EXPECT_FALSE(r.gate); }
+		}
+		EXPECT_TRUE(r.gate);
+		b.update(-.1f,dt,true,true,c); EXPECT_NEAR(r.b_hat,.1f,Tol);
+	}
+}
+
+TEST(TailTrimShadow, EquivalentActualRedistributionAndPhysicalStdConversion) {
+	Shadow a,b; auto cfg = config(); cfg.std_raw = .001f; a.configure(cfg); b.configure(cfg);
+	auto x = input(), y = x; y.i_actual += y.s_actual; y.s_actual = 0.f;
+	for (int n = 0; n < 100; ++n) {
+		const float step = n%2 ? .01f : -.01f;
+		x.i_actual = .15f+step; y.i_actual = .19f+step;
+		auto ra = tick(a,x), rb = tick(b,y);
+		EXPECT_NEAR(ra.b_obs, rb.b_obs, Tol); EXPECT_NEAR(ra.estimate.b_hat, rb.estimate.b_hat, Tol);
+	}
+	auto r = tick(a,x); EXPECT_FALSE(r.estimate.gate);
+	EXPECT_GT(r.estimate.std, x.g*cfg.std_raw/1.1f);
+}
+
+TEST(TailTrimShadow, InvalidResetContextAndAlwaysZeroInjection) {
+	Shadow s; s.configure(config()); auto in = input(); tick(s,in,100); in.i_actual = .5f;
+	auto r = tick(s,in); EXPECT_TRUE(r.reset); EXPECT_FLOAT_EQ(r.i_actual,.5f);
+	EXPECT_NEAR(r.t_actual,.54f,Tol); EXPECT_FLOAT_EQ(r.actual_tail_trim_torque,0.f);
+	in.i_actual = NAN; r = tick(s,in); EXPECT_FALSE(r.valid);
+	EXPECT_TRUE(std::isfinite(r.b_obs)); EXPECT_FLOAT_EQ(r.actual_tail_trim_torque,0.f);
+}
+
+TEST(TailTrimResources, HostCostAndFixedStorage) {
+	Shadow s; auto cfg = config(); cfg.window = 10.f; s.configure(cfg); auto in = input(); tick(s,in,600);
+	long long cost[512]{}; // test-only timing storage, never linked in firmware
+	for (auto &ns : cost) {
+		const auto start = std::chrono::steady_clock::now();
+		const auto result = tick(s,in);
+		ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-start).count();
+		ASSERT_TRUE(result.valid);
+	}
+	std::sort(cost,cost+512);
+	printf("SHADOW_HOST_BYTES=%zu ESTIMATOR_HOST_BYTES=%zu HOST_NS_MEDIAN=%lld P95=%lld MAX=%lld\n",
+	       sizeof(Shadow), sizeof(AdaptiveTailTrimEstimator), cost[256], cost[486], cost[511]);
 }
