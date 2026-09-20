@@ -131,6 +131,16 @@ public:
 
 	uint32_t rollIntegralResetEpoch() const { return _roll_i_reset_epoch; }
 	float rollIntegralRaw() const { return _rate_int(0); }
+	float rollIntegralLimit() const { return _lim_int(0); }
+	void setRollIntegralLimit(float limit) { _lim_int(0) = limit; }
+
+	/** Joint V4 commit, HR=0. Single owning controller thread only (not a mutex).
+	 * Validates BOTH final states and expected snapshot before either write.
+	 * No clipping, callbacks, or fallible operations after validation.
+	 * Unused by the existing V3/flight path.
+	 */
+	bool commitRollMemoryPair(float &memory, float expected_memory, float expected_i,
+			uint32_t expected_epoch, float expected_limit, float memory_post, float i_post, float memory_limit);
 
 	/**
 	 * Set direct rate to torque feed forward gain
@@ -201,6 +211,7 @@ public:
 	void getRateControlStatus(rate_ctrl_status_s &rate_ctrl_status);
 
 private:
+	friend struct ResidualSlowFeedforwardMemoryTestAccess;
 	void updateIntegral(matrix::Vector3f &rate_error, const float dt);
 	void resetRollIntegralDiagnostics();
 

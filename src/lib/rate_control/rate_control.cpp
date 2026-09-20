@@ -40,6 +40,30 @@
 
 using namespace matrix;
 
+bool RateControl::commitRollMemoryPair(float &memory, float expected_memory, float expected_i,
+		uint32_t expected_epoch, float expected_limit, float memory_post, float i_post, float memory_limit)
+{
+	constexpr float tolerance = 2e-7f;
+	const auto before = computeRollILimits(_lim_int(0), memory, 0.f);
+	const auto after = computeRollILimits(_lim_int(0), memory_post, 0.f);
+	if (_roll_i_reset_epoch != expected_epoch || !(_lim_int(0) <= expected_limit && _lim_int(0) >= expected_limit)
+	    || !(memory <= expected_memory && memory >= expected_memory)
+	    || !(_rate_int(0) <= expected_i && _rate_int(0) >= expected_i)
+	    || !PX4_ISFINITE(memory_limit) || memory_limit < 0.f
+	    || !before.valid || !after.valid || !PX4_ISFINITE(expected_i) || !PX4_ISFINITE(i_post)
+	    || !PX4_ISFINITE(memory + expected_i) || !PX4_ISFINITE(memory_post + i_post)
+	    || fabsf(memory) > memory_limit || fabsf(memory_post) > memory_limit
+	    || expected_i < before.lower - tolerance || expected_i > before.upper + tolerance
+	    || i_post < after.lower - tolerance || i_post > after.upper + tolerance
+	    || fabsf((memory_post + i_post) - (memory + expected_i)) > tolerance) {
+		return false;
+	}
+	_rate_int(0) = i_post;
+	memory = memory_post;
+	setRollITransferContext(memory, 0.f, true);
+	return true;
+}
+
 RateControl::RollILimits RateControl::computeRollILimits(float imax_raw, float transferred_i_raw,
 		float headroom_release_ratio)
 {

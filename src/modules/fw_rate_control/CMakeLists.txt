@@ -53,6 +53,18 @@ px4_add_unit_gtest(
 )
 
 option(ADAPTIVE_TAIL_TRIM_CONTRACT_RED "Opt in to intentionally RED future contracts" OFF)
+px4_add_library(ResidualSlowFeedforwardMemory ResidualSlowFeedforwardMemory.cpp)
+target_link_libraries(ResidualSlowFeedforwardMemory PRIVATE RateControl)
+
+option(V4_SLOW_MEMORY_CONTRACT_RED "Opt in to V4 core contracts (historical RED option)" OFF)
+if(V4_SLOW_MEMORY_CONTRACT_RED)
+	px4_add_unit_gtest(SRC tests/ResidualSlowFeedforwardMemoryTest.cpp
+		EXTRA_SRCS tests/ResidualSlowFeedforwardMemoryAdapter.cpp
+		LINKLIBS ResidualSlowFeedforwardMemory RateControl)
+	px4_add_unit_gtest(SRC tests/ResidualSlowMemorySafetyTest.cpp
+		EXTRA_SRCS tests/ResidualSlowFeedforwardMemoryAdapter.cpp
+		LINKLIBS ResidualSlowFeedforwardMemory RateControl)
+endif()
 px4_add_functional_gtest(SRC tests/AllocatorSaturationFeedbackTest.cpp LINKLIBS RateControl)
 if(BUILD_TESTING)
 	# Compile the actual routing block, not a separately maintained copy.
