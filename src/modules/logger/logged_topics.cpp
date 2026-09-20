@@ -74,6 +74,7 @@ void LoggedTopics::add_default_topics()
 	add_optional_topic("flaps_setpoint", 1000);
 	add_optional_topic("flight_phase_estimation", 1000);
 	add_optional_topic("flap_b2b_adaptive", 50);
+	add_optional_topic("flap_v4_memory_status"); // Preserve controller-cycle timing and recovery events.
 	add_optional_topic("fuel_tank_status", 10);
 	add_optional_topic("gain_compression", 100);
 	add_topic("gimbal_manager_set_attitude", 500);
