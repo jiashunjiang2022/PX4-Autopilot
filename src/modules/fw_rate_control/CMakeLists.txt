@@ -60,6 +60,8 @@ option(ADAPTIVE_TAIL_TRIM_CONTRACT_RED "Opt in to intentionally RED future contr
 
 option(V4_SLOW_MEMORY_CONTRACT_RED "Opt in to V4 core contracts (historical RED option)" OFF)
 if(V4_SLOW_MEMORY_CONTRACT_RED)
+	px4_add_unit_gtest(SRC tests/V4InvalidConfigTest.cpp
+		LINKLIBS ResidualSlowFeedforwardMemory RateControl)
 	# A real e624 Run comparator, generated only into the test build directory.
 	foreach(ext cpp hpp)
 		execute_process(COMMAND git show e624a99f2955addbf76681e636c44162a0c03055:src/modules/fw_rate_control/FixedwingRateControl.${ext}

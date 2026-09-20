@@ -24,8 +24,12 @@ bool ResidualSlowFeedforwardMemory::configValid(const Config &c) const
 bool ResidualSlowFeedforwardMemory::configure(const Config &c)
 {
 	if (!configValid(c)) {
-		_config_valid = false;
-		recover(Reason::InvalidConfig);
+		if (_config_valid) {
+			_config_valid = false;
+			recover(Reason::InvalidConfig); // One reset on fault entry, not every controller cycle.
+		} else {
+			holdInvalidConfig();
+		}
 		return false; // Retain previous valid limits, never install NaN/negative limits.
 	}
 	const bool changed = fabsf(c.imax - _config.imax) > 0.f || fabsf(c.bmax - _config.bmax) > 0.f
@@ -50,6 +54,18 @@ bool ResidualSlowFeedforwardMemory::configure(const Config &c)
 void ResidualSlowFeedforwardMemory::setContext()
 {
 	_native.setRollITransferContext(_b, 0.f, true); // V4 has no HR configuration.
+}
+
+void ResidualSlowFeedforwardMemory::holdInvalidConfig()
+{
+	// Entry recovery already cleared B/history and installed the last valid limits.
+	// Leave native I free to rebuild; a persistent fault is not another reset event.
+	_result.recovery = false;
+	_result.reason = Reason::InvalidConfig;
+	_result.learn = false;
+	_result.apply = false;
+	_result.requested = 0.f;
+	_result.accepted = 0.f;
 }
 
 void ResidualSlowFeedforwardMemory::invalidateHistory()
@@ -244,7 +260,7 @@ ResidualSlowFeedforwardMemory::Result ResidualSlowFeedforwardMemory::update(cons
 	_result.learn = false;
 	_result.requested = _result.accepted = 0.f;
 	if (!_config_valid) {
-		recover(Reason::InvalidConfig);
+		holdInvalidConfig();
 		return result();
 	}
 	if (!checkPair()) {

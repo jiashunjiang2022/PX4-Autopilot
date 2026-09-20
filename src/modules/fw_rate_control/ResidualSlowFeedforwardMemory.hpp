@@ -58,6 +58,7 @@ private:
 	bool transfer(float requested);
 	void handback(float dt);
 	void recover(Reason reason);
+	void holdInvalidConfig();
 	void invalidateHistory();
 	void invalidateEstimate();
 	void statistics();
@@ -75,4 +76,3 @@ private:
 	size_t _head{}, _count{};
 	Result _result{};
 };
-
