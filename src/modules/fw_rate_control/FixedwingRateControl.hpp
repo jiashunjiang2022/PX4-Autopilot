@@ -73,6 +73,7 @@
 #include <uORB/topics/vehicle_torque_setpoint.h>
 
 #include "BumplessRollITransfer.hpp"
+#include "V4MemoryIntegration.hpp"
 
 using matrix::Eulerf;
 using matrix::Quatf;
@@ -100,6 +101,7 @@ public:
 	bool init();
 
 private:
+	friend struct V4IntegrationTestAccess;
 	void Run() override;
 
 	uORB::SubscriptionCallbackWorkItem _vehicle_angular_velocity_sub{this, ORB_ID(vehicle_angular_velocity)};
@@ -123,6 +125,7 @@ private:
 	uORB::PublicationMulti<rate_ctrl_status_s>	_rate_ctrl_status_pub{ORB_ID(rate_ctrl_status)};
 	uORB::Publication<rate_ctrl_terms_s>	_rate_ctrl_terms_pub{ORB_ID(rate_ctrl_terms)};
 	uORB::Publication<flap_b2b_adaptive_s> _flap_b2b_adaptive_pub{ORB_ID(flap_b2b_adaptive)};
+	uORB::Publication<flap_v4_memory_status_s> _flap_v4_memory_status_pub{ORB_ID(flap_v4_memory_status)};
 	uORB::Publication<vehicle_thrust_setpoint_s>	_vehicle_thrust_setpoint_pub;
 	uORB::Publication<vehicle_torque_setpoint_s>	_vehicle_torque_setpoint_pub;
 	uORB::Publication<normalized_unsigned_setpoint_s> _flaps_setpoint_pub{ORB_ID(flaps_setpoint)};
@@ -165,6 +168,15 @@ private:
 	int32_t _param_vt_fw_difthr_en{0};
 
 	DEFINE_PARAMETERS(
+		(ParamBool<px4::params::FW_V4_EN>) _param_fw_v4_en,
+		(ParamFloat<px4::params::FW_V4_BMAX>) _param_fw_v4_bmax,
+		(ParamFloat<px4::params::FW_V4_R>) _param_fw_v4_r,
+		(ParamFloat<px4::params::FW_V4_TAU>) _param_fw_v4_tau,
+		(ParamFloat<px4::params::FW_V4_KB>) _param_fw_v4_kb,
+		(ParamFloat<px4::params::FW_V4_SLEW>) _param_fw_v4_slew,
+		(ParamFloat<px4::params::FW_V4_GWIN>) _param_fw_v4_gwin,
+		(ParamFloat<px4::params::FW_V4_GSTD>) _param_fw_v4_gstd,
+		(ParamFloat<px4::params::FW_V4_GSIGN>) _param_fw_v4_gsign,
 		(ParamFloat<px4::params::FW_ACRO_X_MAX>) _param_fw_acro_x_max,
 		(ParamFloat<px4::params::FW_ACRO_Y_MAX>) _param_fw_acro_y_max,
 		(ParamFloat<px4::params::FW_ACRO_Z_MAX>) _param_fw_acro_z_max,
@@ -274,6 +286,9 @@ private:
 	void resetRollIntegralAndTransfer();
 
 	BumplessRollITransfer _bumpless_roll_i_transfer{};
+	V4MemoryIntegration _v4_memory{_rate_control, _bumpless_roll_i_transfer};
+	V4MemoryIntegration::Context _v4_context{};
+	V4MemoryIntegration::Config _v4_config{};
 	BumplessRollITransfer::Result _bumpless_roll_i_result{};
 	uint8_t _previous_nav_state{vehicle_status_s::NAVIGATION_STATE_MAX};
 	bool _previous_nav_state_valid{false};

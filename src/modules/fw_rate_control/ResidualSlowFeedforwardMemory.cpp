@@ -139,7 +139,7 @@ bool ResidualSlowFeedforwardMemory::transfer(float requested)
 		d = -before;
 	}
 	const float b_post = before + d;
-	if (fabsf(b_post - before) == 0.f) {
+	if (fabsf(b_post - before) <= 0.f) {
 		return true; // A capped/rounded-to-zero request must not rewrite native I.
 	}
 // Preserve the representable total rather than accumulating subtraction drift.
@@ -165,7 +165,7 @@ bool ResidualSlowFeedforwardMemory::transfer(float requested)
 	statistics(); // Reinterpret existing q samples; no time/count changes.
 	_result.gate_valid = _result.gate_valid && _result.stddev <= _config.gstd
 	                     && _result.same_sign_fraction >= _config.gsign;
-	if (before != 0.f && _b == 0.f) {
+	if (fabsf(before) > 0.f && fabsf(_b) <= 0.f) {
 		invalidateHistory(); // Zero reached: next sample begins an entirely new window.
 	}
 	assert(PX4_ISFINITE(_b) && PX4_ISFINITE(_native.rollIntegralRaw()));
@@ -186,7 +186,7 @@ void ResidualSlowFeedforwardMemory::handback(float dt)
 // Scheduler stalls must not turn an exit into an unbounded instantaneous step.
 	const float step = _config.slew * fminf(dt, .15f);
 	transfer(math::constrain(-_b, -step, step));
-	if (_b == 0.f) {
+	if (fabsf(_b) <= 0.f) {
 		_handback = false;
 		invalidateEstimate();
 	}
@@ -266,7 +266,7 @@ ResidualSlowFeedforwardMemory::Result ResidualSlowFeedforwardMemory::update(cons
 		return result();
 	}
 	if (!in.enabled || in.pilot_abort || in.failsafe || !in.mission) {
-		_handback = _b != 0.f;
+		_handback = fabsf(_b) > 0.f;
 		_result.reason = in.pilot_abort ? Reason::PilotAbort :
 		                 (in.failsafe ? Reason::Failsafe : Reason::Disabled);
 	}
@@ -323,7 +323,7 @@ ResidualSlowFeedforwardMemory::Result ResidualSlowFeedforwardMemory::update(cons
 	_result.gate_valid = span >= static_cast<uint64_t>(_config.window * 1000000.f)
 	                     && _result.stddev <= _config.gstd && _result.same_sign_fraction >= _config.gsign;
 	_result.gate_time = _history[_head].time;
-	if (!_result.gate_valid || _result.innovation == 0.f) {
+	if (!_result.gate_valid || fabsf(_result.innovation) <= 0.f) {
 		return result();
 	}
 	if ((in.positive_saturation && _result.innovation > 0.f)

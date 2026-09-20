@@ -82,7 +82,12 @@ FixedwingRateControl::parameters_update()
 	_rate_control.setPidGains(rate_p, rate_i, rate_d);
 
 	_rate_control.setIntegratorLimit(
-		Vector3f(_param_fw_rr_imax.get(), _param_fw_pr_imax.get(), _param_fw_yr_imax.get()));
+		Vector3f(_v4_memory.active() ? _rate_control.rollIntegralLimit() : _param_fw_rr_imax.get(),
+			 _param_fw_pr_imax.get(), _param_fw_yr_imax.get()));
+	// V4 validates the authoritative pair before installing a changed Roll limit.
+	_v4_config = {_param_fw_rr_imax.get(), _param_fw_v4_bmax.get(), _param_fw_v4_r.get(),
+		      _param_fw_v4_tau.get(), _param_fw_v4_kb.get(), _param_fw_v4_slew.get(),
+		      _param_fw_v4_gwin.get(), _param_fw_v4_gstd.get(), _param_fw_v4_gsign.get()};
 
 	if (_handle_param_vt_fw_difthr_en != PARAM_INVALID) {
 		param_get(_handle_param_vt_fw_difthr_en, &_param_vt_fw_difthr_en);
@@ -111,6 +116,7 @@ bool FixedwingRateControl::verify_flap_slow_configuration() const
 void FixedwingRateControl::resetIntegralAndTransfer()
 {
 	_rate_control.resetIntegral();
+	_v4_memory.reset();
 	_bumpless_roll_i_transfer.synchronizeReset(_rate_control.rollIntegralResetEpoch());
 	_roll_i_reset_this_cycle = true;
 }
@@ -118,6 +124,7 @@ void FixedwingRateControl::resetIntegralAndTransfer()
 void FixedwingRateControl::resetRollIntegralAndTransfer()
 {
 	_rate_control.resetIntegral(0);
+	_v4_memory.reset();
 	_bumpless_roll_i_transfer.synchronizeReset(_rate_control.rollIntegralResetEpoch());
 	_roll_i_reset_this_cycle = true;
 }
@@ -309,8 +316,38 @@ void FixedwingRateControl::Run()
 		vehicle_manual_poll();
 		vehicle_land_detected_poll();
 
+		const bool v4_was_active = _v4_memory.active();
+		_v4_memory.select(_param_fw_v4_en.get(),
+			_vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED,
+			is_fixed_wing && !_vehicle_status.is_vtol && !_vehicle_status.in_transition_mode);
+		if (v4_was_active && !_v4_memory.active()) {
+			parameters_update(); // Install a Roll limit deferred while V4 owned the pair.
+		}
+		_v4_context = {};
+		_v4_context.now = hrt_absolute_time();
+		_v4_context.evidence_timestamp = angular_velocity.timestamp_sample;
+		_v4_context.dt = dt;
+		_v4_context.enabled = _param_fw_v4_en.get();
+		_v4_context.armed = _vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED;
+		_v4_context.landed = _landed;
+		_v4_context.mission = _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION;
+		_v4_context.nav_state = _vehicle_status.nav_state;
+		_v4_context.failsafe = _vehicle_status.failsafe;
+		_v4_context.pilot_abort = pilot_abort_to_stabilized;
+		_v4_context.control_valid = is_fixed_wing && !_vehicle_status.is_vtol
+			&& !_vehicle_status.in_transition_mode && verify_flap_slow_configuration()
+			&& rates.isAllFinite() && angular_accel.isAllFinite();
+		// V4 reads current reset/setpoint context before transfer; V3 retains its old ordering.
+		if (_v4_memory.active()) {
+			_rates_sp_sub.update(&_rates_sp);
+			_v4_context.control_valid = _v4_context.control_valid
+				&& PX4_ISFINITE(_rates_sp.roll) && PX4_ISFINITE(_rates_sp.pitch) && PX4_ISFINITE(_rates_sp.yaw);
+		}
+
 		/* if we are in rotary wing mode, do nothing */
 		if (_vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_ROTARY_WING && !_vehicle_status.is_vtol) {
+			_v4_memory.before(_v4_context, _v4_config);
+			_flap_v4_memory_status_pub.publish(_v4_memory.status());
 			perf_end(_loop_perf);
 			return;
 		}
@@ -375,6 +412,11 @@ void FixedwingRateControl::Run()
 			}
 
 			const float airspeed_scale_squared = _airspeed_scaling * _airspeed_scaling;
+			if (surface_status_updated && !_vehicle_status.is_vtol) {
+				_v4_memory.allocator(control_allocator_status.timestamp, control_allocator_status.unallocated_torque[0]);
+			}
+			_v4_context.hard_reset = _roll_i_reset_this_cycle || _rates_sp.reset_integral;
+			_v4_memory.before(_v4_context, _v4_config);
 			_b2b_g_current = _gain_compression.getGains()(0) * airspeed_scale_squared;
 			const bool transfer_config_valid = verify_flap_slow_configuration();
 			BumplessRollITransfer::Inputs transfer_inputs{};
@@ -406,16 +448,22 @@ void FixedwingRateControl::Run()
 				transfer_inputs.gate_window_s = _param_flap_b2b_gwin.get();
 				transfer_inputs.gate_std_raw = _param_flap_b2b_gstd.get();
 				transfer_inputs.gate_same_sign_fraction = _param_flap_b2b_gsign.get();
-			_bumpless_roll_i_result = _bumpless_roll_i_transfer.update(transfer_inputs, _rate_control);
+			if (_v4_memory.active()) {
+				_bumpless_roll_i_result = {}; // V3 diagnostic identity stays V3, not repurposed for B.
+			} else {
+				_bumpless_roll_i_result = _bumpless_roll_i_transfer.update(transfer_inputs, _rate_control);
+			}
 
 			if (_bumpless_roll_i_result.reset_required) {
 				resetRollIntegralAndTransfer();
 			}
 
 			const float transferred_roll_i_raw = _bumpless_roll_i_transfer.transferredRaw();
-			_rate_control.setRollITransferContext(transferred_roll_i_raw,
+			if (!_v4_memory.active()) {
+				_rate_control.setRollITransferContext(transferred_roll_i_raw,
 					_bumpless_roll_i_result.headroom_release_ratio_effective,
 					std::fabs(transferred_roll_i_raw) > FLT_EPSILON);
+			}
 
 			/* bi-linear interpolation over airspeed for actuator trim scheduling */
 			Vector3f trim(_param_trim_roll.get(), _param_trim_pitch.get(), _param_trim_yaw.get());
@@ -442,7 +490,7 @@ void FixedwingRateControl::Run()
 			}
 
 			if (_vcontrol_mode.flag_control_rates_enabled) {
-				_rates_sp_sub.update(&_rates_sp);
+				if (!_v4_memory.active()) { _rates_sp_sub.update(&_rates_sp); }
 
 				Vector3f body_rates_setpoint = Vector3f(_rates_sp.roll, _rates_sp.pitch, _rates_sp.yaw);
 
@@ -458,18 +506,23 @@ void FixedwingRateControl::Run()
 				// Run attitude RATE controllers which need the desired attitudes from above, add trim.
 				rate_ctrl_terms_s rate_ctrl_terms{};
 				Vector3f angular_acceleration_setpoint = _rate_control.update(rates, body_rates_setpoint, angular_accel, dt,
-						_landed, &rate_ctrl_terms);
+						_landed || (_v4_memory.active() && !_v4_context.armed), &rate_ctrl_terms);
 				rate_ctrl_terms.timestamp_sample = angular_velocity.timestamp_sample;
 				rate_ctrl_terms.timestamp = hrt_absolute_time();
 				_rate_ctrl_terms_pub.publish(rate_ctrl_terms);
 
 				const Vector3f gains_before_update = _gain_compression.getGains();
 				_b2b_g_current = gains_before_update(0) * airspeed_scale_squared;
+				_v4_memory.after(_b2b_g_current);
 				_b2b_roll_baseline = math::constrain(_b2b_g_current * angular_acceleration_setpoint(0) + trim(0), -1.f, 1.f);
 
 				Vector3f control_u;
 
-				if (std::fabs(transferred_roll_i_raw) > FLT_EPSILON) {
+				if (_v4_memory.active()) {
+					angular_acceleration_setpoint(0) = _v4_memory.composeRaw(angular_acceleration_setpoint(0));
+					control_u = gains_before_update.emult(angular_acceleration_setpoint * airspeed_scale_squared);
+
+				} else if (std::fabs(transferred_roll_i_raw) > FLT_EPSILON) {
 					angular_acceleration_setpoint(0) = BumplessRollITransfer::composeRawRoll(
 							angular_acceleration_setpoint(0), transferred_roll_i_raw);
 					control_u = gains_before_update.emult(angular_acceleration_setpoint * airspeed_scale_squared);
@@ -523,6 +576,8 @@ void FixedwingRateControl::Run()
 			_gain_compression.reset();
 			resetIntegralAndTransfer();
 			_bumpless_roll_i_result = {};
+			_v4_context.hard_reset = true;
+			_v4_memory.before(_v4_context, _v4_config);
 			_b2b_g_current = 0.f;
 			_b2b_roll_baseline = _vehicle_torque_setpoint.xyz[0];
 			_b2b_total_clipped = false;
@@ -611,6 +666,7 @@ void FixedwingRateControl::Run()
 		adaptive_status.residual_i_raw = _bumpless_roll_i_result.residual_i_raw;
 		adaptive_status.total_equivalent_i_raw = _bumpless_roll_i_result.total_equivalent_i_raw;
 		_flap_b2b_adaptive_pub.publish(adaptive_status);
+		_flap_v4_memory_status_pub.publish(_v4_memory.status());
 		_rate_ctrl_status_pub.publish(rate_ctrl_status);
 
 	/* Only publish if any of the proper modes are enabled */

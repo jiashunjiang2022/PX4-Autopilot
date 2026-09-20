@@ -31,6 +31,9 @@
 #
 ############################################################################
 
+px4_add_library(ResidualSlowFeedforwardMemory ResidualSlowFeedforwardMemory.cpp)
+target_link_libraries(ResidualSlowFeedforwardMemory PRIVATE RateControl)
+
 px4_add_module(
 	MODULE modules__fw_rate_control
 	MAIN fw_rate_control
@@ -40,6 +43,7 @@ px4_add_module(
 	DEPENDS
 		px4_work_queue
 		RateControl
+		ResidualSlowFeedforwardMemory
 		SlewRate
 	)
 
@@ -53,11 +57,28 @@ px4_add_unit_gtest(
 )
 
 option(ADAPTIVE_TAIL_TRIM_CONTRACT_RED "Opt in to intentionally RED future contracts" OFF)
-px4_add_library(ResidualSlowFeedforwardMemory ResidualSlowFeedforwardMemory.cpp)
-target_link_libraries(ResidualSlowFeedforwardMemory PRIVATE RateControl)
 
 option(V4_SLOW_MEMORY_CONTRACT_RED "Opt in to V4 core contracts (historical RED option)" OFF)
 if(V4_SLOW_MEMORY_CONTRACT_RED)
+	# A real e624 Run comparator, generated only into the test build directory.
+	foreach(ext cpp hpp)
+		execute_process(COMMAND git show e624a99f2955addbf76681e636c44162a0c03055:src/modules/fw_rate_control/FixedwingRateControl.${ext}
+			WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} OUTPUT_VARIABLE baseline_source
+			RESULT_VARIABLE baseline_result)
+		if(NOT baseline_result EQUAL 0)
+			message(FATAL_ERROR "V4 disabled-equivalence baseline unavailable")
+		endif()
+		string(REPLACE "FixedwingRateControl" "BaselineFixedwingRateControl" baseline_source "${baseline_source}")
+		string(REPLACE "fw_rate_control_main" "baseline_fw_rate_control_main" baseline_source "${baseline_source}")
+		string(REPLACE "private:" "private:\n\tfriend struct V4IntegrationTestAccess;" baseline_source "${baseline_source}")
+		file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/BaselineFixedwingRateControl.${ext}" "${baseline_source}")
+	endforeach()
+	px4_add_functional_gtest(SRC tests/V4FixedwingRunTest.cpp
+		EXTRA_SRCS FixedwingRateControl.cpp "${CMAKE_CURRENT_BINARY_DIR}/BaselineFixedwingRateControl.cpp"
+		INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}"
+		LINKLIBS ResidualSlowFeedforwardMemory RateControl SlewRate)
+	px4_add_unit_gtest(SRC tests/V4MemoryIntegrationTest.cpp
+		LINKLIBS ResidualSlowFeedforwardMemory RateControl)
 	px4_add_unit_gtest(SRC tests/ResidualSlowFeedforwardMemoryTest.cpp
 		EXTRA_SRCS tests/ResidualSlowFeedforwardMemoryAdapter.cpp
 		LINKLIBS ResidualSlowFeedforwardMemory RateControl)
