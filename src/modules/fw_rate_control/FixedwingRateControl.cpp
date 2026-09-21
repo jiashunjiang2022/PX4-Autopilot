@@ -111,7 +111,6 @@ bool FixedwingRateControl::verify_flap_slow_configuration() const
 void FixedwingRateControl::resetIntegralAndTransfer()
 {
 	_rate_control.resetIntegral();
-	_fast_v1_shadow.resetFeatureHistory();
 	_bumpless_roll_i_transfer.synchronizeReset(_rate_control.rollIntegralResetEpoch());
 	_roll_i_reset_this_cycle = true;
 }
@@ -119,7 +118,6 @@ void FixedwingRateControl::resetIntegralAndTransfer()
 void FixedwingRateControl::resetRollIntegralAndTransfer()
 {
 	_rate_control.resetIntegral(0);
-	_fast_v1_shadow.resetFeatureHistory();
 	_bumpless_roll_i_transfer.synchronizeReset(_rate_control.rollIntegralResetEpoch());
 	_roll_i_reset_this_cycle = true;
 }
@@ -299,7 +297,13 @@ void FixedwingRateControl::Run()
 		const bool is_fixed_wing = _vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING;
 		_in_fw_or_transition_wo_tailsitter_transition =  is_fixed_wing || is_in_transition_except_tailsitter;
 
-		_vehicle_control_mode_sub.update(&_vcontrol_mode);
+	_vehicle_control_mode_sub.update(&_vcontrol_mode);
+		const bool fast_reset_regime = _landed || !_in_fw_or_transition_wo_tailsitter_transition
+					|| !_vcontrol_mode.flag_control_rates_enabled;
+		if (fast_reset_regime != _fast_reset_regime) {
+			_fast_v1_shadow.resetFeatureHistory();
+			_fast_reset_regime = fast_reset_regime;
+		}
 		const bool pilot_abort_to_stabilized = _previous_nav_state_valid
 				&& _previous_nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION
 				&& _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_STAB;

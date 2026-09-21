@@ -287,4 +287,5 @@ private:
 	bool _b2b_total_clipped{false};
 	FastV1ShadowModel _fast_v1_shadow{};
 	FastV1ShadowModel::Output _fast_v1_output{};
+	bool _fast_reset_regime{false};
 };

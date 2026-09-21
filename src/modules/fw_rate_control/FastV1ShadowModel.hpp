@@ -23,7 +23,7 @@ public:
 
 	bool update(uint64_t now, float total_equivalent_i_raw, float p_sp, float p, Output &out)
 	{
-		if (!_next_frame) { _next_frame = now; }
+		if (!_schedule_initialized) { _next_frame = now; _schedule_initialized = true; }
 		if (now < _next_frame) { out = _out; return false; }
 		const uint64_t late = now - _next_frame;
 		const uint32_t elapsed = static_cast<uint32_t>(late / 50000);
@@ -41,6 +41,11 @@ public:
 			resetFeatureHistory(); out = _out; out.frame_seq = _seq; out.missed_frames = _missed; out.frame_timestamp_us = now; out.frame_dt_us = frame_dt; _out = out; return true;
 		}
 		_ring[_head] = total_equivalent_i_raw; _head = (_head + 1) % 9; if (_count < 9) { ++_count; }
+		if (_count < 9) {
+			out.abs4 = 0.f; out.delta4 = 0.f; out.valid = false;
+			out.t_lag2 = out.t_lag4 = out.t_lag8 = 0.f; out.p_sp = 0.f; out.p_error = 0.f;
+			_out = out; return true;
+		}
 		const float e = p_sp - p;
 		const float t2 = at_lag(2), t4 = at_lag(4), t8 = at_lag(8);
 		out.t_lag2 = t2; out.t_lag4 = t4; out.t_lag8 = t8; out.p_sp = p_sp; out.p_error = e;
@@ -62,7 +67,7 @@ private:
 	inline static constexpr float DELTA_SCALE[4] = {0.00422011550f, 0.00612298096f, 0.43864007199f, 0.63251224637f};
 	inline static constexpr float DELTA_COEF[4] = {0.00250028473f, 0.00185120207f, 0.00137961693f, 0.00228613405f};
 	static constexpr float DELTA_INTERCEPT = 0.00001644354452f;
-	float _ring[9]{}; uint8_t _head{0}; uint8_t _count{0}; uint64_t _next_frame{0}; uint64_t _last_frame_timestamp{0};
+	float _ring[9]{}; uint8_t _head{0}; uint8_t _count{0}; uint64_t _next_frame{0}; uint64_t _last_frame_timestamp{0}; bool _schedule_initialized{false};
 	uint32_t _seq{0}, _missed{0}; Output _out{};
 	// _head points to the next write slot after the current frame was pushed.
 	// Therefore lag N is N+1 slots behind _head.
