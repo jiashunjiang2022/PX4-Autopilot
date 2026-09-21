@@ -16,3 +16,10 @@ float32 fast_v1_delta4_prediction
 uint32 fast_v1_frame_seq
 uint32 fast_v1_missed_frames
 bool fast_v1_feature_valid
+uint64 fast_v1_frame_timestamp
+uint32 fast_v1_frame_dt_us
+float32 fast_v1_t_lag2
+float32 fast_v1_t_lag4
+float32 fast_v1_t_lag8
+float32 fast_v1_p_sp
+float32 fast_v1_p_error

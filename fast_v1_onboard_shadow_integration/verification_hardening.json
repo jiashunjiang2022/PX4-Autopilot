@@ -1,0 +1,11 @@
+{
+  "phase_preserving_gate": "PASS",
+  "history_reset": "PASS",
+  "nonfinite_prewrite": "PASS",
+  "observability": "PASS",
+  "model_constants_changed": false,
+  "control_injection": false,
+  "v6c_build": "PASS",
+  "ready_for_bench": true,
+  "ready_for_control_injection": false
+}

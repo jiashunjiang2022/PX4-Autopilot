@@ -111,6 +111,7 @@ bool FixedwingRateControl::verify_flap_slow_configuration() const
 void FixedwingRateControl::resetIntegralAndTransfer()
 {
 	_rate_control.resetIntegral();
+	_fast_v1_shadow.resetFeatureHistory();
 	_bumpless_roll_i_transfer.synchronizeReset(_rate_control.rollIntegralResetEpoch());
 	_roll_i_reset_this_cycle = true;
 }
@@ -118,6 +119,7 @@ void FixedwingRateControl::resetIntegralAndTransfer()
 void FixedwingRateControl::resetRollIntegralAndTransfer()
 {
 	_rate_control.resetIntegral(0);
+	_fast_v1_shadow.resetFeatureHistory();
 	_bumpless_roll_i_transfer.synchronizeReset(_rate_control.rollIntegralResetEpoch());
 	_roll_i_reset_this_cycle = true;
 }
@@ -633,6 +635,13 @@ void FixedwingRateControl::Run()
 		fast_shadow.fast_v1_frame_seq = _fast_v1_output.frame_seq;
 		fast_shadow.fast_v1_missed_frames = _fast_v1_output.missed_frames;
 		fast_shadow.fast_v1_feature_valid = _fast_v1_output.valid;
+		fast_shadow.fast_v1_frame_timestamp = _fast_v1_output.frame_timestamp_us;
+		fast_shadow.fast_v1_frame_dt_us = _fast_v1_output.frame_dt_us;
+		fast_shadow.fast_v1_t_lag2 = _fast_v1_output.t_lag2;
+		fast_shadow.fast_v1_t_lag4 = _fast_v1_output.t_lag4;
+		fast_shadow.fast_v1_t_lag8 = _fast_v1_output.t_lag8;
+		fast_shadow.fast_v1_p_sp = _fast_v1_output.p_sp;
+		fast_shadow.fast_v1_p_error = _fast_v1_output.p_error;
 		_flap_fast_shadow_pub.publish(fast_shadow);
 
 	/* Only publish if any of the proper modes are enabled */
