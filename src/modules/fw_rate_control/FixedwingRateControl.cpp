@@ -611,7 +611,22 @@ void FixedwingRateControl::Run()
 		adaptive_status.residual_i_raw = _bumpless_roll_i_result.residual_i_raw;
 		adaptive_status.total_equivalent_i_raw = _bumpless_roll_i_result.total_equivalent_i_raw;
 		_flap_b2b_adaptive_pub.publish(adaptive_status);
+		const uint32_t publication_seq = ++_rate_ctrl_status_pub_seq;
 		_rate_ctrl_status_pub.publish(rate_ctrl_status);
+		flap_fast_shadow_s fast_shadow{};
+		fast_shadow.timestamp = rate_ctrl_status.timestamp;
+		fast_shadow.timestamp_sample = angular_velocity.timestamp_sample;
+		fast_shadow.rollspeed_integ_shadow_no_imax = _rate_control.rollIntegralShadowNoImax();
+		fast_shadow.rollspeed_integ_pre_imax_accum = _rate_control.rollIntegralPreImaxAccum();
+		fast_shadow.rollspeed_integ_accepted_accum = _rate_control.rollIntegralAcceptedAccum();
+		fast_shadow.rollspeed_integ_bound_reject_accum = _rate_control.rollIntegralBoundRejectAccum();
+		fast_shadow.rollspeed_integ_update_count = _rate_control.rollIntegralUpdateCount();
+		fast_shadow.rate_ctrl_status_pub_seq = publication_seq;
+		fast_shadow.roll_i_reset_epoch = _rate_control.rollIntegralResetEpoch();
+		fast_shadow.rollspeed_integ = rate_ctrl_status.rollspeed_integ;
+		fast_shadow.flap_b2b_transferred_raw = transferred_roll_i_raw;
+		fast_shadow.flap_b2b_total_equivalent_raw = rate_ctrl_status.flap_b2b_total_equivalent_raw;
+		_flap_fast_shadow_pub.publish(fast_shadow);
 
 	/* Only publish if any of the proper modes are enabled */
 		if (_vcontrol_mode.flag_control_rates_enabled ||

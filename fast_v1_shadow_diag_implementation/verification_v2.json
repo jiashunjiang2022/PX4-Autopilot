@@ -1,0 +1,19 @@
+{
+  "base_commit": "e624a99f2955addbf76681e636c44162a0c03055",
+  "branch": "fast-v1-shadow-diag-e624",
+  "rate_ctrl_status_restored_to_e624": true,
+  "flap_fast_shadow_topic": true,
+  "publication_pairing": true,
+  "logger_interval_ms": 20,
+  "logger_format_buffer_changed": false,
+  "transfer_cumulative_diagnostic": "DEFERRED",
+  "px4_fmu_v6c_build": "PASS",
+  "ratecontrol_tests": "19/19 PASS",
+  "bumpless_tests": "71 PASS, 1 SKIPPED",
+  "onboard_fast_inference": false,
+  "control_injection": false,
+  "ready_for_bench_check": "YES",
+  "ready_for_flight": "NO",
+  "commit_created": false,
+  "push_performed": false
+}

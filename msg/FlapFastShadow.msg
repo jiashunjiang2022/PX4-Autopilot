@@ -1,0 +1,13 @@
+# Source-aware cumulative integral diagnostics. Not control input or disturbance truth.
+uint64 timestamp
+uint64 timestamp_sample
+float32 rollspeed_integ_shadow_no_imax
+float32 rollspeed_integ_pre_imax_accum
+float32 rollspeed_integ_accepted_accum
+float32 rollspeed_integ_bound_reject_accum
+uint32 rollspeed_integ_update_count
+uint32 rate_ctrl_status_pub_seq
+uint32 roll_i_reset_epoch
+float32 rollspeed_integ
+float32 flap_b2b_transferred_raw
+float32 flap_b2b_total_equivalent_raw

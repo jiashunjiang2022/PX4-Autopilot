@@ -199,6 +199,11 @@ public:
 	 * @param rate_ctrl_status status message to fill with internal states
 	 */
 	void getRateControlStatus(rate_ctrl_status_s &rate_ctrl_status);
+	float rollIntegralShadowNoImax() const { return _roll_i_shadow_no_imax; }
+	float rollIntegralPreImaxAccum() const { return _roll_i_pre_imax_accum; }
+	float rollIntegralAcceptedAccum() const { return _roll_i_accepted_accum; }
+	float rollIntegralBoundRejectAccum() const { return _roll_i_bound_reject_accum; }
+	uint32_t rollIntegralUpdateCount() const { return _roll_i_update_count; }
 
 private:
 	void updateIntegral(matrix::Vector3f &rate_error, const float dt);
@@ -219,6 +224,10 @@ private:
 	float _roll_i_delta_accepted{0.f};
 	float _roll_i_shadow_no_imax{0.f};
 	float _roll_i_raw_drive_accum{0.f};
+	float _roll_i_pre_imax_accum{0.f};
+	float _roll_i_accepted_accum{0.f};
+	float _roll_i_bound_reject_accum{0.f};
+	uint32_t _roll_i_update_count{0};
 	bool _roll_i_update_enabled{false};
 	float _roll_i_transfer_context_raw{0.f};
 	float _roll_i_headroom_release_ratio{0.f};

@@ -60,6 +60,7 @@
 #include <uORB/topics/battery_status.h>
 #include <uORB/topics/control_allocator_status.h>
 #include <uORB/topics/flap_b2b_adaptive.h>
+#include <uORB/topics/flap_fast_shadow.h>
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/normalized_unsigned_setpoint.h>
 #include <uORB/topics/parameter_update.h>
@@ -123,6 +124,7 @@ private:
 	uORB::PublicationMulti<rate_ctrl_status_s>	_rate_ctrl_status_pub{ORB_ID(rate_ctrl_status)};
 	uORB::Publication<rate_ctrl_terms_s>	_rate_ctrl_terms_pub{ORB_ID(rate_ctrl_terms)};
 	uORB::Publication<flap_b2b_adaptive_s> _flap_b2b_adaptive_pub{ORB_ID(flap_b2b_adaptive)};
+	uORB::Publication<flap_fast_shadow_s> _flap_fast_shadow_pub{ORB_ID(flap_fast_shadow)};
 	uORB::Publication<vehicle_thrust_setpoint_s>	_vehicle_thrust_setpoint_pub;
 	uORB::Publication<vehicle_torque_setpoint_s>	_vehicle_torque_setpoint_pub;
 	uORB::Publication<normalized_unsigned_setpoint_s> _flaps_setpoint_pub{ORB_ID(flaps_setpoint)};
@@ -276,6 +278,7 @@ private:
 	BumplessRollITransfer _bumpless_roll_i_transfer{};
 	BumplessRollITransfer::Result _bumpless_roll_i_result{};
 	uint8_t _previous_nav_state{vehicle_status_s::NAVIGATION_STATE_MAX};
+	uint32_t _rate_ctrl_status_pub_seq{0};
 	bool _previous_nav_state_valid{false};
 	bool _roll_i_reset_this_cycle{false};
 	float _b2b_g_current{0.f};

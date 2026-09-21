@@ -1,0 +1,7 @@
+file,change,control_behavior_change
+msg/RateCtrlStatus.msg,add cumulative diagnostics and counters,NO
+src/lib/rate_control/rate_control.hpp,add diagnostic state,NO
+src/lib/rate_control/rate_control.cpp,accumulate existing natural increments and publish them,NO
+src/lib/rate_control/rate_control_test.cpp,add cumulative/reset/bound tests,NO
+src/modules/fw_rate_control/FixedwingRateControl.hpp,add publication sequence state,NO
+src/modules/fw_rate_control/FixedwingRateControl.cpp,publish sequence at existing publication,NO
