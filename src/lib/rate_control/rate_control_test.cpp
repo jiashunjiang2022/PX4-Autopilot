@@ -77,6 +77,60 @@ void drive_roll_integral_to_limit(RateControl &rate_control, float sign)
 }
 }
 
+TEST(RateControlTest, CumulativeDiagnosticsSurviveDecimatedObservation)
+{
+	RateControl rc;
+	configure_transfer_test(rc);
+	rc.setFeedForwardGain(Vector3f());
+	for (int j = 0; j < 10; ++j) {
+		rc.update(Vector3f(), Vector3f(.1f, 0.f, 0.f), Vector3f(), .01f, false);
+	}
+	const auto a = status_of(rc);
+	const float a_pre = rc.rollIntegralPreImaxAccum();
+	const uint32_t a_count = rc.rollIntegralUpdateCount();
+	for (int j = 0; j < 10; ++j) {
+		rc.update(Vector3f(), Vector3f(.1f, 0.f, 0.f), Vector3f(), .01f, false);
+	}
+	const auto b = status_of(rc);
+	EXPECT_EQ(rc.rollIntegralUpdateCount() - a_count, 10u);
+	EXPECT_FLOAT_EQ(b.rollspeed_integ_shadow_no_imax - a.rollspeed_integ_shadow_no_imax,
+			rc.rollIntegralPreImaxAccum() - a_pre);
+	EXPECT_NEAR(rc.rollIntegralPreImaxAccum(), rc.rollIntegralAcceptedAccum(), 1e-7f);
+	EXPECT_NEAR(rc.rollIntegralBoundRejectAccum(), 0.f, 1e-7f);
+	const auto epoch = rc.rollIntegralResetEpoch();
+	rc.resetIntegral(0);
+	const auto reset = status_of(rc);
+	EXPECT_EQ(rc.rollIntegralResetEpoch(), epoch + 1u);
+	EXPECT_EQ(rc.rollIntegralUpdateCount(), 0u);
+	EXPECT_FLOAT_EQ(rc.rollIntegralPreImaxAccum(), 0.f);
+	EXPECT_FLOAT_EQ(rc.rollIntegralAcceptedAccum(), 0.f);
+	EXPECT_FLOAT_EQ(rc.rollIntegralBoundRejectAccum(), 0.f);
+	EXPECT_FLOAT_EQ(reset.rollspeed_integ_shadow_no_imax, 0.f);
+	rc.update(Vector3f(), Vector3f(.1f, 0.f, 0.f), Vector3f(), .01f, true);
+	EXPECT_EQ(rc.rollIntegralUpdateCount(), 0u);
+}
+
+TEST(RateControlTest, CumulativeDiagnosticsAtTransferAwareBound)
+{
+	for (float sign : {-1.f, 1.f}) {
+		RateControl rc;
+		configure_transfer_test(rc);
+		rc.setRollITransferContext(sign * .03f, 0.f, true);
+		drive_roll_integral_to_limit(rc, sign);
+		const auto s = status_of(rc);
+		const float pre = rc.rollIntegralPreImaxAccum();
+		const float accepted = rc.rollIntegralAcceptedAccum();
+		const float reject = rc.rollIntegralBoundRejectAccum();
+		EXPECT_GT(std::fabs(s.rollspeed_integ_delta_pre_imax), std::fabs(s.rollspeed_integ_delta_accepted));
+		EXPECT_NEAR(reject, pre - accepted, 1e-6f);
+		EXPECT_FLOAT_EQ(s.rollspeed_integ_shadow_no_imax, pre);
+		rc.setPositiveSaturationFlag(0, true);
+		rc.setNegativeSaturationFlag(0, true);
+		rc.update(Vector3f(), Vector3f(sign, 0.f, 0.f), Vector3f(), .02f, false);
+		EXPECT_FLOAT_EQ(rc.rollIntegralPreImaxAccum(), pre);
+	}
+}
+
 TEST(RateControlTest, HeadroomRatioZeroMatchesLegacyBounds)
 {
 	RateControl rate_control;
@@ -198,6 +252,7 @@ TEST(RateControlTest, RollUnboundedIntegratorDiagnostics)
 	float pre_limit_max_error = 0.f;
 	bool real_clipped = false;
 	bool shadow_continued = false;
+	float pre_accum_start = 0.f;
 
 	for (int cycle = 0; cycle < 40; ++cycle) {
 		const Vector3f rate_error = rate_sp - rate;
@@ -211,6 +266,7 @@ TEST(RateControlTest, RollUnboundedIntegratorDiagnostics)
 		}
 
 		rate_control.getRateControlStatus(status);
+		if (cycle == 0) { pre_accum_start = rate_control.rollIntegralPreImaxAccum(); }
 
 		for (int axis = 0; axis < 3; ++axis) {
 			float i_factor = rate_error(axis) / math::radians(400.f);
@@ -238,6 +294,11 @@ TEST(RateControlTest, RollUnboundedIntegratorDiagnostics)
 	EXPECT_LE(pre_limit_max_error, 1e-7f);
 	EXPECT_TRUE(real_clipped);
 	EXPECT_TRUE(shadow_continued);
+	EXPECT_NEAR(status.rollspeed_integ_shadow_no_imax - pre_accum_start,
+			rate_control.rollIntegralPreImaxAccum() - pre_accum_start, 1e-6f);
+	EXPECT_NEAR(rate_control.rollIntegralBoundRejectAccum(),
+			rate_control.rollIntegralPreImaxAccum() - rate_control.rollIntegralAcceptedAccum(), 1e-6f);
+	EXPECT_EQ(rate_control.rollIntegralUpdateCount(), 40u);
 	EXPECT_GT(status.rollspeed_integ_delta_raw, 0.f);
 	EXPECT_GT(status.rollspeed_integ_delta_pre_imax, 0.f);
 	EXPECT_TRUE(status.rollspeed_integ_update_enabled);
@@ -262,6 +323,10 @@ TEST(RateControlTest, RollUnboundedIntegratorDiagnostics)
 	EXPECT_FLOAT_EQ(status.rollspeed_integ, 0.f);
 	EXPECT_FLOAT_EQ(status.rollspeed_integ_shadow_no_imax, 0.f);
 	EXPECT_FLOAT_EQ(status.rollspeed_integ_raw_drive_accum, 0.f);
+	EXPECT_FLOAT_EQ(rate_control.rollIntegralPreImaxAccum(), 0.f);
+	EXPECT_FLOAT_EQ(rate_control.rollIntegralAcceptedAccum(), 0.f);
+	EXPECT_FLOAT_EQ(rate_control.rollIntegralBoundRejectAccum(), 0.f);
+	EXPECT_EQ(rate_control.rollIntegralUpdateCount(), 0u);
 	EXPECT_FALSE(status.rollspeed_integ_update_enabled);
 
 	rate_control.update(Vector3f(), rate_sp, Vector3f(), 0.02f, true);

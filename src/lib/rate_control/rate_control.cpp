@@ -242,6 +242,16 @@ void RateControl::updateIntegral(Vector3f &rate_error, const float dt)
 		if (PX4_ISFINITE(rate_i)) {
 			if (i == 0) {
 				_roll_i_delta_pre_imax = rate_i - _rate_int(i);
+				// Diagnostic-only accumulation; never read by the controller.
+				const float pre_candidate = _roll_i_pre_imax_accum + _roll_i_delta_pre_imax;
+
+				if (PX4_ISFINITE(pre_candidate)) {
+					_roll_i_pre_imax_accum = pre_candidate;
+				}
+
+				if (PX4_ISFINITE(_roll_i_delta_pre_imax)) {
+					++_roll_i_update_count;
+				}
 				const float shadow_candidate = _roll_i_shadow_no_imax + _roll_i_delta_pre_imax;
 
 				if (PX4_ISFINITE(shadow_candidate)) {
@@ -265,6 +275,15 @@ void RateControl::updateIntegral(Vector3f &rate_error, const float dt)
 
 			if (i == 0) {
 				_roll_i_delta_accepted = _rate_int(i) - (rate_i - _roll_i_delta_pre_imax);
+				const float reject = _roll_i_delta_pre_imax - _roll_i_delta_accepted;
+
+				if (PX4_ISFINITE(_roll_i_accepted_accum + _roll_i_delta_accepted)) {
+					_roll_i_accepted_accum += _roll_i_delta_accepted;
+				}
+
+				if (PX4_ISFINITE(_roll_i_bound_reject_accum + reject)) {
+					_roll_i_bound_reject_accum += reject;
+				}
 			}
 		}
 	}
@@ -278,6 +297,10 @@ void RateControl::resetRollIntegralDiagnostics()
 	_roll_i_delta_accepted = 0.f;
 	_roll_i_shadow_no_imax = 0.f;
 	_roll_i_raw_drive_accum = 0.f;
+	_roll_i_pre_imax_accum = 0.f;
+	_roll_i_accepted_accum = 0.f;
+	_roll_i_bound_reject_accum = 0.f;
+	_roll_i_update_count = 0;
 	_roll_i_update_enabled = false;
 }
 

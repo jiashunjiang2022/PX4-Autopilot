@@ -1,0 +1,3 @@
+# FlapFastShadow field semantics
+
+The cumulative fields are scoped by `roll_i_reset_epoch`. `rollspeed_integ_shadow_no_imax` is the existing cumulative pre-bound natural diagnostic. `rollspeed_integ_pre_imax_accum`, `rollspeed_integ_accepted_accum`, and `rollspeed_integ_bound_reject_accum` are source-level natural-update accumulators. They exclude Slow transfer changes. `rollspeed_integ_update_count` counts finite natural roll updates and wraps modulo uint32. `rate_ctrl_status_pub_seq` is paired with each existing status publication and is not reset by integral reset. The I/S/T values are read-only endpoint snapshots. None is aerodynamic truth or a control input.
