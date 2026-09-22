@@ -646,6 +646,8 @@ void FixedwingRateControl::Run()
 		fast_shadow.fast_v1_t_lag8 = _fast_v1_output.t_lag8;
 		fast_shadow.fast_v1_p_sp = _fast_v1_output.p_sp;
 		fast_shadow.fast_v1_p_error = _fast_v1_output.p_error;
+		fast_shadow.fast_v2c_abs4_prediction = _fast_v1_output.valid ? _fast_v1_output.v2c_abs4 : 0.f;
+		fast_shadow.fast_v2c_delta4_prediction = _fast_v1_output.valid ? _fast_v1_output.v2c_delta4 : 0.f;
 		_flap_fast_shadow_pub.publish(fast_shadow);
 
 	/* Only publish if any of the proper modes are enabled */

@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include "FastV2CandidateModels.hpp"
 
 class FastV1ShadowModel
 {
@@ -16,6 +17,7 @@ public:
 		uint32_t frame_dt_us{0};
 		float t_lag2{0.f}; float t_lag4{0.f}; float t_lag8{0.f};
 		float p_sp{0.f}; float p_error{0.f};
+		float v2c_abs4{0.f}; float v2c_delta4{0.f};
 	};
 
 	void reset() { resetFeatureHistory(); _next_frame = 0; _seq = 0; _missed = 0; _last_frame_timestamp = 0; _out = {}; }
@@ -44,6 +46,7 @@ public:
 		if (_count < 9) {
 			out.abs4 = 0.f; out.delta4 = 0.f; out.valid = false;
 			out.t_lag2 = out.t_lag4 = out.t_lag8 = 0.f; out.p_sp = 0.f; out.p_error = 0.f;
+			out.v2c_abs4 = out.v2c_delta4 = 0.f;
 			_out = out; return true;
 		}
 		const float e = p_sp - p;
@@ -53,6 +56,7 @@ public:
 		const float d[4] = {t2 - t4, t4 - t8, p_sp, e};
 		out.abs4 = predict(a, ABS_MEAN, ABS_SCALE, ABS_COEF, ABS_INTERCEPT);
 		out.delta4 = predict(d, DELTA_MEAN, DELTA_SCALE, DELTA_COEF, DELTA_INTERCEPT);
+		out.v2c_abs4 = fast_v2c::abs4::predict(a); out.v2c_delta4 = fast_v2c::delta4::predict(d);
 		out.valid = std::isfinite(out.abs4) && std::isfinite(out.delta4);
 		_out = out;
 		return true;

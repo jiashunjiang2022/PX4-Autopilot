@@ -23,3 +23,5 @@ float32 fast_v1_t_lag4
 float32 fast_v1_t_lag8
 float32 fast_v1_p_sp
 float32 fast_v1_p_error
+float32 fast_v2c_abs4_prediction
+float32 fast_v2c_delta4_prediction

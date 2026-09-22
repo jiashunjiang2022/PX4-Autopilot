@@ -75,6 +75,7 @@
 
 #include "BumplessRollITransfer.hpp"
 #include "FastV1ShadowModel.hpp"
+#include "FastV2CandidateModels.hpp"
 
 using matrix::Eulerf;
 using matrix::Quatf;
