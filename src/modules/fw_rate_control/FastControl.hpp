@@ -26,6 +26,8 @@ public:
 		bool valid{false};
 	};
 	struct Decision {
+		float actuator_lower{}, actuator_upper{}, after_actuator_bound{};
+		bool actuator_margin_limited{};
 		float prediction{}, raw{}, saturated{}, model_t{}, live_t{}, model_gate{}, live_gate{}, gated{}, bounded{}, target{}, final{}, limit{};
 		uint64_t age{};
 		uint32_t seq{};
@@ -33,6 +35,7 @@ public:
 		float dt{};
 		bool enabled{}, valid{}, nonfinite{}, stale{}, reset{}, domain{}, state{}, config_invalid{};
 	};
+	struct DynamicBounds { bool valid; float lower; float upper; };
 	void invalidate()
 	{
 		_frame.valid = false;
@@ -52,7 +55,8 @@ public:
 			}
 		}
 	}
-	Decision step(const Config &c, uint64_t now, float dt, bool state_ok, bool reset)
+	Decision step(const Config &c, uint64_t now, float dt, bool state_ok, bool reset,
+		      DynamicBounds bounds = {true, -AUTHORITY_MAX, AUTHORITY_MAX})
 	{
 		Decision d{};
 		d.decision_time = now;
@@ -73,6 +77,9 @@ public:
 				       && c.on <= TON_MAX && c.off <= TOFF_MAX && c.on < c.off
 				       && std::isfinite(c.slew) && c.slew >= SLEW_MIN && c.slew <= SLEW_MAX;
 		d.config_invalid = !config_ok;
+		d.actuator_lower = bounds.lower; d.actuator_upper = bounds.upper;
+		const bool bounds_ok = bounds.valid && std::isfinite(bounds.lower) && std::isfinite(bounds.upper)
+				       && bounds.lower <= 0.f && bounds.upper >= 0.f;
 		d.nonfinite = !std::isfinite(_frame.prediction) || !std::isfinite(_frame.t)
 			      || !std::isfinite(_live) || !std::isfinite(dt);
 		if (!c.enabled || !state_ok || reset) {
@@ -87,6 +94,7 @@ public:
 			_actual = 0.f;
 			return d;
 		}
+		if (!bounds_ok) { d.actuator_margin_limited = true; _actual = 0.f; return d; }
 		d.model_gate = gate(_frame.t, c.on, c.off);
 		d.live_gate = gate(_live, c.on, c.off);
 		d.raw = c.k * _frame.prediction;
@@ -106,10 +114,14 @@ public:
 		const float lo = maximum(-T_SAFE - _frame.t, -T_SAFE - _live);
 		const float hi = minimum(T_SAFE - _frame.t, T_SAFE - _live);
 		d.bounded = clamp(d.gated, lo, hi);
-		d.target = d.bounded;
+		d.after_actuator_bound = clamp(d.bounded, bounds.lower, bounds.upper);
+		d.actuator_margin_limited = d.bounded < bounds.lower || d.bounded > bounds.upper
+					|| _actual < bounds.lower || _actual > bounds.upper;
+		d.target = d.after_actuator_bound;
 		_actual += clamp(d.target - _actual, -c.slew * dt, c.slew * dt);
 		// Safety contraction overrides slew: never retain excess authority on a fading gate.
 		_actual = clamp(clamp(_actual, -d.limit, d.limit), lo, hi);
+		_actual = clamp(_actual, bounds.lower, bounds.upper);
 		d.final = _actual;
 		d.valid = true;
 		return d;

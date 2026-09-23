@@ -108,6 +108,29 @@ bool FixedwingRateControl::verify_flap_slow_configuration() const
 	       && _param_pwm_main_rev.get() == 17;
 }
 
+bool FixedwingRateControl::verify_fast_actuator_margin_configuration() const
+{
+	// Exact nominal matrix for this analytic inverse; Slow keeps its historical tolerance.
+	const bool exact_matrix = FastActuatorMargin::zero(_param_ca_sv_cs0_trq_r.get() + .55f)
+		&& FastActuatorMargin::zero(_param_ca_sv_cs1_trq_r.get() - .55f)
+		&& FastActuatorMargin::zero(_param_ca_sv_cs0_trq_p.get() - 1.f)
+		&& FastActuatorMargin::zero(_param_ca_sv_cs1_trq_p.get() - 1.f)
+		&& FastActuatorMargin::zero(_param_ca_sv_cs0_trq_y.get())
+		&& FastActuatorMargin::zero(_param_ca_sv_cs1_trq_y.get())
+		&& FastActuatorMargin::zero(_param_ca_sv_cs2_trq_r.get())
+		&& FastActuatorMargin::zero(_param_ca_sv_cs2_trq_p.get())
+		&& FastActuatorMargin::zero(_param_ca_sv_cs2_trq_y.get() - 1.f)
+		&& FastActuatorMargin::zero(_param_ca_sv_cs0_trim.get())
+		&& FastActuatorMargin::zero(_param_ca_sv_cs1_trim.get());
+	const bool rotor_finite = _param_fast_rotor_count.get() == 0
+		|| (PX4_ISFINITE(_param_fast_ca_r0_px.get()) && PX4_ISFINITE(_param_fast_ca_r0_ct.get()));
+	return FastActuatorMargin::configuration(verify_flap_slow_configuration() && exact_matrix && rotor_finite,
+		_param_fast_ca_sv_cs0_flap.get(), _param_fast_ca_sv_cs1_flap.get(),
+		_param_fast_ca_sv_cs0_spoil.get(), _param_fast_ca_sv_cs1_spoil.get(),
+		_param_fast_rotor_count.get(), _param_fast_ca_r0_py.get(), _param_fast_ca_r0_pz.get(),
+		_param_fast_ca_sv0_slew.get(), _param_fast_ca_sv1_slew.get());
+}
+
 void FixedwingRateControl::resetIntegralAndTransfer()
 {
 	_fast_control.invalidate();
@@ -244,6 +267,9 @@ void FixedwingRateControl::Run()
 	perf_begin(_loop_perf);
 	_roll_i_reset_this_cycle = false;
 	FastControl::Decision fast_decision{};
+	flap_fast_control_s fc{};
+	FastActuatorMargin::Result fast_margin{};
+	bool fast_actuator_config_valid = false;
 	fast_decision.enabled = _param_fast_en.get();
 	fast_decision.state = true;
 	float fast_scale = 0.f, fast_base = 0.f, fast_augmented = 0.f, fast_roll_output = 0.f;
@@ -486,6 +512,12 @@ void FixedwingRateControl::Run()
 				rate_ctrl_terms.timestamp_sample = angular_velocity.timestamp_sample;
 				rate_ctrl_terms.timestamp = hrt_absolute_time();
 				_rate_ctrl_terms_pub.publish(rate_ctrl_terms);
+				fc.controller_terms_valid = true;
+				fc.p_sp_used = body_rates_setpoint(0); fc.p_used = rates(0);
+				fc.p_error_used = fc.p_sp_used - fc.p_used;
+				fc.roll_p_term = rate_ctrl_terms.p_term[0];
+				fc.roll_d_term = rate_ctrl_terms.d_term[0];
+				fc.roll_ff_term = rate_ctrl_terms.ff_term[0];
 
 				const Vector3f gains_before_update = _gain_compression.getGains();
 				_b2b_g_current = gains_before_update(0) * airspeed_scale_squared;
@@ -512,6 +544,12 @@ void FixedwingRateControl::Run()
 				// Observer above sees baseline only. Reuse its PRE-update scale below.
 				fast_scale = _b2b_g_current;
 				fast_base = control_u(0);
+				fast_actuator_config_valid = verify_fast_actuator_margin_configuration();
+				const float baseline_roll_unconstrained = fast_base + trim(0);
+				const float baseline_pitch_unconstrained = control_u(1) + trim(1);
+				if (fast_actuator_config_valid) {
+					fast_margin = FastActuatorMargin::compute(baseline_roll_unconstrained, baseline_pitch_unconstrained, fast_scale);
+				}
 				FastControl::Config fast_config{};
 				fast_config.enabled = _param_fast_en.get();
 				fast_config.k = _param_fast_k.get(); fast_config.max = _param_fast_max.get();
@@ -520,23 +558,27 @@ void FixedwingRateControl::Run()
 				const bool fast_state = _vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED
 					&& _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION
 					&& !_landed && is_fixed_wing && !_vehicle_status.is_vtol && !_vehicle_status.in_transition_mode
-					&& !_vehicle_status.failsafe && transfer_config_valid && control_u.isAllFinite()
+					&& !_vehicle_status.failsafe && fast_actuator_config_valid && control_u.isAllFinite()
 					&& PX4_ISFINITE(fast_scale) && fast_scale > 0.f && trim.isAllFinite();
 				const hrt_abstime fast_now = hrt_absolute_time();
 				const float fast_dt = _fast_last_decision && fast_now > _fast_last_decision
 					? (fast_now - _fast_last_decision) * 1e-6f : 0.f;
 				_fast_last_decision = fast_now;
 				fast_decision = _fast_control.step(fast_config, fast_now, fast_dt, fast_state,
-					_roll_i_reset_this_cycle || _rates_sp.reset_integral || fast_estimator_reset || pilot_abort_to_stabilized);
+					_roll_i_reset_this_cycle || _rates_sp.reset_integral || fast_estimator_reset || pilot_abort_to_stabilized,
+					{fast_margin.valid, fast_margin.fast_lower, fast_margin.fast_upper});
 				fast_augmented = fast_base;
 				if (fast_decision.final > 0.f || fast_decision.final < 0.f) {
 					fast_augmented = fast_base + fast_scale * fast_decision.final;
-					if (PX4_ISFINITE(fast_augmented)) {
-						fast_roll_output = math::constrain(fast_augmented + trim(0), -1.f, 1.f);
+					const float request = baseline_roll_unconstrained + fast_scale * fast_decision.final;
+					fast_roll_output = math::constrain(request, -1.f, 1.f);
+					if (FastActuatorMargin::postcheck(request, baseline_pitch_unconstrained)
+					    && fabsf(fast_roll_output - request) <= FastActuatorMargin::EPS) {
 						apply_fast_roll = true;
 					} else {
 						_fast_control.invalidate(); fast_decision.final = 0.f;
-						fast_decision.valid = false; fast_decision.nonfinite = true;
+						fast_decision.valid = false; fc.actuator_postcheck_failed = true;
+						fast_augmented = fast_base;
 					}
 				}
 
@@ -589,6 +631,8 @@ void FixedwingRateControl::Run()
 		}
 
 		// Add feed-forward from roll control output to yaw control output
+		fc.baseline_roll_output = _vehicle_torque_setpoint.xyz[0];
+		fc.baseline_pitch_output = _vehicle_torque_setpoint.xyz[1];
 		// This can be used to counteract the adverse yaw effect when rolling the plane
 		_vehicle_torque_setpoint.xyz[2] = math::constrain(_vehicle_torque_setpoint.xyz[2] + _param_fw_rll_to_yaw_ff.get() *
 						  _vehicle_torque_setpoint.xyz[0], -1.f, 1.f);
@@ -596,6 +640,8 @@ void FixedwingRateControl::Run()
 		// Tailsitter: rotate back to body frame from airspeed frame
 		// Yaw feedforward above observes the unchanged baseline roll request.
 		if (apply_fast_roll) { _vehicle_torque_setpoint.xyz[0] = fast_roll_output; }
+		fc.augmented_roll_output = _vehicle_torque_setpoint.xyz[0];
+		fc.applied_delta_roll = fc.augmented_roll_output - fc.baseline_roll_output;
 
 		if (_vehicle_status.is_vtol_tailsitter) {
 			const float helper = _vehicle_torque_setpoint.xyz[0];
@@ -709,7 +755,28 @@ void FixedwingRateControl::Run()
 		fast_shadow.fast_v2c_abs4_prediction = _fast_v1_output.valid ? _fast_v1_output.v2c_abs4 : 0.f;
 		fast_shadow.fast_v2c_delta4_prediction = _fast_v1_output.valid ? _fast_v1_output.v2c_delta4 : 0.f;
 		_flap_fast_shadow_pub.publish(fast_shadow);
-		flap_fast_control_s fc{};
+		fc.native_roll_i_current = rate_ctrl_status.rollspeed_integ;
+		fc.slow_s_current = transferred_roll_i_raw;
+		fc.total_t_current = fc.native_roll_i_current + fc.slow_s_current;
+		fc.actuator_config_valid = fast_actuator_config_valid;
+		fc.actuator_margin_valid = fast_margin.valid;
+		fc.actuator_margin_blocked = fast_margin.blocked;
+		fc.actuator_margin_limited = fast_decision.actuator_margin_limited;
+		fc.after_actuator_bound = fast_decision.after_actuator_bound;
+		fc.actuator_roll_lower = fast_margin.roll_lower; fc.actuator_roll_upper = fast_margin.roll_upper;
+		fc.actuator_roll_headroom_negative = fast_margin.roll_headroom_negative;
+		fc.actuator_roll_headroom_positive = fast_margin.roll_headroom_positive;
+		fc.actuator_fast_lower = fast_margin.fast_lower; fc.actuator_fast_upper = fast_margin.fast_upper;
+		fc.tail0_baseline = fast_margin.tail0_baseline; fc.tail1_baseline = fast_margin.tail1_baseline;
+		if (fast_margin.valid) {
+			fc.tail0_augmented = FastActuatorMargin::tail0(fc.augmented_roll_output, fc.baseline_pitch_output);
+			fc.tail1_augmented = FastActuatorMargin::tail1(fc.augmented_roll_output, fc.baseline_pitch_output);
+		}
+		mission_result_s fast_mission_result{};
+		if (_fast_mission_result_sub.update(&fast_mission_result)) {
+			_fast_mission_seq = fast_mission_result.valid ? static_cast<int32_t>(fast_mission_result.seq_current) : -1;
+		}
+		fc.mission_seq_current = _fast_mission_seq;
 		fc.timestamp = rate_ctrl_status.timestamp;
 		fc.decision_timestamp = fast_decision.decision_time;
 		fc.model_timestamp = fast_decision.frame_time;

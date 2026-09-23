@@ -29,7 +29,7 @@ state_guard = s[s.index('const bool fast_state ='):s.index('const hrt_abstime fa
 assert '&& _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION' in state_guard
 assert 'if (_vehicle_status.nav_state != vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION) {\n\t\t\t_fast_control.invalidate();' in s
 import re
-parent = 'e7b2f6de69dda341bc398d49ec719d5957af78e7'
+parent = '56d1de129c2e74e994b70f59f014c17b879eb596'
 runtime = (root/'src/modules/fw_rate_control/FastControl.hpp').read_text()
 metadata = (root/'src/modules/fw_rate_control/fw_rate_control_params.c').read_text()
 constants = dict((n, float(v)) for n, v in re.findall(r'static constexpr float (\w+) = ([.\d]+)f;', runtime))
@@ -53,7 +53,29 @@ for path in ['src/modules/fw_rate_control/FastV1ShadowModel.hpp',
 old_runtime = subprocess.check_output(['git','show',f'{parent}:src/modules/fw_rate_control/FastControl.hpp'],cwd=root).decode()
 for start_token,end_token in [('void invalidate()', 'Decision step('),
                               ('d.stale =', 'const bool config_ok'),
-                              ('if (!c.enabled', 'd.model_gate =')]:
+                              ('if (!c.enabled', 'if (!_frame.valid')]:
     assert runtime[runtime.index(start_token):runtime.index(end_token)] == old_runtime[old_runtime.index(start_token):old_runtime.index(end_token)]
 assert 'PARAM_DEFINE_INT32(FLAP_FAST_EN, 0);' in (root/'src/modules/fw_rate_control/fw_rate_control_params.c').read_text()
+old_source = subprocess.check_output(['git','show',f'{parent}:src/modules/fw_rate_control/FixedwingRateControl.cpp'],cwd=root).decode()
+def section(text, start, end):
+    return text[text.index(start):text.index(end)].strip()
+assert section(s,'bool FixedwingRateControl::verify_flap_slow_configuration()', 'bool FixedwingRateControl::verify_fast_actuator_margin_configuration()') == section(old_source,'bool FixedwingRateControl::verify_flap_slow_configuration()', 'void FixedwingRateControl::resetIntegralAndTransfer()')
+assert metadata == subprocess.check_output(['git','show',f'{parent}:src/modules/fw_rate_control/fw_rate_control_params.c'],cwd=root).decode()
+assert section(runtime,'struct Config', 'struct Frame') == section(old_runtime,'struct Config','struct Frame')
+assert section(runtime,'// Software research ceilings', 'struct Config') == section(old_runtime,'// Software research ceilings','struct Config')
+assert 'fast_actuator_config_valid && control_u.isAllFinite()' in state_guard
+assert s.index('fast_margin = FastActuatorMargin::compute') < s.index('fast_decision = _fast_control.step') < s.index('if (apply_fast_roll)')
+assert s.index('_fast_mission_result_sub.update') > s.index('if (apply_fast_roll)')
+assert s.count('_fast_mission_seq') == 2
+for identity in ['fc.total_t_current = fc.native_roll_i_current + fc.slow_s_current;',
+                 'fc.p_error_used = fc.p_sp_used - fc.p_used;',
+                 'fc.applied_delta_roll = fc.augmented_roll_output - fc.baseline_roll_output;',
+                 'FastActuatorMargin::tail0(fc.augmented_roll_output, fc.baseline_pitch_output)',
+                 'FastActuatorMargin::tail1(fc.augmented_roll_output, fc.baseline_pitch_output)']:
+    assert identity in s
+assert 'FastActuatorMargin::postcheck(request, baseline_pitch_unconstrained)' in s
+assert 'fc.actuator_postcheck_failed = true;' in s
+assert 'fc.after_t_bound = fast_decision.bounded' in s
+assert 'fc.after_actuator_bound = fast_decision.after_actuator_bound' in s
+assert (root/'src/modules/logger/logged_topics.cpp').read_text().count('add_optional_topic("flap_fast_control", 0)') == 2
 print('PASS: protected source identity, baseline arithmetic identity, compression/yaw ordering, next-cycle model ordering, default disable')

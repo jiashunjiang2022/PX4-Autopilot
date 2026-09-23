@@ -78,6 +78,8 @@
 #include "BumplessRollITransfer.hpp"
 #include "FastV1ShadowModel.hpp"
 #include "FastControl.hpp"
+#include "FastActuatorMargin.hpp"
+#include <uORB/topics/mission_result.h>
 #include "FastV2CandidateModels.hpp"
 
 using matrix::Eulerf;
@@ -245,6 +247,17 @@ private:
 		(ParamFloat<px4::params::FLAP_B2B_GSTD>) _param_flap_b2b_gstd,
 		(ParamFloat<px4::params::FLAP_B2B_GSIGN>) _param_flap_b2b_gsign,
 		(ParamInt<px4::params::CA_AIRFRAME>) _param_ca_airframe,
+		(ParamFloat<px4::params::CA_SV_CS0_FLAP>) _param_fast_ca_sv_cs0_flap,
+		(ParamFloat<px4::params::CA_SV_CS1_FLAP>) _param_fast_ca_sv_cs1_flap,
+		(ParamFloat<px4::params::CA_SV_CS0_SPOIL>) _param_fast_ca_sv_cs0_spoil,
+		(ParamFloat<px4::params::CA_SV_CS1_SPOIL>) _param_fast_ca_sv_cs1_spoil,
+		(ParamFloat<px4::params::CA_ROTOR0_PY>) _param_fast_ca_r0_py,
+		(ParamFloat<px4::params::CA_ROTOR0_PX>) _param_fast_ca_r0_px,
+		(ParamFloat<px4::params::CA_ROTOR0_CT>) _param_fast_ca_r0_ct,
+		(ParamFloat<px4::params::CA_ROTOR0_PZ>) _param_fast_ca_r0_pz,
+		(ParamFloat<px4::params::CA_SV0_SLEW>) _param_fast_ca_sv0_slew,
+		(ParamFloat<px4::params::CA_SV1_SLEW>) _param_fast_ca_sv1_slew,
+		(ParamInt<px4::params::CA_ROTOR_COUNT>) _param_fast_rotor_count,
 		(ParamInt<px4::params::CA_METHOD>) _param_ca_method,
 		(ParamInt<px4::params::CA_SV_CS_COUNT>) _param_ca_sv_cs_count,
 		(ParamInt<px4::params::CA_SV_CS0_TYPE>) _param_ca_sv_cs0_type,
@@ -283,6 +296,7 @@ private:
 
 	float 		get_airspeed_and_update_scaling(float dt);
 	bool verify_flap_slow_configuration() const;
+	bool verify_fast_actuator_margin_configuration() const;
 	void resetIntegralAndTransfer();
 	void resetRollIntegralAndTransfer();
 
@@ -299,6 +313,8 @@ private:
 	FastV1ShadowModel::Output _fast_v1_output{};
 	bool _fast_reset_regime{false};
 	FastControl _fast_control{};
+	uORB::Subscription _fast_mission_result_sub{ORB_ID(mission_result)};
+	int32_t _fast_mission_seq{-1};
 	uORB::Subscription _fast_attitude_sub{ORB_ID(vehicle_attitude)};
 	uint8_t _fast_attitude_reset_counter{0};
 	hrt_abstime _fast_last_decision{0};

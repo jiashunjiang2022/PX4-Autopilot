@@ -9,9 +9,11 @@ static void ready(FastControl &f, float t, float p, float live)
 {
 	for (unsigned i=1; i<=9; ++i) { f.complete({p,t,1000000,i,true},live,1000000,true); }
 }
+#include "fast_margin_test.hpp"
 int main()
 {
 	FastControl::Config c; c.enabled=true;
+	test_margin();
 	unsigned cases=0;
 	for (float t : {0.f,.149999f,.15f,.165f,.18f,.180001f,-.149999f,-.15f,-.165f,-.18f,-.180001f}) {
 		for (float p : {0.f,.001f,-.001f,.02f,-.02f,std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()}) {
