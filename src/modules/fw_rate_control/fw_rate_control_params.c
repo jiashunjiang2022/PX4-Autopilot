@@ -513,6 +513,7 @@ PARAM_DEFINE_FLOAT(FLAP_FAST_TOFF, 0.18f);
 /**
  * FAST normal slew in burden units per second.
  *
+ * Zero or negative slew is invalid and immediately disables FAST output.
  * Invalid configuration fails zero. No flight authorization.
  *
  * @min 0

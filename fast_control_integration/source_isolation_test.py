@@ -25,5 +25,9 @@ assert 'if (fast_decision.final > 0.f || fast_decision.final < 0.f)' in s
 assert 'fast_scale = _b2b_g_current;' in s
 assert 'matrix::constrain(control_u + trim, -1.f, 1.f).copyTo(_vehicle_torque_setpoint.xyz);' in s
 assert '_param_fast_en.get()' in s
+state_guard = s[s.index('const bool fast_state ='):s.index('const hrt_abstime fast_now =')]
+assert '&& _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION' in state_guard
+assert 'if (_vehicle_status.nav_state != vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION) {\n\t\t\t_fast_control.invalidate();' in s
+assert 'c.slew > 0.f' in (root/'src/modules/fw_rate_control/FastControl.hpp').read_text()
 assert 'PARAM_DEFINE_INT32(FLAP_FAST_EN, 0);' in (root/'src/modules/fw_rate_control/fw_rate_control_params.c').read_text()
 print('PASS: protected source identity, baseline arithmetic identity, compression/yaw ordering, next-cycle model ordering, default disable')

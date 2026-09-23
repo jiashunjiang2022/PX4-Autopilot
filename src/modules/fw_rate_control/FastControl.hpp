@@ -63,7 +63,7 @@ public:
 				       && std::isfinite(c.max) && c.max >= 0.f && c.max <= .005f
 				       && std::isfinite(c.on) && std::isfinite(c.off) && c.on >= 0.f
 				       && c.on <= .15f && c.off <= .18f && c.on < c.off
-				       && std::isfinite(c.slew) && c.slew >= 0.f && c.slew <= .05f;
+				       && std::isfinite(c.slew) && c.slew > 0.f && c.slew <= .05f;
 		d.nonfinite = !std::isfinite(_frame.prediction) || !std::isfinite(_frame.t)
 			      || !std::isfinite(_live) || !std::isfinite(dt);
 		if (!c.enabled || !state_ok || reset) {

@@ -36,6 +36,22 @@ int main()
 		if(mode==4) cfg.max=.01f;
 		assert(f.step(cfg,1000001,.01f,mode!=1,mode==2).final==0);
 	}
+	// Production maps AUTO_MISSION to state_ok (checked by source isolation test).
+	ready(f,0,.02f,0);
+	assert(f.step(c,1000001,.01f,true,false).final>0);
+	assert(f.step(c,1000002,.01f,false,false).final==0); // mission -> stabilized
+	for (unsigned i=0;i<20;++i) {
+		ready(f,0,.02f,0); // even a full warmup cannot authorize a non-mission mode
+		auto blocked=f.step(c,1000003+i,.01f,false,false);
+		assert(blocked.final==0 && blocked.state && !blocked.valid);
+	}
+	for (float slew : {0.f,-.01f}) {
+		ready(f,0,.02f,0);
+		assert(f.step(c,1000001,.01f,true,false).final>0);
+		auto cfg=c; cfg.slew=slew;
+		assert(f.step(cfg,1000002,.01f,true,false).final==0);
+		assert(f.step(c,1000003,.01f,true,false).final==0); // invalid config cleared readiness
+	}
 	FastV1ShadowModel model; FastV1ShadowModel::Output out;
 	for(unsigned i=0;i<9;++i) {
 		assert(model.update(1000000+i*50000,.01f*i,.1f,.05f,out));
@@ -49,5 +65,5 @@ int main()
 	model.resetFeatureHistory();
 	assert(!model.update(1400002,0,0,0,out)); assert(!out.control_delta_valid);
 	assert(model.update(1450000,0,0,0,out)); assert(!out.control_delta_valid);
-	std::printf("PASS: %u boundary cases plus slew, live veto, stale rewarmup, state/reset/config, model history and held-frame checks\n",cases);
+	std::printf("PASS: %u boundary cases plus mission exit/non-mission persistence, zero/negative slew shutdown, live veto, stale rewarmup, state/reset/config, model history and held-frame checks\n",cases);
 }

@@ -299,6 +299,9 @@ void FixedwingRateControl::Run()
 
 		// vehicle status update must be before the vehicle_control_mode poll, otherwise rate sp are not published during whole transition
 		_vehicle_status_sub.update(&_vehicle_status);
+		if (_vehicle_status.nav_state != vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION) {
+			_fast_control.invalidate();
+		}
 		const bool is_in_transition_except_tailsitter = _vehicle_status.in_transition_mode
 				&& !_vehicle_status.is_vtol_tailsitter;
 		const bool is_fixed_wing = _vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING;
@@ -515,6 +518,7 @@ void FixedwingRateControl::Run()
 				fast_config.on = _param_fast_on.get(); fast_config.off = _param_fast_off.get();
 				fast_config.slew = _param_fast_slew.get();
 				const bool fast_state = _vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED
+					&& _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION
 					&& !_landed && is_fixed_wing && !_vehicle_status.is_vtol && !_vehicle_status.in_transition_mode
 					&& !_vehicle_status.failsafe && transfer_config_valid && control_u.isAllFinite()
 					&& PX4_ISFINITE(fast_scale) && fast_scale > 0.f && trim.isAllFinite();
