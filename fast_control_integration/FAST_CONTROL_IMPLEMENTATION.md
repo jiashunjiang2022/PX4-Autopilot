@@ -42,7 +42,13 @@ Actual hrt decision interval is used, not the PID's clipped dt.
 ## Parameters
 FLAP_FAST_EN=0, FLAP_FAST_K=1, FLAP_FAST_MAX=.005,
 FLAP_FAST_TON=.15, FLAP_FAST_TOFF=.18, FLAP_FAST_SLEW=.05.
-Values outside conservative maxima or TON>=TOFF fail zero.
+Research ceilings are now K=5, MAX=.020, TON=.180, TOFF=.200, SLEW=.200.
+SLEW minimum is .000001. Out-of-range/nonfinite values or TON>=TOFF fail zero.
+Defaults remain unchanged; see FAST_PARAMETER_ENVELOPE_AUDIT.md for the full audit.
+Larger values are experimental; no actuator-margin protection or flight authorization.
+config_invalid is !config_ok on every evaluated step, including disabled/state-blocked steps;
+paths that do not evaluate step leave the field false. The diagnostic is published separately
+from nonfinite_fallback and disabled_by_state.
 Names comply with 16-character parser limit (src/lib/parameters/px4params/srcparser.py:370).
 No pre-existing parameter collisions were found.
 

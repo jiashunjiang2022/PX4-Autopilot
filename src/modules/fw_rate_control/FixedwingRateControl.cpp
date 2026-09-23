@@ -716,6 +716,7 @@ void FixedwingRateControl::Run()
 		fc.decision_dt = fast_decision.dt;
 		fc.prediction_age_us = fast_decision.age; fc.model_frame_seq = fast_decision.seq;
 		fc.enabled = fast_decision.enabled; fc.valid = fast_decision.valid;
+		fc.config_invalid = fast_decision.config_invalid;
 		fc.nonfinite_fallback = fast_decision.nonfinite; fc.stale_fallback = fast_decision.stale;
 		fc.reset_fallback = fast_decision.reset; fc.disabled_by_t = fast_decision.domain;
 		fc.disabled_by_state = fast_decision.state;

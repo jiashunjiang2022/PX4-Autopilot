@@ -7,6 +7,8 @@ uint64 prediction_age_us
 uint32 model_frame_seq
 bool enabled
 bool valid
+# !config_ok on every evaluated FAST step; false if no step was evaluated.
+bool config_invalid
 bool nonfinite_fallback
 bool stale_fallback
 bool reset_fallback

@@ -468,10 +468,12 @@ PARAM_DEFINE_INT32(FLAP_FAST_EN, 0);
 /**
  * FAST prediction gain.
  *
- * Invalid configuration fails zero. No flight authorization.
+ * Defaults remain conservative; larger values are experimental research settings.
+ * Actuator-margin protection is not implemented. No flight authorization.
+ * Bounds mirror FastControl.hpp; invalid configuration fails zero.
  *
  * @min 0
- * @max 1
+ * @max 5.0
  * @group FW Rate Control
  */
 PARAM_DEFINE_FLOAT(FLAP_FAST_K, 1.0f);
@@ -479,10 +481,12 @@ PARAM_DEFINE_FLOAT(FLAP_FAST_K, 1.0f);
 /**
  * FAST maximum raw burden authority.
  *
- * Invalid configuration fails zero. No flight authorization.
+ * Defaults remain conservative; larger values are experimental research settings.
+ * Actuator-margin protection is not implemented. No flight authorization.
+ * Bounds mirror FastControl.hpp; invalid configuration fails zero.
  *
  * @min 0
- * @max 0.005
+ * @max 0.020
  * @decimal 4
  * @group FW Rate Control
  */
@@ -491,10 +495,13 @@ PARAM_DEFINE_FLOAT(FLAP_FAST_MAX, 0.005f);
 /**
  * FAST full authority burden threshold.
  *
- * Invalid configuration fails zero. No flight authorization.
+ * Defaults remain conservative; larger values are experimental research settings.
+ * Actuator-margin protection is not implemented. No flight authorization.
+ * Bounds mirror FastControl.hpp; invalid configuration fails zero.
+ * Must be strictly less than FLAP_FAST_TOFF.
  *
  * @min 0
- * @max 0.15
+ * @max 0.180
  * @group FW Rate Control
  */
 PARAM_DEFINE_FLOAT(FLAP_FAST_TON, 0.15f);
@@ -502,10 +509,13 @@ PARAM_DEFINE_FLOAT(FLAP_FAST_TON, 0.15f);
 /**
  * FAST zero authority burden threshold.
  *
- * Invalid configuration fails zero. No flight authorization.
+ * Defaults remain conservative; larger values are experimental research settings.
+ * Actuator-margin protection is not implemented. No flight authorization.
+ * Bounds mirror FastControl.hpp; invalid configuration fails zero.
+ * Must be strictly greater than FLAP_FAST_TON.
  *
  * @min 0
- * @max 0.18
+ * @max 0.200
  * @group FW Rate Control
  */
 PARAM_DEFINE_FLOAT(FLAP_FAST_TOFF, 0.18f);
@@ -513,11 +523,13 @@ PARAM_DEFINE_FLOAT(FLAP_FAST_TOFF, 0.18f);
 /**
  * FAST normal slew in burden units per second.
  *
+ * Defaults remain conservative; larger values are experimental research settings.
+ * Actuator-margin protection is not implemented. No flight authorization.
+ * Bounds mirror FastControl.hpp; invalid configuration fails zero.
  * Zero or negative slew is invalid and immediately disables FAST output.
- * Invalid configuration fails zero. No flight authorization.
  *
- * @min 0
- * @max 0.05
+ * @min 0.000001
+ * @max 0.200
  * @group FW Rate Control
  */
 PARAM_DEFINE_FLOAT(FLAP_FAST_SLEW, 0.05f);

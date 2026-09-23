@@ -28,6 +28,32 @@ assert '_param_fast_en.get()' in s
 state_guard = s[s.index('const bool fast_state ='):s.index('const hrt_abstime fast_now =')]
 assert '&& _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION' in state_guard
 assert 'if (_vehicle_status.nav_state != vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION) {\n\t\t\t_fast_control.invalidate();' in s
-assert 'c.slew > 0.f' in (root/'src/modules/fw_rate_control/FastControl.hpp').read_text()
+import re
+parent = 'e7b2f6de69dda341bc398d49ec719d5957af78e7'
+runtime = (root/'src/modules/fw_rate_control/FastControl.hpp').read_text()
+metadata = (root/'src/modules/fw_rate_control/fw_rate_control_params.c').read_text()
+constants = dict((n, float(v)) for n, v in re.findall(r'static constexpr float (\w+) = ([.\d]+)f;', runtime))
+for param, constant, default in [('K','K_MAX',1),('MAX','AUTHORITY_MAX',.005),
+                               ('TON','TON_MAX',.15),('TOFF','TOFF_MAX',.18),('SLEW','SLEW_MAX',.05)]:
+    match = re.search(r'/\*\*((?:(?!\*/).)*)\*/\s*PARAM_DEFINE_FLOAT\(FLAP_FAST_'+param+r', ([.\d]+)f\);', metadata, re.S)
+    assert match, param
+    assert float(match[2]) == default
+    assert float(re.search(r'@max ([.\d]+)', match[1])[1]) == constants[constant]
+    expected_min = constants['SLEW_MIN'] if param == 'SLEW' else 0
+    assert float(re.search(r'@min ([.\d]+)', match[1])[1]) == expected_min
+for expression in ['c.k <= K_MAX','c.max <= AUTHORITY_MAX','c.on <= TON_MAX',
+                   'c.off <= TOFF_MAX','c.slew >= SLEW_MIN','c.slew <= SLEW_MAX',
+                   'c.on < c.off','d.config_invalid = !config_ok;']:
+    assert expression in runtime
+assert constants['T_SAFE'] == .20
+assert 'fc.config_invalid = fast_decision.config_invalid;' in s
+for path in ['src/modules/fw_rate_control/FastV1ShadowModel.hpp',
+             'src/modules/fw_rate_control/FastV2CandidateModels.hpp']:
+    assert (root/path).read_bytes() == subprocess.check_output(['git','show',f'{parent}:{path}'],cwd=root)
+old_runtime = subprocess.check_output(['git','show',f'{parent}:src/modules/fw_rate_control/FastControl.hpp'],cwd=root).decode()
+for start_token,end_token in [('void invalidate()', 'Decision step('),
+                              ('d.stale =', 'const bool config_ok'),
+                              ('if (!c.enabled', 'd.model_gate =')]:
+    assert runtime[runtime.index(start_token):runtime.index(end_token)] == old_runtime[old_runtime.index(start_token):old_runtime.index(end_token)]
 assert 'PARAM_DEFINE_INT32(FLAP_FAST_EN, 0);' in (root/'src/modules/fw_rate_control/fw_rate_control_params.c').read_text()
 print('PASS: protected source identity, baseline arithmetic identity, compression/yaw ordering, next-cycle model ordering, default disable')

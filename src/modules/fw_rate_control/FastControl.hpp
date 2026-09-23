@@ -7,6 +7,14 @@
 class FastControl
 {
 public:
+	// Software research ceilings, not flight settings. Mirror parameter metadata.
+	static constexpr float K_MAX = 5.f;
+	static constexpr float AUTHORITY_MAX = .020f;
+	static constexpr float TON_MAX = .180f;
+	static constexpr float TOFF_MAX = .200f;
+	static constexpr float SLEW_MIN = .000001f;
+	static constexpr float SLEW_MAX = .200f;
+	static constexpr float T_SAFE = .20f;
 	struct Config {
 		bool enabled{false};
 		float k{1.f}, max{.005f}, on{.15f}, off{.18f}, slew{.05f};
@@ -23,7 +31,7 @@ public:
 		uint32_t seq{};
 		uint64_t decision_time{}, frame_time{};
 		float dt{};
-		bool enabled{}, valid{}, nonfinite{}, stale{}, reset{}, domain{}, state{};
+		bool enabled{}, valid{}, nonfinite{}, stale{}, reset{}, domain{}, state{}, config_invalid{};
 	};
 	void invalidate()
 	{
@@ -59,11 +67,12 @@ public:
 		d.seq = _frame.seq;
 		d.age = now >= _frame.timestamp ? now - _frame.timestamp : UINT64_MAX;
 		d.stale = d.age > 100000 || now < _live_time || now - _live_time > 100000;
-		const bool config_ok = std::isfinite(c.k) && c.k >= 0.f && c.k <= 1.f
-				       && std::isfinite(c.max) && c.max >= 0.f && c.max <= .005f
+		const bool config_ok = std::isfinite(c.k) && c.k >= 0.f && c.k <= K_MAX
+				       && std::isfinite(c.max) && c.max >= 0.f && c.max <= AUTHORITY_MAX
 				       && std::isfinite(c.on) && std::isfinite(c.off) && c.on >= 0.f
-				       && c.on <= .15f && c.off <= .18f && c.on < c.off
-				       && std::isfinite(c.slew) && c.slew > 0.f && c.slew <= .05f;
+				       && c.on <= TON_MAX && c.off <= TOFF_MAX && c.on < c.off
+				       && std::isfinite(c.slew) && c.slew >= SLEW_MIN && c.slew <= SLEW_MAX;
+		d.config_invalid = !config_ok;
 		d.nonfinite = !std::isfinite(_frame.prediction) || !std::isfinite(_frame.t)
 			      || !std::isfinite(_live) || !std::isfinite(dt);
 		if (!c.enabled || !state_ok || reset) {
@@ -94,8 +103,8 @@ public:
 			_actual = 0.f;
 			return d;
 		}
-		const float lo = maximum(-.20f - _frame.t, -.20f - _live);
-		const float hi = minimum(.20f - _frame.t, .20f - _live);
+		const float lo = maximum(-T_SAFE - _frame.t, -T_SAFE - _live);
+		const float hi = minimum(T_SAFE - _frame.t, T_SAFE - _live);
 		d.bounded = clamp(d.gated, lo, hi);
 		d.target = d.bounded;
 		_actual += clamp(d.target - _actual, -c.slew * dt, c.slew * dt);

@@ -33,7 +33,7 @@ int main()
 		ready(f,0,.02f,0); auto cfg=c;
 		if(mode==0) cfg.enabled=false;
 		if(mode==3) cfg.on=cfg.off;
-		if(mode==4) cfg.max=.01f;
+		if(mode==4) cfg.max=std::nextafter(FastControl::AUTHORITY_MAX, INFINITY);
 		assert(f.step(cfg,1000001,.01f,mode!=1,mode==2).final==0);
 	}
 	// Production maps AUTO_MISSION to state_ok (checked by source isolation test).
@@ -52,6 +52,93 @@ int main()
 		assert(f.step(cfg,1000002,.01f,true,false).final==0);
 		assert(f.step(c,1000003,.01f,true,false).final==0); // invalid config cleared readiness
 	}
+	// Envelope cases exercise each parameter independently after real nonzero output.
+	const float nan=std::numeric_limits<float>::quiet_NaN();
+	const float inf=std::numeric_limits<float>::infinity();
+	using Config=FastControl::Config;
+	const auto check_config=[&](Config cfg, bool valid) {
+		FastControl ctrl; ready(ctrl,0,.02f,0);
+		assert(ctrl.step(c,1000001,.01f,true,false).final>0);
+		auto result=ctrl.step(cfg,1000002,.01f,true,false);
+		assert(result.config_invalid==!valid);
+		assert(result.valid==valid);
+		if (!valid) {
+			assert(result.final==0);
+			assert(ctrl.step(c,1000003,.01f,true,false).final==0);
+		}
+	};
+	struct Bound { float Config::*field; float high; };
+	for (auto b : {Bound{&Config::k,5.f}, Bound{&Config::max,.020f},
+		Bound{&Config::on,.180f}, Bound{&Config::off,.200f}, Bound{&Config::slew,.200f}}) {
+		Config cfg=c; check_config(cfg,true);
+		cfg.off=.20f; cfg.*(b.field)=b.high; check_config(cfg,true);
+		cfg.*(b.field)=std::nextafter(b.high,inf); check_config(cfg,false);
+		for (float bad : {-1.f,nan,inf,-inf}) { cfg.*(b.field)=bad; check_config(cfg,false); }
+	}
+	for (float k : {1.f,1.5f,3.f,5.f}) {
+		Config cfg=c; cfg.k=k; check_config(cfg,true);
+		FastControl ctrl; ready(ctrl,0,.004f,0);
+		auto result=ctrl.step(cfg,1000001,.1f,true,false);
+		assert(std::fabs(result.raw-k*.004f)<1e-8f);
+		assert(std::fabs(result.saturated-std::min(k*.004f,.005f))<1e-8f);
+		assert(std::fabs(result.final)<=cfg.max);
+	}
+	for (float v : {.005f,.010f,.020f}) { Config cfg=c; cfg.max=v; check_config(cfg,true); }
+	for (float v : {.15f,.17f,.18f}) { Config cfg=c; cfg.on=v; cfg.off=.20f; check_config(cfg,true); }
+	for (float v : {.18f,.19f,.20f}) { Config cfg=c; cfg.off=v; check_config(cfg,true); }
+	for (float v : {FastControl::SLEW_MIN,.05f,.10f,.20f}) { Config cfg=c; cfg.slew=v; check_config(cfg,true); }
+	for (float v : {0.f,-.01f,std::nextafter(FastControl::SLEW_MIN,0.f)}) {
+		Config cfg=c; cfg.slew=v; check_config(cfg,false);
+	}
+	{ Config cfg=c; cfg.on=cfg.off; check_config(cfg,false); cfg.off=.14f; check_config(cfg,false); }
+	{ Config cfg=c; cfg.k=0; check_config(cfg,true); cfg.max=0; check_config(cfg,true); cfg.on=0; check_config(cfg,true); }
+	// Synthetic model/live grid covers both signs, fade, projection and minimum gate.
+	unsigned envelope_cases=0;
+	for (float maximum : {.010f,.020f}) {
+		for (auto thresholds : {std::pair<float,float>{.15f,.18f},{.17f,.19f},{.18f,.20f}}) {
+			Config cfg=c; cfg.max=maximum; cfg.k=5; cfg.slew=.2f;
+			cfg.on=thresholds.first; cfg.off=thresholds.second;
+			const auto gate=[&](float t) {
+				float a=std::fabs(t);
+				return a<=cfg.on ? 1.f : (a>=cfg.off ? 0.f : (cfg.off-a)/(cfg.off-cfg.on));
+			};
+			for (float t : {0.f,cfg.on,std::nextafter(cfg.on,0.f),std::nextafter(cfg.on,inf),
+				(cfg.on+cfg.off)/2,cfg.off,std::nextafter(cfg.off,0.f),std::nextafter(cfg.off,inf),.2f}) {
+				for (float live : {0.f,cfg.on,(cfg.on+cfg.off)/2,cfg.off,.2f}) {
+					for (float sign : {-1.f,1.f}) {
+						for (float pred : {-.1f,.1f}) {
+							FastControl ctrl; ready(ctrl,sign*t,pred,-sign*live);
+							auto result=ctrl.step(cfg,1000001,.1f,true,false);
+							const float g=std::min(gate(t),gate(live));
+							assert(std::fabs(result.final)<=maximum+1e-8f);
+							assert(std::fabs(sign*t+result.final)<=.20f+1e-7f);
+							assert(std::fabs(-sign*live+result.final)<=.20f+1e-7f);
+							assert(std::fabs(result.model_gate-gate(t))<1e-6f);
+							assert(std::fabs(result.live_gate-gate(live))<1e-6f);
+							assert(std::fabs(result.gated-std::copysign(maximum*g,pred))<1e-7f);
+							if(g==0) assert(result.final==0);
+							if(t==0 && live==0) assert(std::fabs(std::fabs(result.final)-maximum)<1e-7f);
+							++envelope_cases;
+						}
+					}
+				}
+			}
+		}
+	}
+	// A previously large actual must contract immediately when burden approaches .20.
+	for (float sign : {-1.f,1.f}) {
+		Config cfg=c; cfg.max=.02f; cfg.slew=.2f; cfg.on=.18f; cfg.off=.2f;
+		FastControl ctrl; ready(ctrl,0,sign*.1f,0);
+		assert(std::fabs(ctrl.step(cfg,1000001,.1f,true,false).final-sign*.02f)<1e-7f);
+		ctrl.complete({sign*.1f,sign*.199f,1000002,10,true},sign*.198f,1000002,true);
+		auto result=ctrl.step(cfg,1000003,.001f,true,false);
+		assert(std::fabs(result.final)<=.001001f);
+		assert(std::fabs(sign*.199f+result.final)<=.20f+1e-7f);
+		assert(std::fabs(sign*.198f+result.final)<=.20f+1e-7f);
+		ctrl.complete({sign*.1f,sign*.2f,1000004,11,true},0,1000004,true);
+		assert(ctrl.step(cfg,1000005,.001f,true,false).final==0);
+	}
+	std::printf("PASS: research config bounds/nonfinite/relationships, large-K saturation, %u expanded authority/gate cases and safety contraction\n",envelope_cases);
 	FastV1ShadowModel model; FastV1ShadowModel::Output out;
 	for(unsigned i=0;i<9;++i) {
 		assert(model.update(1000000+i*50000,.01f*i,.1f,.05f,out));
