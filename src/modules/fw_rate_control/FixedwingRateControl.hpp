@@ -61,6 +61,8 @@
 #include <uORB/topics/control_allocator_status.h>
 #include <uORB/topics/flap_b2b_adaptive.h>
 #include <uORB/topics/flap_fast_shadow.h>
+#include <uORB/topics/flap_fast_control.h>
+#include <uORB/topics/vehicle_attitude.h>
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/normalized_unsigned_setpoint.h>
 #include <uORB/topics/parameter_update.h>
@@ -75,6 +77,7 @@
 
 #include "BumplessRollITransfer.hpp"
 #include "FastV1ShadowModel.hpp"
+#include "FastControl.hpp"
 #include "FastV2CandidateModels.hpp"
 
 using matrix::Eulerf;
@@ -169,6 +172,12 @@ private:
 	int32_t _param_vt_fw_difthr_en{0};
 
 	DEFINE_PARAMETERS(
+		(ParamBool<px4::params::FLAP_FAST_EN>) _param_fast_en,
+		(ParamFloat<px4::params::FLAP_FAST_K>) _param_fast_k,
+		(ParamFloat<px4::params::FLAP_FAST_MAX>) _param_fast_max,
+		(ParamFloat<px4::params::FLAP_FAST_TON>) _param_fast_on,
+		(ParamFloat<px4::params::FLAP_FAST_TOFF>) _param_fast_off,
+		(ParamFloat<px4::params::FLAP_FAST_SLEW>) _param_fast_slew,
 		(ParamFloat<px4::params::FW_ACRO_X_MAX>) _param_fw_acro_x_max,
 		(ParamFloat<px4::params::FW_ACRO_Y_MAX>) _param_fw_acro_y_max,
 		(ParamFloat<px4::params::FW_ACRO_Z_MAX>) _param_fw_acro_z_max,
@@ -289,4 +298,9 @@ private:
 	FastV1ShadowModel _fast_v1_shadow{};
 	FastV1ShadowModel::Output _fast_v1_output{};
 	bool _fast_reset_regime{false};
+	FastControl _fast_control{};
+	uORB::Subscription _fast_attitude_sub{ORB_ID(vehicle_attitude)};
+	uint8_t _fast_attitude_reset_counter{0};
+	hrt_abstime _fast_last_decision{0};
+	uORB::Publication<flap_fast_control_s> _fast_control_pub{ORB_ID(flap_fast_control)};
 };

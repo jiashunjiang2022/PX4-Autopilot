@@ -1,0 +1,1 @@
+PASS: 77 boundary cases plus slew, live veto, stale rewarmup, state/reset/config, model history and held-frame checks

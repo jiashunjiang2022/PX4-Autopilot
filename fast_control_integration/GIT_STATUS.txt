@@ -1,0 +1,10 @@
+ M msg/CMakeLists.txt
+ ? platforms/nuttx/NuttX/nuttx
+ M src/modules/fw_rate_control/FastV1ShadowModel.hpp
+ M src/modules/fw_rate_control/FixedwingRateControl.cpp
+ M src/modules/fw_rate_control/FixedwingRateControl.hpp
+ M src/modules/fw_rate_control/fw_rate_control_params.c
+ M src/modules/logger/logged_topics.cpp
+?? fast_control_integration/
+?? msg/FlapFastControl.msg
+?? src/modules/fw_rate_control/FastControl.hpp

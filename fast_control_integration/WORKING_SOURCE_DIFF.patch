@@ -1,0 +1,344 @@
+diff --git a/msg/CMakeLists.txt b/msg/CMakeLists.txt
+index 2309714097..e15c28c092 100644
+--- a/msg/CMakeLists.txt
++++ b/msg/CMakeLists.txt
+@@ -96,6 +96,7 @@ set(msg_files
+ 	FlapAugV4Shadow.msg
+ 	FlapFrequency.msg
+ 	FlapFastShadow.msg
++	FlapFastControl.msg
+ 	FlightPhaseEstimation.msg
+ 	FollowTarget.msg
+ 	FollowTargetEstimator.msg
+diff --git a/src/modules/fw_rate_control/FastV1ShadowModel.hpp b/src/modules/fw_rate_control/FastV1ShadowModel.hpp
+index 062db36aec..930ecfda37 100644
+--- a/src/modules/fw_rate_control/FastV1ShadowModel.hpp
++++ b/src/modules/fw_rate_control/FastV1ShadowModel.hpp
+@@ -18,10 +18,12 @@ public:
+ 		float t_lag2{0.f}; float t_lag4{0.f}; float t_lag8{0.f};
+ 		float p_sp{0.f}; float p_error{0.f};
+ 		float v2c_abs4{0.f}; float v2c_delta4{0.f};
++		float control_model_t{0.f};
++		bool control_delta_valid{false};
+ 	};
+ 
+ 	void reset() { resetFeatureHistory(); _next_frame = 0; _seq = 0; _missed = 0; _last_frame_timestamp = 0; _out = {}; }
+-	void resetFeatureHistory() { for (float &v : _ring) { v = 0.f; } _count = 0; _head = 0; _out.abs4 = 0.f; _out.delta4 = 0.f; _out.valid = false; _out.t_lag2 = _out.t_lag4 = _out.t_lag8 = 0.f; _out.p_sp = _out.p_error = 0.f; }
++	void resetFeatureHistory() { for (float &v : _ring) { v = 0.f; } _count = 0; _head = 0; _out.abs4 = 0.f; _out.delta4 = 0.f; _out.valid = false; _out.control_delta_valid = false; _out.t_lag2 = _out.t_lag4 = _out.t_lag8 = 0.f; _out.p_sp = _out.p_error = 0.f; }
+ 
+ 	bool update(uint64_t now, float total_equivalent_i_raw, float p_sp, float p, Output &out)
+ 	{
+@@ -32,6 +34,7 @@ public:
+ 		_missed += elapsed;
+ 		_next_frame += static_cast<uint64_t>(elapsed + 1) * 50000;
+ 		++_seq;
++		_out.control_delta_valid = false;
+ 		out = _out;
+ 		out.frame_seq = _seq;
+ 		out.missed_frames = _missed;
+@@ -57,6 +60,9 @@ public:
+ 		out.abs4 = predict(a, ABS_MEAN, ABS_SCALE, ABS_COEF, ABS_INTERCEPT);
+ 		out.delta4 = predict(d, DELTA_MEAN, DELTA_SCALE, DELTA_COEF, DELTA_INTERCEPT);
+ 		out.v2c_abs4 = fast_v2c::abs4::predict(a); out.v2c_delta4 = fast_v2c::delta4::predict(d);
++		out.control_model_t = total_equivalent_i_raw;
++		out.control_delta_valid = std::isfinite(t2) && std::isfinite(t4) && std::isfinite(t8)
++			&& std::isfinite(e) && std::isfinite(d[0]) && std::isfinite(d[1]) && std::isfinite(out.v2c_delta4);
+ 		out.valid = std::isfinite(out.abs4) && std::isfinite(out.delta4);
+ 		_out = out;
+ 		return true;
+diff --git a/src/modules/fw_rate_control/FixedwingRateControl.cpp b/src/modules/fw_rate_control/FixedwingRateControl.cpp
+index 32d87493fc..d2121c3ef4 100644
+--- a/src/modules/fw_rate_control/FixedwingRateControl.cpp
++++ b/src/modules/fw_rate_control/FixedwingRateControl.cpp
+@@ -110,6 +110,7 @@ bool FixedwingRateControl::verify_flap_slow_configuration() const
+ 
+ void FixedwingRateControl::resetIntegralAndTransfer()
+ {
++	_fast_control.invalidate();
+ 	_rate_control.resetIntegral();
+ 	_bumpless_roll_i_transfer.synchronizeReset(_rate_control.rollIntegralResetEpoch());
+ 	_roll_i_reset_this_cycle = true;
+@@ -117,6 +118,7 @@ void FixedwingRateControl::resetIntegralAndTransfer()
+ 
+ void FixedwingRateControl::resetRollIntegralAndTransfer()
+ {
++	_fast_control.invalidate();
+ 	_rate_control.resetIntegral(0);
+ 	_bumpless_roll_i_transfer.synchronizeReset(_rate_control.rollIntegralResetEpoch());
+ 	_roll_i_reset_this_cycle = true;
+@@ -241,6 +243,11 @@ void FixedwingRateControl::Run()
+ 
+ 	perf_begin(_loop_perf);
+ 	_roll_i_reset_this_cycle = false;
++	FastControl::Decision fast_decision{};
++	fast_decision.enabled = _param_fast_en.get();
++	fast_decision.state = true;
++	float fast_scale = 0.f, fast_base = 0.f, fast_augmented = 0.f, fast_roll_output = 0.f;
++	bool apply_fast_roll = false;
+ 
+ 	// only run controller if angular velocity changed
+ 	if (_vehicle_angular_velocity_sub.updated() || (hrt_elapsed_time(&_last_run) > 20_ms)) { //TODO rate!
+@@ -301,6 +308,7 @@ void FixedwingRateControl::Run()
+ 		const bool fast_reset_regime = _landed || !_in_fw_or_transition_wo_tailsitter_transition
+ 					|| !_vcontrol_mode.flag_control_rates_enabled;
+ 		if (fast_reset_regime != _fast_reset_regime) {
++			_fast_control.invalidate();
+ 			_fast_v1_shadow.resetFeatureHistory();
+ 			_fast_reset_regime = fast_reset_regime;
+ 		}
+@@ -309,6 +317,13 @@ void FixedwingRateControl::Run()
+ 				&& _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_STAB;
+ 		_previous_nav_state = _vehicle_status.nav_state;
+ 		_previous_nav_state_valid = true;
++		vehicle_attitude_s fast_attitude{};
++		bool fast_estimator_reset = false;
++		if (_fast_attitude_sub.update(&fast_attitude)) {
++			fast_estimator_reset = fast_attitude.quat_reset_counter != _fast_attitude_reset_counter;
++			_fast_attitude_reset_counter = fast_attitude.quat_reset_counter;
++		}
++		if (fast_estimator_reset || pilot_abort_to_stabilized) { _fast_control.invalidate(); }
+ 
+ 		vehicle_land_detected_poll();
+ 
+@@ -491,6 +506,36 @@ void FixedwingRateControl::Run()
+ 
+ 				_gain_compression.update(control_u, dt);
+ 
++				// Observer above sees baseline only. Reuse its PRE-update scale below.
++				fast_scale = _b2b_g_current;
++				fast_base = control_u(0);
++				FastControl::Config fast_config{};
++				fast_config.enabled = _param_fast_en.get();
++				fast_config.k = _param_fast_k.get(); fast_config.max = _param_fast_max.get();
++				fast_config.on = _param_fast_on.get(); fast_config.off = _param_fast_off.get();
++				fast_config.slew = _param_fast_slew.get();
++				const bool fast_state = _vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED
++					&& !_landed && is_fixed_wing && !_vehicle_status.is_vtol && !_vehicle_status.in_transition_mode
++					&& !_vehicle_status.failsafe && transfer_config_valid && control_u.isAllFinite()
++					&& PX4_ISFINITE(fast_scale) && fast_scale > 0.f && trim.isAllFinite();
++				const hrt_abstime fast_now = hrt_absolute_time();
++				const float fast_dt = _fast_last_decision && fast_now > _fast_last_decision
++					? (fast_now - _fast_last_decision) * 1e-6f : 0.f;
++				_fast_last_decision = fast_now;
++				fast_decision = _fast_control.step(fast_config, fast_now, fast_dt, fast_state,
++					_roll_i_reset_this_cycle || _rates_sp.reset_integral || fast_estimator_reset || pilot_abort_to_stabilized);
++				fast_augmented = fast_base;
++				if (fast_decision.final > 0.f || fast_decision.final < 0.f) {
++					fast_augmented = fast_base + fast_scale * fast_decision.final;
++					if (PX4_ISFINITE(fast_augmented)) {
++						fast_roll_output = math::constrain(fast_augmented + trim(0), -1.f, 1.f);
++						apply_fast_roll = true;
++					} else {
++						_fast_control.invalidate(); fast_decision.final = 0.f;
++						fast_decision.valid = false; fast_decision.nonfinite = true;
++					}
++				}
++
+ 				// Special case yaw in Acro: if the parameter FW_ACRO_YAW_EN is not set then don't rate-control yaw
+ 				if (!_vcontrol_mode.flag_control_attitude_enabled && _vcontrol_mode.flag_control_manual_enabled
+ 				    && !_param_fw_acro_yaw_en.get()) {
+@@ -503,6 +548,10 @@ void FixedwingRateControl::Run()
+ 
+ 				} else {
+ 					resetIntegralAndTransfer();
++					apply_fast_roll = false;
++					fast_decision.final = 0.f;
++					fast_decision.valid = false;
++					fast_decision.reset = true;
+ 					trim.copyTo(_vehicle_torque_setpoint.xyz);
+ 				}
+ 
+@@ -526,6 +575,7 @@ void FixedwingRateControl::Run()
+ 
+ 		} else {
+ 			// full manual
++			_fast_control.invalidate();
+ 			_gain_compression.reset();
+ 			resetIntegralAndTransfer();
+ 			_bumpless_roll_i_result = {};
+@@ -540,6 +590,9 @@ void FixedwingRateControl::Run()
+ 						  _vehicle_torque_setpoint.xyz[0], -1.f, 1.f);
+ 
+ 		// Tailsitter: rotate back to body frame from airspeed frame
++		// Yaw feedforward above observes the unchanged baseline roll request.
++		if (apply_fast_roll) { _vehicle_torque_setpoint.xyz[0] = fast_roll_output; }
++
+ 		if (_vehicle_status.is_vtol_tailsitter) {
+ 			const float helper = _vehicle_torque_setpoint.xyz[0];
+ 			_vehicle_torque_setpoint.xyz[0] = _vehicle_torque_setpoint.xyz[2];
+@@ -632,8 +685,11 @@ void FixedwingRateControl::Run()
+ 		fast_shadow.rollspeed_integ = rate_ctrl_status.rollspeed_integ;
+ 		fast_shadow.flap_b2b_transferred_raw = transferred_roll_i_raw;
+ 		fast_shadow.flap_b2b_total_equivalent_raw = rate_ctrl_status.flap_b2b_total_equivalent_raw;
+-		_fast_v1_shadow.update(rate_ctrl_status.timestamp, rate_ctrl_status.flap_b2b_total_equivalent_raw,
++		const bool fast_new_frame = _fast_v1_shadow.update(rate_ctrl_status.timestamp, rate_ctrl_status.flap_b2b_total_equivalent_raw,
+ 						_rates_sp.roll, rates(0), _fast_v1_output);
++		_fast_control.complete({_fast_v1_output.v2c_delta4, _fast_v1_output.control_model_t,
++			_fast_v1_output.frame_timestamp_us, _fast_v1_output.frame_seq, _fast_v1_output.control_delta_valid},
++			rate_ctrl_status.flap_b2b_total_equivalent_raw, rate_ctrl_status.timestamp, fast_new_frame);
+ 		fast_shadow.fast_v1_abs4_prediction = _fast_v1_output.abs4;
+ 		fast_shadow.fast_v1_delta4_prediction = _fast_v1_output.delta4;
+ 		fast_shadow.fast_v1_frame_seq = _fast_v1_output.frame_seq;
+@@ -649,6 +705,24 @@ void FixedwingRateControl::Run()
+ 		fast_shadow.fast_v2c_abs4_prediction = _fast_v1_output.valid ? _fast_v1_output.v2c_abs4 : 0.f;
+ 		fast_shadow.fast_v2c_delta4_prediction = _fast_v1_output.valid ? _fast_v1_output.v2c_delta4 : 0.f;
+ 		_flap_fast_shadow_pub.publish(fast_shadow);
++		flap_fast_control_s fc{};
++		fc.timestamp = rate_ctrl_status.timestamp;
++		fc.decision_timestamp = fast_decision.decision_time;
++		fc.model_timestamp = fast_decision.frame_time;
++		fc.decision_dt = fast_decision.dt;
++		fc.prediction_age_us = fast_decision.age; fc.model_frame_seq = fast_decision.seq;
++		fc.enabled = fast_decision.enabled; fc.valid = fast_decision.valid;
++		fc.nonfinite_fallback = fast_decision.nonfinite; fc.stale_fallback = fast_decision.stale;
++		fc.reset_fallback = fast_decision.reset; fc.disabled_by_t = fast_decision.domain;
++		fc.disabled_by_state = fast_decision.state;
++		fc.prediction = fast_decision.prediction; fc.raw = fast_decision.raw;
++		fc.saturated = fast_decision.saturated; fc.model_t = fast_decision.model_t;
++		fc.live_t_guard = fast_decision.live_t; fc.model_gate = fast_decision.model_gate;
++		fc.live_gate = fast_decision.live_gate; fc.after_t_gate = fast_decision.gated;
++		fc.after_t_bound = fast_decision.bounded; fc.slew_target = fast_decision.target;
++		fc.final = fast_decision.final; fc.authority_limit = fast_decision.limit;
++		fc.scale_used = fast_scale; fc.base_roll_raw = fast_base; fc.augmented_roll_raw = fast_augmented;
++		_fast_control_pub.publish(fc);
+ 
+ 	/* Only publish if any of the proper modes are enabled */
+ 		if (_vcontrol_mode.flag_control_rates_enabled ||
+diff --git a/src/modules/fw_rate_control/FixedwingRateControl.hpp b/src/modules/fw_rate_control/FixedwingRateControl.hpp
+index e321a4e487..8b569ea446 100644
+--- a/src/modules/fw_rate_control/FixedwingRateControl.hpp
++++ b/src/modules/fw_rate_control/FixedwingRateControl.hpp
+@@ -61,6 +61,8 @@
+ #include <uORB/topics/control_allocator_status.h>
+ #include <uORB/topics/flap_b2b_adaptive.h>
+ #include <uORB/topics/flap_fast_shadow.h>
++#include <uORB/topics/flap_fast_control.h>
++#include <uORB/topics/vehicle_attitude.h>
+ #include <uORB/topics/manual_control_setpoint.h>
+ #include <uORB/topics/normalized_unsigned_setpoint.h>
+ #include <uORB/topics/parameter_update.h>
+@@ -75,6 +77,7 @@
+ 
+ #include "BumplessRollITransfer.hpp"
+ #include "FastV1ShadowModel.hpp"
++#include "FastControl.hpp"
+ #include "FastV2CandidateModels.hpp"
+ 
+ using matrix::Eulerf;
+@@ -169,6 +172,12 @@ private:
+ 	int32_t _param_vt_fw_difthr_en{0};
+ 
+ 	DEFINE_PARAMETERS(
++		(ParamBool<px4::params::FLAP_FAST_EN>) _param_fast_en,
++		(ParamFloat<px4::params::FLAP_FAST_K>) _param_fast_k,
++		(ParamFloat<px4::params::FLAP_FAST_MAX>) _param_fast_max,
++		(ParamFloat<px4::params::FLAP_FAST_TON>) _param_fast_on,
++		(ParamFloat<px4::params::FLAP_FAST_TOFF>) _param_fast_off,
++		(ParamFloat<px4::params::FLAP_FAST_SLEW>) _param_fast_slew,
+ 		(ParamFloat<px4::params::FW_ACRO_X_MAX>) _param_fw_acro_x_max,
+ 		(ParamFloat<px4::params::FW_ACRO_Y_MAX>) _param_fw_acro_y_max,
+ 		(ParamFloat<px4::params::FW_ACRO_Z_MAX>) _param_fw_acro_z_max,
+@@ -289,4 +298,9 @@ private:
+ 	FastV1ShadowModel _fast_v1_shadow{};
+ 	FastV1ShadowModel::Output _fast_v1_output{};
+ 	bool _fast_reset_regime{false};
++	FastControl _fast_control{};
++	uORB::Subscription _fast_attitude_sub{ORB_ID(vehicle_attitude)};
++	uint8_t _fast_attitude_reset_counter{0};
++	hrt_abstime _fast_last_decision{0};
++	uORB::Publication<flap_fast_control_s> _fast_control_pub{ORB_ID(flap_fast_control)};
+ };
+diff --git a/src/modules/fw_rate_control/fw_rate_control_params.c b/src/modules/fw_rate_control/fw_rate_control_params.c
+index 8493f11c72..c0fd2bdf64 100644
+--- a/src/modules/fw_rate_control/fw_rate_control_params.c
++++ b/src/modules/fw_rate_control/fw_rate_control_params.c
+@@ -454,3 +454,69 @@ PARAM_DEFINE_INT32(FW_SPOILERS_MAN, 0);
+  * @group FW Rate Control
+  */
+ PARAM_DEFINE_INT32(FW_ACRO_YAW_EN, 0);
++
++/**
++ * Enable experimental FAST control (not flight authorized).
++ *
++ * Invalid configuration fails zero. No flight authorization.
++ *
++ * @boolean
++ * @group FW Rate Control
++ */
++PARAM_DEFINE_INT32(FLAP_FAST_EN, 0);
++
++/**
++ * FAST prediction gain.
++ *
++ * Invalid configuration fails zero. No flight authorization.
++ *
++ * @min 0
++ * @max 1
++ * @group FW Rate Control
++ */
++PARAM_DEFINE_FLOAT(FLAP_FAST_K, 1.0f);
++
++/**
++ * FAST maximum raw burden authority.
++ *
++ * Invalid configuration fails zero. No flight authorization.
++ *
++ * @min 0
++ * @max 0.005
++ * @decimal 4
++ * @group FW Rate Control
++ */
++PARAM_DEFINE_FLOAT(FLAP_FAST_MAX, 0.005f);
++
++/**
++ * FAST full authority burden threshold.
++ *
++ * Invalid configuration fails zero. No flight authorization.
++ *
++ * @min 0
++ * @max 0.15
++ * @group FW Rate Control
++ */
++PARAM_DEFINE_FLOAT(FLAP_FAST_TON, 0.15f);
++
++/**
++ * FAST zero authority burden threshold.
++ *
++ * Invalid configuration fails zero. No flight authorization.
++ *
++ * @min 0
++ * @max 0.18
++ * @group FW Rate Control
++ */
++PARAM_DEFINE_FLOAT(FLAP_FAST_TOFF, 0.18f);
++
++/**
++ * FAST normal slew in burden units per second.
++ *
++ * Invalid configuration fails zero. No flight authorization.
++ *
++ * @min 0
++ * @max 0.05
++ * @group FW Rate Control
++ */
++PARAM_DEFINE_FLOAT(FLAP_FAST_SLEW, 0.05f);
+diff --git a/src/modules/logger/logged_topics.cpp b/src/modules/logger/logged_topics.cpp
+index 9f0fc7635c..8a5186a6c8 100644
+--- a/src/modules/logger/logged_topics.cpp
++++ b/src/modules/logger/logged_topics.cpp
+@@ -75,6 +75,7 @@ void LoggedTopics::add_default_topics()
+ 	add_optional_topic("flight_phase_estimation", 1000);
+ 	add_optional_topic("flap_b2b_adaptive", 50);
+ 	add_optional_topic("flap_fast_shadow", 20);
++	add_optional_topic("flap_fast_control", 0);
+ 	add_optional_topic("fuel_tank_status", 10);
+ 	add_optional_topic("gain_compression", 100);
+ 	add_topic("gimbal_manager_set_attitude", 500);
+@@ -418,6 +419,7 @@ void LoggedTopics::add_flapping_dataset_topics()
+ 	add_optional_topic_multi("rate_ctrl_status", 20, 2);
+ 	add_topic("rate_ctrl_terms", 20);
+ 	add_optional_topic("flap_fast_shadow", 20);
++	add_optional_topic("flap_fast_control", 0);
+ 	add_optional_topic("tecs_status", 50);
+ 	add_optional_topic("fixed_wing_lateral_guidance_status", 20);
+ 	add_optional_topic("fixed_wing_lateral_status", 20);

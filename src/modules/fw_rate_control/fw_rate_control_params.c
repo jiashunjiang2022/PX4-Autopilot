@@ -454,3 +454,69 @@ PARAM_DEFINE_INT32(FW_SPOILERS_MAN, 0);
  * @group FW Rate Control
  */
 PARAM_DEFINE_INT32(FW_ACRO_YAW_EN, 0);
+
+/**
+ * Enable experimental FAST control (not flight authorized).
+ *
+ * Invalid configuration fails zero. No flight authorization.
+ *
+ * @boolean
+ * @group FW Rate Control
+ */
+PARAM_DEFINE_INT32(FLAP_FAST_EN, 0);
+
+/**
+ * FAST prediction gain.
+ *
+ * Invalid configuration fails zero. No flight authorization.
+ *
+ * @min 0
+ * @max 1
+ * @group FW Rate Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_FAST_K, 1.0f);
+
+/**
+ * FAST maximum raw burden authority.
+ *
+ * Invalid configuration fails zero. No flight authorization.
+ *
+ * @min 0
+ * @max 0.005
+ * @decimal 4
+ * @group FW Rate Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_FAST_MAX, 0.005f);
+
+/**
+ * FAST full authority burden threshold.
+ *
+ * Invalid configuration fails zero. No flight authorization.
+ *
+ * @min 0
+ * @max 0.15
+ * @group FW Rate Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_FAST_TON, 0.15f);
+
+/**
+ * FAST zero authority burden threshold.
+ *
+ * Invalid configuration fails zero. No flight authorization.
+ *
+ * @min 0
+ * @max 0.18
+ * @group FW Rate Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_FAST_TOFF, 0.18f);
+
+/**
+ * FAST normal slew in burden units per second.
+ *
+ * Invalid configuration fails zero. No flight authorization.
+ *
+ * @min 0
+ * @max 0.05
+ * @group FW Rate Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_FAST_SLEW, 0.05f);

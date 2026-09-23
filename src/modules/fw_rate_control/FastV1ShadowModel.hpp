@@ -18,10 +18,12 @@ public:
 		float t_lag2{0.f}; float t_lag4{0.f}; float t_lag8{0.f};
 		float p_sp{0.f}; float p_error{0.f};
 		float v2c_abs4{0.f}; float v2c_delta4{0.f};
+		float control_model_t{0.f};
+		bool control_delta_valid{false};
 	};
 
 	void reset() { resetFeatureHistory(); _next_frame = 0; _seq = 0; _missed = 0; _last_frame_timestamp = 0; _out = {}; }
-	void resetFeatureHistory() { for (float &v : _ring) { v = 0.f; } _count = 0; _head = 0; _out.abs4 = 0.f; _out.delta4 = 0.f; _out.valid = false; _out.t_lag2 = _out.t_lag4 = _out.t_lag8 = 0.f; _out.p_sp = _out.p_error = 0.f; }
+	void resetFeatureHistory() { for (float &v : _ring) { v = 0.f; } _count = 0; _head = 0; _out.abs4 = 0.f; _out.delta4 = 0.f; _out.valid = false; _out.control_delta_valid = false; _out.t_lag2 = _out.t_lag4 = _out.t_lag8 = 0.f; _out.p_sp = _out.p_error = 0.f; }
 
 	bool update(uint64_t now, float total_equivalent_i_raw, float p_sp, float p, Output &out)
 	{
@@ -32,6 +34,7 @@ public:
 		_missed += elapsed;
 		_next_frame += static_cast<uint64_t>(elapsed + 1) * 50000;
 		++_seq;
+		_out.control_delta_valid = false;
 		out = _out;
 		out.frame_seq = _seq;
 		out.missed_frames = _missed;
@@ -57,6 +60,9 @@ public:
 		out.abs4 = predict(a, ABS_MEAN, ABS_SCALE, ABS_COEF, ABS_INTERCEPT);
 		out.delta4 = predict(d, DELTA_MEAN, DELTA_SCALE, DELTA_COEF, DELTA_INTERCEPT);
 		out.v2c_abs4 = fast_v2c::abs4::predict(a); out.v2c_delta4 = fast_v2c::delta4::predict(d);
+		out.control_model_t = total_equivalent_i_raw;
+		out.control_delta_valid = std::isfinite(t2) && std::isfinite(t4) && std::isfinite(t8)
+			&& std::isfinite(e) && std::isfinite(d[0]) && std::isfinite(d[1]) && std::isfinite(out.v2c_delta4);
 		out.valid = std::isfinite(out.abs4) && std::isfinite(out.delta4);
 		_out = out;
 		return true;

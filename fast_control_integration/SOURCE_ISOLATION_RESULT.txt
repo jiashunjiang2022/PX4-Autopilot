@@ -1,0 +1,1 @@
+PASS: protected source identity, baseline arithmetic identity, compression/yaw ordering, next-cycle model ordering, default disable

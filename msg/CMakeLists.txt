@@ -96,6 +96,7 @@ set(msg_files
 	FlapAugV4Shadow.msg
 	FlapFrequency.msg
 	FlapFastShadow.msg
+	FlapFastControl.msg
 	FlightPhaseEstimation.msg
 	FollowTarget.msg
 	FollowTargetEstimator.msg

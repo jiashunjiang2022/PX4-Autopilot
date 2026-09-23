@@ -75,6 +75,7 @@ void LoggedTopics::add_default_topics()
 	add_optional_topic("flight_phase_estimation", 1000);
 	add_optional_topic("flap_b2b_adaptive", 50);
 	add_optional_topic("flap_fast_shadow", 20);
+	add_optional_topic("flap_fast_control", 0);
 	add_optional_topic("fuel_tank_status", 10);
 	add_optional_topic("gain_compression", 100);
 	add_topic("gimbal_manager_set_attitude", 500);
@@ -418,6 +419,7 @@ void LoggedTopics::add_flapping_dataset_topics()
 	add_optional_topic_multi("rate_ctrl_status", 20, 2);
 	add_topic("rate_ctrl_terms", 20);
 	add_optional_topic("flap_fast_shadow", 20);
+	add_optional_topic("flap_fast_control", 0);
 	add_optional_topic("tecs_status", 50);
 	add_optional_topic("fixed_wing_lateral_guidance_status", 20);
 	add_optional_topic("fixed_wing_lateral_status", 20);

@@ -1,0 +1,222 @@
+ps: stdin: not a terminal
+[1/209] Building CXX object src/modules/landing_target_estimator/CMakeFiles/modules__landing_target_estimator.dir/landing_target_estimator_main.cpp.obj
+[2/209] Building CXX object src/modules/landing_target_estimator/CMakeFiles/modules__landing_target_estimator.dir/KalmanFilter.cpp.obj
+[3/209] Building CXX object src/modules/land_detector/CMakeFiles/modules__land_detector.dir/AirshipLandDetector.cpp.obj
+[4/209] Building CXX object src/modules/land_detector/CMakeFiles/modules__land_detector.dir/RoverLandDetector.cpp.obj
+[5/209] Building CXX object src/modules/manual_control/CMakeFiles/modules__manual_control.dir/ManualControlSelector.cpp.obj
+[6/209] Building CXX object src/modules/landing_target_estimator/CMakeFiles/modules__landing_target_estimator.dir/LandingTargetEstimator.cpp.obj
+[7/209] Generating px4 event json file from source
+[8/209] Building CXX object src/modules/load_mon/CMakeFiles/modules__load_mon.dir/LoadMon.cpp.obj
+[9/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/navigator_mode.cpp.obj
+[10/209] Building CXX object src/modules/mag_bias_estimator/CMakeFiles/modules__mag_bias_estimator.dir/MagBiasEstimator.cpp.obj
+[11/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/loiter.cpp.obj
+[12/209] Generating combined event json file
+[13/209] Building CXX object src/modules/manual_control/CMakeFiles/modules__manual_control.dir/ManualControl.cpp.obj
+[14/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/mission.cpp.obj
+[15/209] Generating component_general.json and checksums.h
+[16/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/mission_block.cpp.obj
+[17/209] Building CXX object src/modules/mavlink/CMakeFiles/modules__mavlink_original.dir/mavlink_messages.cpp.obj
+[18/209] ROMFS: copying extras
+[19/209] Linking CXX static library src/modules/mavlink/libmodules__mavlink_original.a
+[20/209] ROMFS: pruning
+[21/209] ROMFS: generating image
+[22/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/rtl_mission_fast.cpp.obj
+[23/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/rtl_direct.cpp.obj
+[24/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/rtl_direct_mission_land.cpp.obj
+[25/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/rtl.cpp.obj
+[26/209] Building CXX object src/modules/logger/CMakeFiles/modules__logger.dir/log_writer.cpp.obj
+[27/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/rtl_mission_fast_reverse.cpp.obj
+[28/209] Building CXX object src/modules/logger/CMakeFiles/modules__logger.dir/logged_topics.cpp.obj
+[29/209] Building CXX object src/modules/logger/CMakeFiles/modules__logger.dir/log_writer_mavlink.cpp.obj
+[30/209] Building CXX object src/modules/logger/CMakeFiles/modules__logger.dir/watchdog.cpp.obj
+[31/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/mission_base.cpp.obj
+[32/209] Building CXX object src/modules/logger/CMakeFiles/modules__logger.dir/util.cpp.obj
+[33/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/navigator_main.cpp.obj
+[34/209] Building CXX object src/modules/logger/CMakeFiles/modules__logger.dir/log_writer_file.cpp.obj
+[35/209] Linking CXX static library src/modules/navigator/MissionFeasibility/libmission_feasibility_checker.a
+[36/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/mission_feasibility_checker.cpp.obj
+[37/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/land.cpp.obj
+[38/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/takeoff.cpp.obj
+[39/209] Linking CXX static library src/modules/sensors/vehicle_acceleration/libvehicle_acceleration.a
+[40/209] Linking CXX static library src/modules/sensors/vehicle_imu/libvehicle_imu.a
+[41/209] Linking CXX static library src/modules/sensors/vehicle_air_data/libvehicle_air_data.a
+[42/209] Linking CXX static library src/modules/sensors/vehicle_angular_velocity/libvehicle_angular_velocity.a
+[43/209] Linking CXX static library src/modules/sensors/vehicle_gps_position/libvehicle_gps_position.a
+[44/209] Linking CXX static library src/modules/sensors/vehicle_magnetometer/libvehicle_magnetometer.a
+[45/209] Linking CXX static library src/modules/sensors/vehicle_optical_flow/libvehicle_optical_flow.a
+[46/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/precland.cpp.obj
+[47/209] Building CXX object src/modules/navigator/CMakeFiles/modules__navigator.dir/geofence.cpp.obj
+[48/209] Building CXX object src/modules/simulation/sensor_baro_sim/CMakeFiles/modules__simulation__sensor_baro_sim.dir/SensorBaroSim.cpp.obj
+[49/209] Building CXX object src/modules/simulation/pwm_out_sim/CMakeFiles/modules__simulation__pwm_out_sim.dir/PWMSim.cpp.obj
+[50/209] Building CXX object src/modules/fw_rate_control/CMakeFiles/modules__fw_rate_control.dir/FixedwingRateControl.cpp.obj
+[51/209] Building CXX object src/modules/simulation/sensor_gps_sim/CMakeFiles/modules__simulation__sensor_gps_sim.dir/SensorGpsSim.cpp.obj
+[52/209] Building CXX object src/modules/sensors/CMakeFiles/modules__sensors.dir/voted_sensors_update.cpp.obj
+[53/209] Building CXX object src/modules/rc_update/CMakeFiles/modules__rc_update.dir/rc_update.cpp.obj
+[54/209] Building CXX object src/modules/simulation/sensor_mag_sim/CMakeFiles/modules__simulation__senosr_mag_sim.dir/SensorMagSim.cpp.obj
+[55/209] Building CXX object src/modules/temperature_compensation/CMakeFiles/modules__temperature_compensation.dir/TemperatureCompensation.cpp.obj
+[56/209] Building CXX object src/modules/temperature_compensation/CMakeFiles/modules__temperature_compensation.dir/temperature_calibration/baro.cpp.obj
+[57/209] Building CXX object src/modules/temperature_compensation/CMakeFiles/modules__temperature_compensation.dir/temperature_calibration/accel.cpp.obj
+[58/209] Building CXX object src/modules/temperature_compensation/CMakeFiles/modules__temperature_compensation.dir/temperature_calibration/gyro.cpp.obj
+[59/209] Building CXX object src/modules/temperature_compensation/CMakeFiles/modules__temperature_compensation.dir/temperature_calibration/mag.cpp.obj
+[60/209] Building CXX object src/modules/sensors/CMakeFiles/modules__sensors.dir/sensors.cpp.obj
+[61/209] Linking CXX static library src/modules/wing_phase/libwing_phase_math.a
+[62/209] Building CXX object src/modules/temperature_compensation/CMakeFiles/modules__temperature_compensation.dir/TemperatureCompensationModule.cpp.obj
+[63/209] Building CXX object src/modules/uxrce_dds_client/CMakeFiles/modules__uxrce_dds_client.dir/srv_base.cpp.obj
+[64/209] Building CXX object src/modules/temperature_compensation/CMakeFiles/modules__temperature_compensation.dir/temperature_calibration/task.cpp.obj
+[65/209] Building CXX object src/modules/uxrce_dds_client/CMakeFiles/modules__uxrce_dds_client.dir/vehicle_command_srv.cpp.obj
+[66/209] Building CXX object src/systemcmds/actuator_test/CMakeFiles/systemcmds__actuator_test.dir/actuator_test.cpp.obj
+[67/209] Building CXX object src/systemcmds/bsondump/CMakeFiles/systemcmds__bsondump.dir/bsondump.cpp.obj
+[68/209] Building CXX object src/systemcmds/dmesg/CMakeFiles/systemcmds__dmesg.dir/dmesg.cpp.obj
+[69/209] Building CXX object src/modules/logger/CMakeFiles/modules__logger.dir/logger.cpp.obj
+[70/209] Building CXX object src/modules/wing_phase/CMakeFiles/modules__wing_phase.dir/WingPhase.cpp.obj
+[71/209] Building CXX object src/systemcmds/mft/CMakeFiles/systemcmds__mft.dir/mft.cpp.obj
+[72/209] Building CXX object src/systemcmds/i2cdetect/CMakeFiles/systemcmds__i2cdetect.dir/i2cdetect.cpp.obj
+[73/209] Building CXX object src/systemcmds/led_control/CMakeFiles/systemcmds__led_control.dir/led_control.cpp.obj
+[74/209] Building CXX object src/systemcmds/nshterm/CMakeFiles/systemcmds__nshterm.dir/nshterm.cpp.obj
+[75/209] Building CXX object src/systemcmds/mtd/CMakeFiles/systemcmds__mtd.dir/mtd.cpp.obj
+[76/209] Building CXX object src/systemcmds/perf/CMakeFiles/systemcmds__perf.dir/perf.cpp.obj
+[77/209] Building CXX object src/systemcmds/system_time/CMakeFiles/systemcmds__system_time.dir/system_time.cpp.obj
+[78/209] Building CXX object src/systemcmds/reboot/CMakeFiles/systemcmds__reboot.dir/reboot.cpp.obj
+[79/209] Building CXX object src/systemcmds/sd_bench/CMakeFiles/systemcmds__sd_bench.dir/sd_bench.cpp.obj
+[80/209] Building CXX object src/systemcmds/top/CMakeFiles/systemcmds__top.dir/top.cpp.obj
+[81/209] Building CXX object src/systemcmds/uorb/CMakeFiles/systemcmds__uorb.dir/uorb.cpp.obj
+[82/209] Building C object ROMFS/CMakeFiles/romfs.dir/nsh_romfsimg.c.obj
+[83/209] Building CXX object src/systemcmds/param/CMakeFiles/systemcmds__param.dir/param.cpp.obj
+[84/209] Building CXX object src/systemcmds/topic_listener/CMakeFiles/systemcmds__topic_listener.dir/listener_main.cpp.obj
+[85/209] Linking CXX static library src/drivers/actuators/vertiq_io/libdrivers__actuators__vertiq_io.a
+[86/209] Building CXX object src/systemcmds/tune_control/CMakeFiles/systemcmds__tune_control.dir/tune_control.cpp.obj
+[87/209] Linking CXX static library src/drivers/adc/board_adc/libdrivers__board_adc.a
+[88/209] Building CXX object src/systemcmds/work_queue/CMakeFiles/systemcmds__work_queue.dir/work_queue_main.cpp.obj
+[89/209] Building C object src/systemcmds/hardfault_log/CMakeFiles/systemcmds__hardfault_log.dir/hardfault_log.c.obj
+[90/209] Linking CXX static library src/drivers/barometer/ms5611/libdrivers__barometer__ms5611.a
+[91/209] Linking CXX static library src/drivers/batt_smbus/libdrivers__batt_smbus.a
+[92/209] Building CXX object src/systemcmds/ver/CMakeFiles/systemcmds__ver.dir/ver.cpp.obj
+[93/209] Linking CXX static library src/drivers/camera_capture/libdrivers__camera_capture.a
+[94/209] Linking CXX static library src/drivers/cdcacm_autostart/libdrivers__cdcacm_autostart.a
+[95/209] Linking CXX static library src/drivers/camera_trigger/libdrivers__camera_trigger.a
+[96/209] Linking CXX static library src/drivers/differential_pressure/ms4525do/libdrivers__differential_pressure__ms4525do.a
+[97/209] Linking CXX static library src/drivers/differential_pressure/ms5525dso/libdrivers__differential_pressure__ms5525dso.a
+[98/209] Linking CXX static library src/drivers/differential_pressure/sdp3x/libdrivers__differential_pressure__sdp3x.a
+[99/209] Linking CXX static library src/drivers/distance_sensor/lightware_laser_i2c/libdrivers__distance_sensor__lightware_laser_i2c.a
+[100/209] Linking CXX static library src/drivers/distance_sensor/lightware_laser_serial/libdrivers__distance_sensor__lightware_laser_serial.a
+[101/209] Linking CXX static library src/drivers/distance_sensor/ll40ls/libdrivers__ll40ls.a
+[102/209] Linking CXX static library src/drivers/distance_sensor/tf02pro/libdrivers__distance_sensor__tf02pro.a
+[103/209] Linking CXX static library src/drivers/distance_sensor/tfmini/libdrivers__tfmini.a
+[104/209] Linking CXX static library src/drivers/distance_sensor/vl53l1x/libdrivers__distance_sensor__vl53l1x.a
+[105/209] Linking CXX static library src/drivers/distance_sensor/ulanding_radar/libdrivers__distance_sensor__ulanding_radar.a
+[106/209] Linking CXX static library src/drivers/distance_sensor/vl53l0x/libdrivers__distance_sensor__vl53l0x.a
+[107/209] Linking CXX static library src/drivers/encoder/as5600/libdrivers__encoder__as5600.a
+[108/209] Linking CXX static library src/drivers/dshot/libdrivers__dshot.a
+[109/209] Linking CXX static library src/drivers/gnss/septentrio/libdriver__septentrio.a
+[110/209] Linking CXX static library src/drivers/heater/libdrivers__heater.a
+[111/209] Linking CXX static library src/drivers/imu/bosch/bmi055/libdrivers__imu__bosch__bmi055.a
+[112/209] Linking CXX static library src/drivers/gps/libdrivers__gps.a
+[113/209] Linking CXX static library src/drivers/imu/bosch/bmi088/libdrivers__imu__bosch__bmi088.a
+[114/209] Linking CXX static library src/drivers/imu/invensense/icm42688p/libdrivers__imu__invensense__icm42688p.a
+[115/209] Linking CXX static library src/drivers/lights/rgbled_aw2023/libdrivers__rgbled_aw2023.a
+[116/209] Linking CXX static library src/drivers/lights/rgbled/libdrivers__rgbled.a
+[117/209] Linking CXX static library src/drivers/lights/rgbled_is31fl3195/libdrivers__rgbled_is31fl3195.a
+[118/209] Linking CXX static library src/drivers/lights/rgbled_lp5562/libdrivers__rgbled_lp5562.a
+[119/209] Linking CXX static library src/drivers/lights/rgbled_ncp5623c/libdrivers__rgbled_ncp5623c.a
+[120/209] Linking CXX static library src/drivers/magnetometer/akm/ak09916/libdrivers__magnetometer__akm__ak09916.a
+[121/209] Linking CXX static library src/drivers/magnetometer/akm/ak8963/libdrivers__magnetometer__akm__ak8963.a
+[122/209] Linking CXX static library src/drivers/magnetometer/bosch/bmm150/libdrivers__magnetometer__bosch__bmm150.a
+[123/209] Linking CXX static library src/drivers/magnetometer/bosch/bmm350/libdrivers__magnetometer__bosch__bmm350.a
+[124/209] Linking CXX static library src/drivers/magnetometer/hmc5883/libdrivers__hmc5883.a
+[125/209] Linking CXX static library src/drivers/magnetometer/isentek/ist8308/libdrivers__magnetometer__isentek__ist8308.a
+[126/209] Linking CXX static library src/drivers/magnetometer/isentek/ist8310/libdrivers__magnetometer__isentek__ist8310.a
+[127/209] Linking CXX static library src/drivers/magnetometer/lis3mdl/libdrivers__magnetometer__lis3mdl.a
+[128/209] Linking CXX static library src/drivers/magnetometer/lsm303agr/libdrivers__magnetometer__lsm303agr.a
+[129/209] Linking CXX static library src/drivers/magnetometer/memsic/mmc5983ma/libdrivers__magnetometer__memsic__mmc5983ma.a
+[130/209] Linking CXX static library src/drivers/magnetometer/qmc5883l/libdrivers__magnetometer__qmc5883l.a
+[131/209] Linking CXX static library src/drivers/magnetometer/qmc5883p/libdrivers__magnetometer__qmc5883p.a
+[132/209] Linking CXX static library src/drivers/magnetometer/rm3100/libdrivers__rm3100.a
+[133/209] Linking CXX static library src/drivers/power_monitor/ina226/libdrivers__ina226.a
+[134/209] Linking CXX static library src/drivers/power_monitor/ina228/libdrivers__ina228.a
+[135/209] Linking CXX static library src/drivers/power_monitor/ina238/libdrivers__ina238.a
+[136/209] Linking CXX static library src/drivers/magnetometer/st/iis2mdc/libdrivers__magnetometer__st__iis2mdc.a
+[137/209] Linking CXX static library src/drivers/pwm_out/libdrivers__pwm_out.a
+[138/209] Linking CXX static library src/drivers/px4io/libdrivers__px4io.a
+[139/209] Linking CXX static library src/drivers/telemetry/bst/libdrivers__bst.a
+[140/209] Linking CXX static library src/drivers/rc/crsf_rc/libdrivers__rc__crsf_rc.a
+[141/209] Linking CXX static library src/drivers/rpm_capture/libdrivers__rpm_capture.a
+[142/209] Linking CXX static library src/drivers/telemetry/hott/hott_sensors/libdrivers__hott__hott_sensors.a
+[143/209] Linking CXX static library src/drivers/telemetry/frsky_telemetry/libdrivers__frsky_telemetry.a
+[144/209] Linking CXX static library src/drivers/telemetry/hott/hott_telemetry/libdrivers__hott__hott_telemetry.a
+[145/209] Linking CXX static library src/modules/camera_feedback/libmodules__camera_feedback.a
+[146/209] Linking CXX static library src/modules/airspeed_selector/libmodules__airspeed_selector.a
+[147/209] Linking CXX static library src/drivers/tone_alarm/libdrivers__tone_alarm.a
+[148/209] Linking CXX static library src/modules/battery_status/libmodules__battery_status.a
+[149/209] Linking CXX static library src/modules/control_allocator/libmodules__control_allocator.a
+[150/209] Linking CXX static library src/modules/commander/libmodules__commander.a
+[151/209] Linking CXX static library src/modules/esc_battery/libmodules__esc_battery.a
+[152/209] Linking CXX static library src/modules/events/libmodules__events.a
+[153/209] Linking CXX static library src/modules/ekf2/libmodules__ekf2.a
+[154/209] Linking CXX static library src/modules/flap_aug_shadow/libmodules__flap_aug_shadow.a
+[155/209] Linking CXX static library src/modules/fw_att_control/libmodules__fw_att_control.a
+[156/209] Linking CXX static library src/modules/fw_lateral_longitudinal_control/libmodules__fw_lateral_longitudinal_control.a
+[157/209] Linking CXX static library src/modules/fw_autotune_attitude_control/libfw_autotune_attitude_control.a
+[158/209] Linking CXX static library src/modules/fw_mode_manager/libmodules__fw_mode_manager.a
+[159/209] Linking CXX static library src/modules/fw_rate_control/libmodules__fw_rate_control.a
+[160/209] Linking CXX static library src/modules/gimbal/libdrivers__gimbal.a
+[161/209] Linking CXX static library src/modules/gyro_calibration/libmodules__gyro_calibration.a
+[162/209] Linking CXX static library src/modules/landing_target_estimator/libmodules__landing_target_estimator.a
+[163/209] Linking CXX static library src/modules/load_mon/libmodules__load_mon.a
+[164/209] Linking CXX static library src/modules/land_detector/libmodules__land_detector.a
+[165/209] Linking CXX static library src/modules/logger/libmodules__logger.a
+[166/209] Linking CXX static library src/modules/mag_bias_estimator/libmodules__mag_bias_estimator.a
+[167/209] Linking CXX static library src/modules/manual_control/libmodules__manual_control.a
+[168/209] Linking CXX static library src/modules/rc_update/libmodules__rc_update.a
+[169/209] Linking CXX static library src/modules/sensors/libmodules__sensors.a
+[170/209] Linking CXX static library src/drivers/uavcan/libdrivers__uavcan.a
+[171/209] Linking CXX static library src/modules/simulation/sensor_baro_sim/libmodules__simulation__sensor_baro_sim.a
+[172/209] Linking CXX static library src/modules/simulation/pwm_out_sim/libmodules__simulation__pwm_out_sim.a
+[173/209] Linking CXX static library src/modules/simulation/sensor_gps_sim/libmodules__simulation__sensor_gps_sim.a
+[174/209] Linking CXX static library src/modules/navigator/libmodules__navigator.a
+[175/209] Linking CXX static library src/modules/simulation/sensor_mag_sim/libmodules__simulation__senosr_mag_sim.a
+[176/209] Linking CXX static library src/modules/temperature_compensation/libmodules__temperature_compensation.a
+[177/209] Linking CXX static library src/systemcmds/actuator_test/libsystemcmds__actuator_test.a
+[178/209] Linking CXX static library src/modules/wing_phase/libmodules__wing_phase.a
+[179/209] Linking CXX static library src/systemcmds/bsondump/libsystemcmds__bsondump.a
+[180/209] Linking CXX static library src/systemcmds/dmesg/libsystemcmds__dmesg.a
+[181/209] Linking CXX static library src/systemcmds/hardfault_log/libsystemcmds__hardfault_log.a
+[182/209] Linking CXX static library src/systemcmds/i2cdetect/libsystemcmds__i2cdetect.a
+[183/209] Linking CXX static library src/systemcmds/led_control/libsystemcmds__led_control.a
+[184/209] Linking CXX static library src/systemcmds/mft/libsystemcmds__mft.a
+[185/209] Linking CXX static library src/systemcmds/mtd/libsystemcmds__mtd.a
+[186/209] Linking CXX static library src/systemcmds/nshterm/libsystemcmds__nshterm.a
+[187/209] Linking CXX static library src/systemcmds/param/libsystemcmds__param.a
+[188/209] Linking CXX static library src/systemcmds/perf/libsystemcmds__perf.a
+[189/209] Linking CXX static library src/systemcmds/reboot/libsystemcmds__reboot.a
+[190/209] Linking CXX static library src/systemcmds/sd_bench/libsystemcmds__sd_bench.a
+[191/209] Linking CXX static library src/systemcmds/top/libsystemcmds__top.a
+[192/209] Linking CXX static library src/systemcmds/system_time/libsystemcmds__system_time.a
+[193/209] Linking CXX static library src/systemcmds/topic_listener/libsystemcmds__topic_listener.a
+[194/209] Linking CXX static library src/systemcmds/tune_control/libsystemcmds__tune_control.a
+[195/209] Linking CXX static library src/systemcmds/uorb/libsystemcmds__uorb.a
+[196/209] Linking CXX static library src/systemcmds/work_queue/libsystemcmds__work_queue.a
+[197/209] Linking CXX static library src/systemcmds/ver/libsystemcmds__ver.a
+[198/209] Linking C static library ROMFS/libromfs.a
+[199/209] Building C object platforms/nuttx/CMakeFiles/px4.dir/__/common/empty.c.obj
+[200/209] Generating /Users/jiangjiashun/PX4/PX4-Autopilot-v6-fast-control-20260923/platforms/nuttx/NuttX/nuttx/tools/jlink-nuttx.so
+[201/209] Building CXX object src/modules/simulation/simulator_sih/CMakeFiles/modules__simulation__simulator_sih.dir/sih.cpp.obj
+[202/209] Linking CXX static library src/modules/simulation/simulator_sih/libmodules__simulation__simulator_sih.a
+[203/209] Building CXX object src/modules/uxrce_dds_client/CMakeFiles/modules__uxrce_dds_client.dir/uxrce_dds_client.cpp.obj
+[204/209] Linking CXX static library src/modules/uxrce_dds_client/libmodules__uxrce_dds_client.a
+[205/209] Building CXX object src/modules/mavlink/CMakeFiles/modules__mavlink.dir/modules__mavlink_unity.cpp.obj
+[206/209] Linking CXX static library src/modules/mavlink/libmodules__mavlink.a
+[207/209] Linking CXX executable px4_fmu-v6c_default.elf
+/opt/homebrew/Cellar/arm-gcc-bin@13/13.2.rel1/bin/../lib/gcc/arm-none-eabi/13.2.1/../../../../arm-none-eabi/bin/ld: warning: px4_fmu-v6c_default.elf has a LOAD segment with RWX permissions
+Memory region         Used Size  Region Size  %age Used
+        ITCM_RAM:          0 GB        64 KB      0.00%
+           FLASH:     1852908 B      1920 KB     94.24%
+       DTCM1_RAM:          0 GB        64 KB      0.00%
+       DTCM2_RAM:          0 GB        64 KB      0.00%
+        AXI_SRAM:       91212 B       512 KB     17.40%
+           SRAM1:          0 GB       128 KB      0.00%
+           SRAM2:          0 GB       128 KB      0.00%
+           SRAM3:          0 GB        32 KB      0.00%
+           SRAM4:          0 GB        64 KB      0.00%
+          BKPRAM:          0 GB         4 KB      0.00%
+[208/209] Generating ../../px4_fmu-v6c_default.bin
+[209/209] Creating /Users/jiangjiashun/PX4/PX4-Autopilot-v6-fast-control-20260923/build/px4_fmu-v6c_default/px4_fmu-v6c_default.px4
