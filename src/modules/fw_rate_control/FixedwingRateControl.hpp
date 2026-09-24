@@ -79,6 +79,7 @@
 #include "FastV1ShadowModel.hpp"
 #include "FastControl.hpp"
 #include "FastActuatorMargin.hpp"
+#include "FastFFPlus.hpp"
 #include <uORB/topics/mission_result.h>
 #include "FastV2CandidateModels.hpp"
 
@@ -254,6 +255,8 @@ private:
 		(ParamFloat<px4::params::CA_ROTOR0_PY>) _param_fast_ca_r0_py,
 		(ParamFloat<px4::params::CA_ROTOR0_PX>) _param_fast_ca_r0_px,
 		(ParamFloat<px4::params::CA_ROTOR0_CT>) _param_fast_ca_r0_ct,
+		(ParamBool<px4::params::FLAP_FFP_EN>) _param_ffp_en,
+		(ParamFloat<px4::params::FLAP_FFP_D>) _param_ffp_delta,
 		(ParamFloat<px4::params::CA_ROTOR0_PZ>) _param_fast_ca_r0_pz,
 		(ParamFloat<px4::params::CA_SV0_SLEW>) _param_fast_ca_sv0_slew,
 		(ParamFloat<px4::params::CA_SV1_SLEW>) _param_fast_ca_sv1_slew,

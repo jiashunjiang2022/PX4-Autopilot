@@ -65,3 +65,9 @@ float32 tail1_baseline
 float32 tail0_augmented # analytic normalized surface from delivered torque
 float32 tail1_augmented
 int32 mission_seq_current # latest valid mission_result seq_current, -1 unavailable; logging only
+bool ffplus_enabled
+bool ffplus_active
+bool ffplus_config_valid
+float32 ffplus_delta
+float32 base_roll_ff_gain
+float32 effective_roll_ff_gain

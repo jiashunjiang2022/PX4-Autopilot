@@ -60,7 +60,12 @@ old_source = subprocess.check_output(['git','show',f'{parent}:src/modules/fw_rat
 def section(text, start, end):
     return text[text.index(start):text.index(end)].strip()
 assert section(s,'bool FixedwingRateControl::verify_flap_slow_configuration()', 'bool FixedwingRateControl::verify_fast_actuator_margin_configuration()') == section(old_source,'bool FixedwingRateControl::verify_flap_slow_configuration()', 'void FixedwingRateControl::resetIntegralAndTransfer()')
-assert metadata == subprocess.check_output(['git','show',f'{parent}:src/modules/fw_rate_control/fw_rate_control_params.c'],cwd=root).decode()
+old_metadata = subprocess.check_output(['git','show',f'{parent}:src/modules/fw_rate_control/fw_rate_control_params.c'],cwd=root).decode()
+for marker in ['PARAM_DEFINE_FLOAT(FLAP_FAST_K, 1.0f);','PARAM_DEFINE_FLOAT(FLAP_FAST_MAX, 0.005f);',
+               'PARAM_DEFINE_FLOAT(FLAP_FAST_TON, 0.15f);','PARAM_DEFINE_FLOAT(FLAP_FAST_TOFF, 0.18f);',
+               'PARAM_DEFINE_FLOAT(FLAP_FAST_SLEW, 0.05f);']:
+    assert marker in metadata and marker in old_metadata
+assert 'FW_RR_FF, 0.8' not in metadata
 assert section(runtime,'struct Config', 'struct Frame') == section(old_runtime,'struct Config','struct Frame')
 assert section(runtime,'// Software research ceilings', 'struct Config') == section(old_runtime,'// Software research ceilings','struct Config')
 assert 'fast_actuator_config_valid && control_u.isAllFinite()' in state_guard

@@ -1,5 +1,6 @@
 #include "../src/modules/fw_rate_control/FastControl.hpp"
 #include "../src/modules/fw_rate_control/FastV1ShadowModel.hpp"
+#include "../src/modules/fw_rate_control/FastFFPlus.hpp"
 #include <cassert>
 #include <algorithm>
 #include <cstdio>
@@ -13,6 +14,13 @@ static void ready(FastControl &f, float t, float p, float live)
 int main()
 {
 	FastControl::Config c; c.enabled=true;
+	{
+		auto off=FastFFPlus::evaluate(false,true,.8f,.025f); assert(!off.active && off.effective==.8f);
+		auto pre=FastFFPlus::evaluate(true,false,.8f,.025f); assert(!pre.active && pre.effective==.8f);
+		auto mission=FastFFPlus::evaluate(true,true,.8f,.025f); assert(mission.active && std::fabs(mission.effective-.825f)<1e-7f);
+		auto invalid=FastFFPlus::evaluate(true,true,.8f,std::numeric_limits<float>::quiet_NaN()); assert(!invalid.active && !invalid.valid && invalid.effective==.8f);
+		auto exit=FastFFPlus::evaluate(true,false,.8f,.025f); assert(!exit.active && exit.effective==.8f);
+	}
 	test_margin();
 	unsigned cases=0;
 	for (float t : {0.f,.149999f,.15f,.165f,.18f,.180001f,-.149999f,-.15f,-.165f,-.18f,-.180001f}) {

@@ -533,3 +533,22 @@ PARAM_DEFINE_FLOAT(FLAP_FAST_TOFF, 0.18f);
  * @group FW Rate Control
  */
 PARAM_DEFINE_FLOAT(FLAP_FAST_SLEW, 0.05f);
+
+/**
+ * Enable mission-gated static roll feedforward increment.
+ * @boolean
+ * @group FW Rate Control
+ */
+PARAM_DEFINE_INT32(FLAP_FFP_EN, 0);
+
+/**
+ * Mission-gated static roll feedforward increment.
+ *
+ * Defaults to zero; the experiment uses 0.025 explicitly.
+ * Values outside this conservative range fail back to FW_RR_FF.
+ * @min -0.2
+ * @max 0.2
+ * @decimal 3
+ * @group FW Rate Control
+ */
+PARAM_DEFINE_FLOAT(FLAP_FFP_D, 0.0f);

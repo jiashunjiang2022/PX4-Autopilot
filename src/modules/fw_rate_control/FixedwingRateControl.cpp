@@ -502,8 +502,21 @@ void FixedwingRateControl::Run()
 				}
 
 				const Vector3f gain_ff(_param_fw_rr_ff.get(), _param_fw_pr_ff.get(), _param_fw_yr_ff.get());
-				const Vector3f scaled_gain_ff = gain_ff / _airspeed_scaling;
+				const auto ffplus = FastFFPlus::evaluate(_param_ffp_en.get(),
+					_vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED
+					&& _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION
+					&& !_landed && is_fixed_wing && !_vehicle_status.is_vtol && !_vehicle_status.in_transition_mode
+					&& !_vehicle_status.failsafe, gain_ff(0), _param_ffp_delta.get());
+				Vector3f effective_gain_ff = gain_ff;
+				effective_gain_ff(0) = ffplus.effective;
+				const Vector3f scaled_gain_ff = effective_gain_ff / _airspeed_scaling;
 				_rate_control.setFeedForwardGain(scaled_gain_ff);
+				fc.ffplus_enabled = ffplus.enabled;
+				fc.ffplus_active = ffplus.active;
+				fc.ffplus_config_valid = ffplus.valid;
+				fc.ffplus_delta = _param_ffp_delta.get();
+				fc.base_roll_ff_gain = gain_ff(0);
+				fc.effective_roll_ff_gain = ffplus.effective;
 
 				// Run attitude RATE controllers which need the desired attitudes from above, add trim.
 				rate_ctrl_terms_s rate_ctrl_terms{};
