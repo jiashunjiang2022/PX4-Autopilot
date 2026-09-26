@@ -429,6 +429,7 @@ void FixedwingRateControl::Run()
 			const bool transfer_config_valid = verify_flap_slow_configuration();
 			BumplessRollITransfer::Inputs transfer_inputs{};
 			transfer_inputs.enabled = _param_flap_slow_en.get();
+			transfer_inputs.comparator_mode = _param_flap_slow_cmp.get();
 			transfer_inputs.eligible = _vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED
 						   && !_landed && is_fixed_wing && !_vehicle_status.is_vtol
 						   && !_vehicle_status.is_vtol_tailsitter && !_vehicle_status.in_transition_mode
@@ -716,6 +717,11 @@ void FixedwingRateControl::Run()
 		rate_ctrl_status.flap_b2b_reset_epoch = _rate_control.rollIntegralResetEpoch();
 		flap_b2b_adaptive_s adaptive_status{};
 		adaptive_status.timestamp = rate_ctrl_status.timestamp;
+		adaptive_status.comparator_mode_requested = _param_flap_slow_cmp.get();
+		adaptive_status.comparator_mode = _bumpless_roll_i_result.comparator_mode;
+		adaptive_status.comparator_active = _bumpless_roll_i_result.comparator_active;
+		adaptive_status.original_slow_gate_active = _bumpless_roll_i_result.original_slow_gate_active;
+		adaptive_status.reversal_logic_active = _bumpless_roll_i_result.reversal_logic_active;
 		adaptive_status.enabled = _bumpless_roll_i_result.adapt_enabled;
 		adaptive_status.entry_est_valid = _bumpless_roll_i_result.entry_est_valid;
 		adaptive_status.gate = _bumpless_roll_i_result.adapt_gate;

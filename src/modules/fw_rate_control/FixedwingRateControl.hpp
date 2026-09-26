@@ -232,6 +232,7 @@ private:
 
 		(ParamInt<px4::params::FW_SPOILERS_MAN>) _param_fw_spoilers_man,
 		(ParamBool<px4::params::FLAP_SLOW_EN>) _param_flap_slow_en,
+		(ParamInt<px4::params::FLAP_SLOW_CMP>) _param_flap_slow_cmp,
 		(ParamFloat<px4::params::FLAP_SLOW_B0>) _param_flap_slow_b0,
 		(ParamFloat<px4::params::FLAP_SLOW_SLEW>) _param_flap_slow_slew,
 		(ParamFloat<px4::params::FLAP_B2B_CAP>) _param_flap_b2b_cap,

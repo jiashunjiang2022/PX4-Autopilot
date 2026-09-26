@@ -21,6 +21,26 @@ parameters:
             default: false
             category: System
 
+        FLAP_SLOW_CMP:
+            description:
+                short: SLOW experimental Hold comparator
+                long: |
+                    Zero preserves ORIGINAL_SLOW V3. One selects paired LPF target following,
+                    bypassing only adaptive Hold persistence and reversal requalification.
+                    Requires FLAP_SLOW_EN and FLAP_B2B_ADAPT for adaptive operation.
+                    Mode is latched at episode entry; change treatment only after disable/exit
+                    completes or while disarmed. Invalid values trigger the existing safety exit.
+                    Reuses FLAP_B2B_TAU and all existing bounds and slew settings.
+                    Formal comparison fixes TAU at 5 seconds with identical common parameters.
+            type: enum
+            values:
+                0: ORIGINAL_SLOW
+                1: PAIRED_LPF
+            default: 0
+            min: 0
+            max: 1
+            category: System
+
         FLAP_SLOW_B0:
             description:
                 short: Legacy fixed-b0 tail coordinate

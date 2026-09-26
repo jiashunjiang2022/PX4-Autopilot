@@ -52,6 +52,19 @@ px4_add_unit_gtest(
 	LINKLIBS RateControl
 )
 
+px4_add_unit_gtest(SRC tests/SlowLpfComparatorTest.cpp LINKLIBS RateControl)
+if(BUILD_TESTING)
+	# Immutable reference, generated only in the build tree for trajectory regression.
+	execute_process(COMMAND git show 926693950a4b2fe448d4b18d859c54bf9aa8a260:src/modules/fw_rate_control/BumplessRollITransfer.hpp
+		WORKING_DIRECTORY ${PX4_SOURCE_DIR}
+		OUTPUT_VARIABLE slow_reference RESULT_VARIABLE slow_reference_status)
+	if(NOT slow_reference_status EQUAL 0)
+		message(FATAL_ERROR "SLOW comparator tests require base object 926693950a4b2fe448d4b18d859c54bf9aa8a260")
+	endif()
+	file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/SlowReference.hpp" "${slow_reference}")
+	target_include_directories(unit-SlowLpfComparator PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+endif()
+
 px4_add_unit_gtest(
 	SRC tests/FastV1ShadowModelTest.cpp
 )

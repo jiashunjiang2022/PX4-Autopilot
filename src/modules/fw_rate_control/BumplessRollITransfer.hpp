@@ -11,6 +11,11 @@ struct BumplessRollITransferTestAccess;
 class BumplessRollITransfer final
 {
 public:
+	enum class ComparatorMode : int32_t {
+		OriginalSlow = 0,
+		PairedLpf = 1
+	};
+
 	enum class State : uint8_t {
 		Disabled = 0,
 		Eligible = 1,
@@ -34,6 +39,7 @@ public:
 	};
 
 	struct Inputs {
+		int32_t comparator_mode{0}; // Validated before use; latched at episode entry.
 		bool enabled{false};
 		bool eligible{false};
 		bool pilot_abort{false};
@@ -60,6 +66,10 @@ public:
 	};
 
 	struct Result {
+		int32_t comparator_mode{0}; // Actual episode mode, not the live parameter request.
+		bool comparator_active{false}; // Valid adaptive LPF Hold evaluated this cycle.
+		bool original_slow_gate_active{false}; // Original qualification logic evaluated.
+		bool reversal_logic_active{false}; // Original reversal logic evaluated, not sign opposition.
 		State state{State::Disabled};
 		Reason reason{Reason::None};
 		float residual_i_before_raw{0.f};
@@ -111,6 +121,7 @@ public:
 
 	void synchronizeReset(uint32_t reset_epoch)
 	{
+		_comparator_mode = ComparatorMode::OriginalSlow;
 		_transferred_i_raw = 0.f;
 		_latched_target_raw = 0.f;
 		_latched_headroom_release_ratio = 0.f;
@@ -180,7 +191,9 @@ public:
 		const bool adaptive_valid = adaptiveParamsValid(in);
 		const bool headroom_parameter_valid = PX4_ISFINITE(in.headroom_release_ratio)
 				&& in.headroom_release_ratio >= 0.f && in.headroom_release_ratio <= 1.f;
-		const bool urgent_exit = in.pilot_abort || in.failsafe || !in.rates_enabled || !in.config_valid;
+		const bool comparator_valid = in.comparator_mode == static_cast<int32_t>(ComparatorMode::OriginalSlow)
+					     || in.comparator_mode == static_cast<int32_t>(ComparatorMode::PairedLpf);
+		const bool urgent_exit = in.pilot_abort || in.failsafe || !in.rates_enabled || !in.config_valid || !comparator_valid;
 
 		if (urgent_exit) {
 			if (fabsf(_transferred_i_raw) > 0.f) {
@@ -241,6 +254,7 @@ public:
 
 		if (active_gate) {
 			if (_state == State::Disabled) {
+				_comparator_mode = static_cast<ComparatorMode>(in.comparator_mode);
 				_latched_headroom_release_ratio = math::constrain(in.headroom_release_ratio, 0.f, 1.f);
 				_adaptive_episode_enabled = in.adapt_enabled && adaptive_valid;
 				if (!_adaptive_episode_enabled) {
@@ -562,6 +576,33 @@ private:
 		const float alpha = dt / (in.adapt_tau_s + dt);
 		_adapt_t_hat_raw += alpha * (total - _adapt_t_hat_raw);
 		_adapt_t_hat_valid = PX4_ISFINITE(_adapt_t_hat_raw);
+		// PAIRED_LPF_BEGIN: only normal adaptive Hold qualification is ablated.
+		// Same filter, target, slew and accepted-delta transaction; no gate history
+		// or reversal requalification participates in this branch.
+		if (_comparator_mode == ComparatorMode::PairedLpf) {
+			out.comparator_active = true;
+			_last_adapt_hold_cap_raw = in.hold_cap_raw;
+			_last_adapt_reserve_raw = in.residual_reserve_raw;
+			const float target = adaptiveTarget(in);
+			_last_adapt_target_raw = target;
+			out.adapt_reversal = valuesOppose(_transferred_i_raw, target); // Diagnostic only.
+			out.adapt_releasing = fabsf(target) < fabsf(_transferred_i_raw) || out.adapt_reversal;
+
+			if (!out.adapt_releasing && !_adapt_t_hat_valid) {
+				return;
+			}
+
+			const float requested = towardTargetStep(_transferred_i_raw, target, in.adapt_slew_raw_per_s * dt);
+
+			if (fabsf(requested) > StateEpsilon) {
+				applyTransfer(out, rate_control, requested, false, true);
+			}
+
+			return;
+		}
+		// PAIRED_LPF_END
+		out.original_slow_gate_active = true;
+		out.reversal_logic_active = true;
 		if (valuesOppose(_adapt_t_hat_raw, _gate_reference_raw)) {
 			clearGateHistory();
 		}
@@ -686,6 +727,7 @@ private:
 
 	Result finalize(Result &out)
 	{
+		out.comparator_mode = static_cast<int32_t>(_comparator_mode);
 		out.state = _state;
 		out.residual_i_raw = out.residual_i_before_raw + out.accepted_delta_i_raw;
 		out.transferred_i_raw = PX4_ISFINITE(_transferred_i_raw) ? _transferred_i_raw : 0.f;
@@ -722,6 +764,7 @@ private:
 		return out;
 	}
 
+	ComparatorMode _comparator_mode{ComparatorMode::OriginalSlow};
 	State _state{State::Disabled};
 	static constexpr float AdaptiveSamplePeriod = 0.05f;
 	static constexpr float AdaptiveSampleRate = 20.f;
