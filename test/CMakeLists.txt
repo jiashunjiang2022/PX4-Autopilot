@@ -4,6 +4,10 @@ message(STATUS "Adding fuzztest")
 # This will also add GTest
 add_subdirectory(fuzztest EXCLUDE_FROM_ALL)
 
+# Apply matching instrumentation and runtime link flags in this directory too.
+# The parent's later setup does not propagate back into this child scope.
+fuzztest_setup_fuzzing_flags()
+
 # Ensure there's no -R without any filter expression since that trips newer ctest versions
 if(TESTFILTER)
     set(TESTFILTERARG "-R")

@@ -223,19 +223,11 @@ void SensorSimulator::runReplayMicroseconds(uint32_t duration)
 void SensorSimulator::setSensorDataFromReplayData()
 {
 	if (_replay_data.size() > 0) {
-		sensor_info sample = _replay_data[_current_replay_data_index];
-
-		while (sample.timestamp < _time) {
+		while (_current_replay_data_index < _replay_data.size()
+		       && _replay_data[_current_replay_data_index].timestamp < _time) {
+			const sensor_info &sample = _replay_data[_current_replay_data_index];
 			setSingleReplaySample(sample);
-
-			if (_current_replay_data_index < _replay_data.size()) {
-				_current_replay_data_index ++;
-
-			} else {
-				break;
-			}
-
-			sample = _replay_data[_current_replay_data_index];
+			_current_replay_data_index ++;
 		}
 
 	} else {
