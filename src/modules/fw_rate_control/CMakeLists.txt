@@ -53,7 +53,14 @@ px4_add_unit_gtest(
 )
 
 px4_add_unit_gtest(SRC tests/SlowLpfComparatorTest.cpp LINKLIBS RateControl)
+px4_add_unit_gtest(SRC tests/SlowIsolationParityTest.cpp LINKLIBS RateControl)
 if(BUILD_TESTING)
+	execute_process(COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/prepare_slow_isolation.py
+		${CMAKE_CURRENT_BINARY_DIR}/isolation RESULT_VARIABLE isolation_status)
+	if(NOT isolation_status EQUAL 0)
+		message(FATAL_ERROR "Cannot generate immutable SLOW isolation reference")
+	endif()
+	target_include_directories(unit-SlowIsolationParity PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/isolation")
 	# Immutable reference, generated only in the build tree for trajectory regression.
 	execute_process(COMMAND git show 926693950a4b2fe448d4b18d859c54bf9aa8a260:src/modules/fw_rate_control/BumplessRollITransfer.hpp
 		WORKING_DIRECTORY ${PX4_SOURCE_DIR}
@@ -64,10 +71,6 @@ if(BUILD_TESTING)
 	file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/SlowReference.hpp" "${slow_reference}")
 	target_include_directories(unit-SlowLpfComparator PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 endif()
-
-px4_add_unit_gtest(
-	SRC tests/FastV1ShadowModelTest.cpp
-)
 
 option(ADAPTIVE_TAIL_TRIM_CONTRACT_RED "Opt in to intentionally RED future contracts" OFF)
 px4_add_functional_gtest(SRC tests/AllocatorSaturationFeedbackTest.cpp LINKLIBS RateControl)

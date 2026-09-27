@@ -17,8 +17,6 @@ constexpr hrt_abstime FastAge = 60_ms;
 constexpr hrt_abstime ManualAge = 250_ms;
 constexpr hrt_abstime IntegratorAge = 300_ms;
 constexpr hrt_abstime AirspeedAge = 250_ms;
-constexpr hrt_abstime BatteryAge = 250_ms;
-constexpr hrt_abstime WindAge = 120_ms;
 constexpr hrt_abstime StatusAge = 1_s;
 constexpr hrt_abstime LongInvalidTime = 2_s;
 constexpr float TrackRateAlpha = 0.0392105608f; // 1-exp(-0.02/0.5)
@@ -36,35 +34,6 @@ bool finite_quaternion(const float (&q)[4])
 {
 	return std::isfinite(q[0]) && std::isfinite(q[1]) && std::isfinite(q[2]) && std::isfinite(q[3]);
 }
-}
-
-float CausalLowpassDerivative::update(float input, bool valid)
-{
-	if (!_initialized) {
-		_replacement = valid && std::isfinite(input) ? input : 0.f;
-		_initialized = true;
-	}
-
-	const float used = valid && std::isfinite(input) ? input : _replacement;
-	constexpr float b0 = 0.14532388f;
-	constexpr float b1 = 0.29064777f;
-	constexpr float b2 = 0.14532388f;
-	constexpr float a1 = -0.67102909f;
-	constexpr float a2 = 0.25232463f;
-	const float filtered = b0 * used + b1 * _x1 + b2 * _x2 - a1 * _y1 - a2 * _y2;
-	const float derivative = filtered - _previous_filtered;
-	_x2 = _x1;
-	_x1 = used;
-	_y2 = _y1;
-	_y1 = filtered;
-	_previous_filtered = filtered;
-	_output_valid = valid && std::isfinite(input);
-	return derivative * 50.f;
-}
-
-void CausalLowpassDerivative::reset()
-{
-	*this = {};
 }
 
 FlapAugShadow::FlapAugShadow() :
@@ -87,15 +56,12 @@ bool FlapAugShadow::fresh(hrt_abstime now, hrt_abstime timestamp, hrt_abstime ma
 
 void FlapAugShadow::update_subscriptions()
 {
-	_actuator_motors_sub.update(&_actuator_motors);
 	_actuator_servos_sub.update(&_actuator_servos);
 	_airspeed_sub.update(&_airspeed);
-	_battery_sub.update(&_battery);
 	_flap_frequency_sub.update(&_flap_frequency);
 	_manual_sub.update(&_manual);
 	_rate_status_sub.update(&_rate_status);
 	_rate_terms_sub.update(&_rate_terms);
-	_sensor_accel_sub.update(&_sensor_accel);
 	_angular_velocity_sub.update(&_angular_velocity);
 	_attitude_sub.update(&_attitude);
 	_attitude_setpoint_sub.update(&_attitude_setpoint);
@@ -104,7 +70,6 @@ void FlapAugShadow::update_subscriptions()
 	_rates_setpoint_sub.update(&_rates_setpoint);
 	_torque_setpoint_sub.update(&_torque_setpoint);
 	_vehicle_status_sub.update(&_vehicle_status);
-	_wind_sub.update(&_wind);
 
 	if (_parameter_update_sub.updated()) {
 		parameter_update_s update{};
@@ -160,7 +125,7 @@ void FlapAugShadow::update_legacy_integrator(hrt_abstime now)
 }
 
 bool FlapAugShadow::build_base_features(hrt_abstime now,
-		float (&features)[FastPredictor::BaseFeatureCount], bool &roll_valid, bool &pitch_valid,
+		float (&features)[BaseFeatureCount], bool &roll_valid,
 		float &roll, float &pitch, float &yaw, float &roll_sp, float &pitch_sp,
 		float &ground_track_rate, bool &rtk_valid)
 {
@@ -222,17 +187,6 @@ bool FlapAugShadow::build_base_features(hrt_abstime now,
 		features[16] = _rates_setpoint.yaw - _angular_velocity.xyz[2];
 	}
 
-	for (size_t axis = 0; axis < 3; ++axis) {
-		features[17 + axis] = _rate_derivative[axis].update(_angular_velocity.xyz[axis], rate_valid);
-	}
-
-	const bool accel_valid = fresh(now, _sensor_accel.timestamp, FastAge)
-				 && std::isfinite(_sensor_accel.x) && std::isfinite(_sensor_accel.y)
-				 && std::isfinite(_sensor_accel.z);
-	features[20] = accel_valid ? _sensor_accel.x : NAN;
-	features[21] = accel_valid ? _sensor_accel.y : NAN;
-	features[22] = accel_valid ? _sensor_accel.z : NAN;
-
 	update_legacy_integrator(now);
 	const float roll_imax = _param_fw_rr_imax.get();
 	const float pitch_imax = _param_fw_pr_imax.get();
@@ -264,14 +218,6 @@ bool FlapAugShadow::build_base_features(hrt_abstime now,
 	const bool flap_valid = fresh(now, _flap_frequency.timestamp, FastAge)
 				&& std::isfinite(_flap_frequency.frequency_hz);
 	features[33] = flap_valid ? _flap_frequency.frequency_hz : NAN;
-	features[34] = _flap_derivative.update(_flap_frequency.frequency_hz, flap_valid);
-
-	const bool propulsion_valid = fresh(now, _actuator_motors.timestamp, FastAge)
-				      && std::isfinite(_actuator_motors.control[0]);
-	features[35] = propulsion_valid ? _actuator_motors.control[0] : NAN;
-	features[36] = _propulsion_derivative.update(_actuator_motors.control[0], propulsion_valid);
-	features[37] = propulsion_valid ? _actuator_motors.control[0] * _actuator_motors.control[0] : NAN;
-
 	const bool airspeed_valid = fresh(now, _airspeed.timestamp, AirspeedAge)
 				    && std::isfinite(_airspeed.calibrated_airspeed_m_s);
 	features[38] = airspeed_valid ? _airspeed.calibrated_airspeed_m_s : NAN;
@@ -285,19 +231,6 @@ bool FlapAugShadow::build_base_features(hrt_abstime now,
 		features[39] = hypotf(_local_position.vx, _local_position.vy);
 		features[40] = -_local_position.vz;
 		features[41] = _local_position.ref_alt - _local_position.z;
-	}
-
-	const bool battery_valid = fresh(now, _battery.timestamp, BatteryAge)
-				   && std::isfinite(_battery.voltage_v) && std::isfinite(_battery.current_a);
-	features[42] = battery_valid ? _battery.voltage_v : NAN;
-	features[43] = battery_valid ? _battery.current_a : NAN;
-	const bool wind_valid = fresh(now, _wind.timestamp, WindAge)
-				&& std::isfinite(_wind.windspeed_north) && std::isfinite(_wind.windspeed_east);
-
-	if (wind_valid) {
-		features[44] = _wind.windspeed_north;
-		features[45] = _wind.windspeed_east;
-		features[46] = hypotf(_wind.windspeed_north, _wind.windspeed_east);
 	}
 
 	rtk_valid = local_valid && _local_position.xy_valid && _local_position.v_xy_valid
@@ -331,23 +264,13 @@ bool FlapAugShadow::build_base_features(hrt_abstime now,
 
 	roll_valid = attitude_valid && attitude_sp_valid && rate_valid && rate_sp_valid
 		     && integrator_valid && servos_valid;
-	pitch_valid = roll_valid && accel_valid && flap_valid && propulsion_valid && airspeed_valid
-		      && local_valid && battery_valid && wind_valid
-		      && _rate_derivative[0].valid() && _rate_derivative[1].valid() && _rate_derivative[2].valid()
-		      && _flap_derivative.valid() && _propulsion_derivative.valid();
-	return roll_valid || pitch_valid;
+	return roll_valid;
 }
 
 void FlapAugShadow::reset_estimators()
 {
-	_fast.reset();
 	_phase.reset();
 	_slow.reset();
-	for (CausalLowpassDerivative &filter : _rate_derivative) {
-		filter.reset();
-	}
-	_flap_derivative.reset();
-	_propulsion_derivative.reset();
 	_legacy_integrator_timestamp = 0;
 	_legacy_integrator_bucket = UINT64_MAX;
 	_previous_track_valid = false;
@@ -362,7 +285,7 @@ void FlapAugShadow::Run()
 	const hrt_abstime total_start = hrt_absolute_time();
 	update_subscriptions();
 	const hrt_abstime now = hrt_absolute_time();
-	float base[FastPredictor::BaseFeatureCount] {};
+	float base[BaseFeatureCount] {};
 	float roll = NAN;
 	float pitch = NAN;
 	float yaw = NAN;
@@ -370,14 +293,10 @@ void FlapAugShadow::Run()
 	float pitch_sp = NAN;
 	float ground_track_rate = NAN;
 	bool roll_input_valid = false;
-	bool pitch_input_valid = false;
 	bool rtk_valid = false;
-	build_base_features(now, base, roll_input_valid, pitch_input_valid, roll, pitch, yaw,
+	build_base_features(now, base, roll_input_valid, roll, pitch, yaw,
 			    roll_sp, pitch_sp, ground_track_rate, rtk_valid);
 
-	const hrt_abstime fast_start = hrt_absolute_time();
-	const FastPredictor::Result fast = _fast.update(base, roll_input_valid, pitch_input_valid);
-	const uint32_t fast_compute_us = static_cast<uint32_t>(hrt_absolute_time() - fast_start);
 	const hrt_abstime slow_start = hrt_absolute_time();
 
 	const bool status_valid = fresh(now, _vehicle_status.timestamp, StatusAge);
@@ -459,11 +378,11 @@ void FlapAugShadow::Run()
 	flap_aug_shadow_s message{};
 	message.timestamp = now;
 	message.implementation_version = 3;
-	message.v2_hash_short = 0x3a71c671u;
+	message.v2_hash_short = 0; // Legacy FAST model removed; retained mixed-topic fields are inactive.
 	message.v3_hash_short = 0xf46195fau;
 	message.input_valid = roll_input_valid && v3_model_input_valid && phase_input_valid;
-	message.fast_roll_valid = fast.roll_valid;
-	message.fast_pitch_valid = fast.pitch_valid;
+	message.fast_roll_valid = false;
+	message.fast_pitch_valid = false;
 	message.v3_model_available = true;
 	message.history_ready = slow.history_ready;
 	message.maneuver_prediction_valid = slow.model_valid;
@@ -487,8 +406,8 @@ void FlapAugShadow::Run()
 	message.roll_i_delta_pre_imax = roll_i_diagnostic_valid ? _rate_status.rollspeed_integ_delta_pre_imax : 0.f;
 	message.roll_i_shadow_no_imax = roll_i_diagnostic_valid ? _rate_status.rollspeed_integ_shadow_no_imax : 0.f;
 	message.roll_i_raw_drive_accum = roll_i_diagnostic_valid ? _rate_status.rollspeed_integ_raw_drive_accum : 0.f;
-	message.fast_roll_pred = fast.roll;
-	message.fast_pitch_pred = fast.pitch;
+	message.fast_roll_pred = 0.f;
+	message.fast_pitch_pred = 0.f;
 	message.maneuver_hat = slow.maneuver_hat;
 	message.slow_residual = slow.residual;
 	message.slow_hat = slow.slow_hat;
@@ -505,7 +424,7 @@ void FlapAugShadow::Run()
 		message.actual_slow_injection = actual_slow_injection;
 	message.actual_fast_roll_injection = ActualInjection::FastRoll;
 	message.actual_fast_pitch_injection = ActualInjection::FastPitch;
-	message.fast_compute_us = fast_compute_us;
+	message.fast_compute_us = 0;
 	message.slow_compute_us = slow_compute_us;
 	message.total_compute_us = static_cast<uint32_t>(hrt_absolute_time() - total_start);
 	_shadow_pub.publish(message);

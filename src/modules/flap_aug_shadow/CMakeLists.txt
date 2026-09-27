@@ -3,7 +3,6 @@ px4_add_module(
 	MAIN flap_aug_shadow
 	SRCS
 		flap_aug_shadow.cpp
-		fast_predictor.cpp
 		slow_engineering_shadow.cpp
 	MODULE_CONFIG
 		module.yaml
@@ -14,7 +13,6 @@ px4_add_module(
 px4_add_unit_gtest(
 	SRC tests/FlapAugShadowTest.cpp
 	EXTRA_SRCS
-		fast_predictor.cpp
 		slow_engineering_shadow.cpp
 )
 

@@ -18,28 +18,23 @@ def current(path):
 for path in [
     "src/lib/rate_control/rate_control.cpp",
     "src/lib/rate_control/rate_control.hpp",
-    "src/modules/fw_rate_control/FastControl.hpp",
-    "src/modules/fw_rate_control/FastActuatorMargin.hpp",
-    "src/modules/fw_rate_control/FastFFPlus.hpp",
-    "src/modules/fw_rate_control/FastV1ShadowModel.hpp",
-    "src/modules/fw_rate_control/FastV2CandidateModels.hpp",
-    "src/modules/fw_rate_control/fw_rate_control_params.c",
     "src/modules/fw_rate_control/tests/BumplessRollITransferTest.cpp",
     "src/lib/rate_control/rate_control_test.cpp",
     "src/modules/fw_rate_control/tests/AllocatorSaturationFeedbackTest.cpp",
     "src/modules/control_allocator/ControlAllocator.cpp",
-    "src/modules/logger/logged_topics.cpp",
 ]:
     assert current(path) == base(path), path
 
 path = "src/modules/fw_rate_control/FixedwingRateControl.cpp"
 s, b = current(path), base(path)
-# Entire output/compression/FAST/FF+ control section must remain byte-identical.
-start = "/* bi-linear interpolation over airspeed for actuator trim scheduling */"
-end = "flap_b2b_adaptive_s adaptive_status{};"
-assert s[s.index(start):s.index(end)] == b[b.index(start):b.index(end)]
-start = "const uint32_t publication_seq"
-assert s[s.index(start):] == b[b.index(start):]
+# SLOW output arithmetic and status remain literal; custom FAST/FF+ removal is
+# checked against the immediate isolation base in slow_only_source_isolation.py.
+for start, end in [
+    ("const Vector3f gains_before_update", "// Observer above sees baseline only."),
+    ("rate_ctrl_status_s rate_ctrl_status{};", "flap_b2b_adaptive_s adaptive_status{};")
+]:
+    expected = b[b.index(start):b.index(end)]
+    assert expected in s, start
 assert "transfer_inputs.comparator_mode = _param_flap_slow_cmp.get();" in s
 for field in ["comparator_mode", "comparator_active", "original_slow_gate_active", "reversal_logic_active"]:
     assert f"adaptive_status.{field} = _bumpless_roll_i_result.{field};" in s
@@ -69,4 +64,4 @@ assert block
 assert s.replace(block[0], "") == b, "Existing numeric metadata changed"
 assert "default: 0" in block[0]
 assert "0: ORIGINAL_SLOW" in block[0] and "1: PAIRED_LPF" in block[0]
-print("PASS: reference helpers, RateControl, entry filter/target, original reversal, FAST/FF+, allocator, numeric defaults and logger isolation")
+print("PASS: RateControl, entry filter/target, original reversal, allocator, numeric defaults and SLOW output isolation")

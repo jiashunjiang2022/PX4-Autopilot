@@ -60,9 +60,6 @@
 #include <uORB/topics/battery_status.h>
 #include <uORB/topics/control_allocator_status.h>
 #include <uORB/topics/flap_b2b_adaptive.h>
-#include <uORB/topics/flap_fast_shadow.h>
-#include <uORB/topics/flap_fast_control.h>
-#include <uORB/topics/vehicle_attitude.h>
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/normalized_unsigned_setpoint.h>
 #include <uORB/topics/parameter_update.h>
@@ -76,12 +73,6 @@
 #include <uORB/topics/vehicle_torque_setpoint.h>
 
 #include "BumplessRollITransfer.hpp"
-#include "FastV1ShadowModel.hpp"
-#include "FastControl.hpp"
-#include "FastActuatorMargin.hpp"
-#include "FastFFPlus.hpp"
-#include <uORB/topics/mission_result.h>
-#include "FastV2CandidateModels.hpp"
 
 using matrix::Eulerf;
 using matrix::Quatf;
@@ -132,7 +123,6 @@ private:
 	uORB::PublicationMulti<rate_ctrl_status_s>	_rate_ctrl_status_pub{ORB_ID(rate_ctrl_status)};
 	uORB::Publication<rate_ctrl_terms_s>	_rate_ctrl_terms_pub{ORB_ID(rate_ctrl_terms)};
 	uORB::Publication<flap_b2b_adaptive_s> _flap_b2b_adaptive_pub{ORB_ID(flap_b2b_adaptive)};
-	uORB::Publication<flap_fast_shadow_s> _flap_fast_shadow_pub{ORB_ID(flap_fast_shadow)};
 	uORB::Publication<vehicle_thrust_setpoint_s>	_vehicle_thrust_setpoint_pub;
 	uORB::Publication<vehicle_torque_setpoint_s>	_vehicle_torque_setpoint_pub;
 	uORB::Publication<normalized_unsigned_setpoint_s> _flaps_setpoint_pub{ORB_ID(flaps_setpoint)};
@@ -175,12 +165,6 @@ private:
 	int32_t _param_vt_fw_difthr_en{0};
 
 	DEFINE_PARAMETERS(
-		(ParamBool<px4::params::FLAP_FAST_EN>) _param_fast_en,
-		(ParamFloat<px4::params::FLAP_FAST_K>) _param_fast_k,
-		(ParamFloat<px4::params::FLAP_FAST_MAX>) _param_fast_max,
-		(ParamFloat<px4::params::FLAP_FAST_TON>) _param_fast_on,
-		(ParamFloat<px4::params::FLAP_FAST_TOFF>) _param_fast_off,
-		(ParamFloat<px4::params::FLAP_FAST_SLEW>) _param_fast_slew,
 		(ParamFloat<px4::params::FW_ACRO_X_MAX>) _param_fw_acro_x_max,
 		(ParamFloat<px4::params::FW_ACRO_Y_MAX>) _param_fw_acro_y_max,
 		(ParamFloat<px4::params::FW_ACRO_Z_MAX>) _param_fw_acro_z_max,
@@ -249,19 +233,6 @@ private:
 		(ParamFloat<px4::params::FLAP_B2B_GSTD>) _param_flap_b2b_gstd,
 		(ParamFloat<px4::params::FLAP_B2B_GSIGN>) _param_flap_b2b_gsign,
 		(ParamInt<px4::params::CA_AIRFRAME>) _param_ca_airframe,
-		(ParamFloat<px4::params::CA_SV_CS0_FLAP>) _param_fast_ca_sv_cs0_flap,
-		(ParamFloat<px4::params::CA_SV_CS1_FLAP>) _param_fast_ca_sv_cs1_flap,
-		(ParamFloat<px4::params::CA_SV_CS0_SPOIL>) _param_fast_ca_sv_cs0_spoil,
-		(ParamFloat<px4::params::CA_SV_CS1_SPOIL>) _param_fast_ca_sv_cs1_spoil,
-		(ParamFloat<px4::params::CA_ROTOR0_PY>) _param_fast_ca_r0_py,
-		(ParamFloat<px4::params::CA_ROTOR0_PX>) _param_fast_ca_r0_px,
-		(ParamFloat<px4::params::CA_ROTOR0_CT>) _param_fast_ca_r0_ct,
-		(ParamBool<px4::params::FLAP_FFP_EN>) _param_ffp_en,
-		(ParamFloat<px4::params::FLAP_FFP_D>) _param_ffp_delta,
-		(ParamFloat<px4::params::CA_ROTOR0_PZ>) _param_fast_ca_r0_pz,
-		(ParamFloat<px4::params::CA_SV0_SLEW>) _param_fast_ca_sv0_slew,
-		(ParamFloat<px4::params::CA_SV1_SLEW>) _param_fast_ca_sv1_slew,
-		(ParamInt<px4::params::CA_ROTOR_COUNT>) _param_fast_rotor_count,
 		(ParamInt<px4::params::CA_METHOD>) _param_ca_method,
 		(ParamInt<px4::params::CA_SV_CS_COUNT>) _param_ca_sv_cs_count,
 		(ParamInt<px4::params::CA_SV_CS0_TYPE>) _param_ca_sv_cs0_type,
@@ -300,27 +271,15 @@ private:
 
 	float 		get_airspeed_and_update_scaling(float dt);
 	bool verify_flap_slow_configuration() const;
-	bool verify_fast_actuator_margin_configuration() const;
 	void resetIntegralAndTransfer();
 	void resetRollIntegralAndTransfer();
 
 	BumplessRollITransfer _bumpless_roll_i_transfer{};
 	BumplessRollITransfer::Result _bumpless_roll_i_result{};
 	uint8_t _previous_nav_state{vehicle_status_s::NAVIGATION_STATE_MAX};
-	uint32_t _rate_ctrl_status_pub_seq{0};
 	bool _previous_nav_state_valid{false};
 	bool _roll_i_reset_this_cycle{false};
 	float _b2b_g_current{0.f};
 	float _b2b_roll_baseline{0.f};
 	bool _b2b_total_clipped{false};
-	FastV1ShadowModel _fast_v1_shadow{};
-	FastV1ShadowModel::Output _fast_v1_output{};
-	bool _fast_reset_regime{false};
-	FastControl _fast_control{};
-	uORB::Subscription _fast_mission_result_sub{ORB_ID(mission_result)};
-	int32_t _fast_mission_seq{-1};
-	uORB::Subscription _fast_attitude_sub{ORB_ID(vehicle_attitude)};
-	uint8_t _fast_attitude_reset_counter{0};
-	hrt_abstime _fast_last_decision{0};
-	uORB::Publication<flap_fast_control_s> _fast_control_pub{ORB_ID(flap_fast_control)};
 };
