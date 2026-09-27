@@ -1,0 +1,10 @@
+diff --git a/msg/WorkQueueStackWatermark.msg b/msg/WorkQueueStackWatermark.msg
+new diagnostic topic: timestamp, stack_free, previous_stack_free, work_queue_name[24], work_item_name[32]
+diff --git a/platforms/common/px4_work_queue/WorkQueue.cpp b/platforms/common/px4_work_queue/WorkQueue.cpp
+NuttX-only before/after TCB watermark sampling for wq:nav_and_controllers; copy ItemName before Run; publish only on new minimum
+diff --git a/platforms/common/include/px4_platform_common/px4_work_queue/WorkQueue.hpp b/platforms/common/include/px4_platform_common/px4_work_queue/WorkQueue.hpp
+NuttX-only publication/message/minimum members
+diff --git a/msg/CMakeLists.txt b/msg/CMakeLists.txt
+register WorkQueueStackWatermark.msg
+diff --git a/src/modules/logger/logged_topics.cpp b/src/modules/logger/logged_topics.cpp
+add optional event-driven work_queue_stack_watermark topic

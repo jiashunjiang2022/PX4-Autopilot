@@ -42,6 +42,10 @@
 #include <px4_platform_common/defines.h>
 #include <px4_platform_common/sem.h>
 #include <px4_platform_common/tasks.h>
+#ifdef __PX4_NUTTX
+#include <uORB/Publication.hpp>
+#include <uORB/topics/work_queue_stack_watermark.h>
+#endif
 
 namespace px4
 {
@@ -100,6 +104,11 @@ private:
 	const wq_config_t		&_config;
 	BlockingList<WorkItem *>	_work_items;
 	px4::atomic_bool		_should_exit{false};
+#ifdef __PX4_NUTTX
+	uORB::Publication<work_queue_stack_watermark_s> _stack_watermark_pub{ORB_ID(work_queue_stack_watermark)};
+	work_queue_stack_watermark_s _stack_watermark{};
+	uint16_t _stack_watermark_min{UINT16_MAX};
+#endif
 
 #if defined(ENABLE_LOCKSTEP_SCHEDULER)
 	int _lockstep_component {-1};

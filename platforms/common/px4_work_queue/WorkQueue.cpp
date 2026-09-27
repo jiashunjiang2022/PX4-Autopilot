@@ -40,6 +40,10 @@
 #include <px4_platform_common/tasks.h>
 #include <px4_platform_common/time.h>
 #include <drivers/drv_hrt.h>
+#ifdef __PX4_NUTTX
+#include <nuttx/sched.h>
+#include <nuttx/arch.h>
+#endif
 
 namespace px4
 {
@@ -184,9 +188,40 @@ void WorkQueue::Run()
 			WorkItem *work = _q.pop();
 
 			work_unlock(); // unlock work queue to run (item may requeue itself)
+#ifdef __PX4_NUTTX
+			const bool attribute_stack = strcmp(_config.name, "wq:nav_and_controllers") == 0;
+			unsigned stack_before = UINT16_MAX;
+			if (attribute_stack) {
+				struct tcb_s *tcb = nxsched_get_tcb(getpid());
+				if (tcb != nullptr) {
+					stack_before = up_check_tcbstack_remain(tcb);
+				}
+				strncpy(_stack_watermark.work_queue_name, _config.name, sizeof(_stack_watermark.work_queue_name) - 1);
+				strncpy(_stack_watermark.work_item_name, work->ItemName(), sizeof(_stack_watermark.work_item_name) - 1);
+				_stack_watermark.work_queue_name[sizeof(_stack_watermark.work_queue_name) - 1] = '\0';
+				_stack_watermark.work_item_name[sizeof(_stack_watermark.work_item_name) - 1] = '\0';
+			}
+#endif
 			work->RunPreamble();
 			work->Run();
 			// Note: after Run() we cannot access work anymore, as it might have been deleted
+#ifdef __PX4_NUTTX
+			if (attribute_stack) {
+				unsigned stack_after = UINT16_MAX;
+				struct tcb_s *tcb = nxsched_get_tcb(getpid());
+				if (tcb != nullptr) {
+					stack_after = up_check_tcbstack_remain(tcb);
+				}
+				const unsigned observed = stack_before < stack_after ? stack_before : stack_after;
+				if (observed < _stack_watermark_min) {
+					_stack_watermark.previous_stack_free = _stack_watermark_min;
+					_stack_watermark.stack_free = observed;
+					_stack_watermark.timestamp = hrt_absolute_time();
+					_stack_watermark_min = observed;
+					_stack_watermark_pub.publish(_stack_watermark);
+				}
+			}
+#endif
 			work_lock(); // re-lock
 		}
 

@@ -1,0 +1,4 @@
+function,before_bytes,diagnostic_bytes,delta_bytes,qualifier
+px4::WorkQueue::Run,24,40,16,static
+load_mon::LoadMon::stack_usage,72,72,0,static
+FixedwingRateControl::Run,1392,1392,0,static

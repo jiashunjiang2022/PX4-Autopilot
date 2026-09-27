@@ -227,6 +227,7 @@ set(msg_files
 	SystemPower.msg
 	TakeoffStatus.msg
 	TaskStackInfo.msg
+	WorkQueueStackWatermark.msg
 	TecsStatus.msg
 	TelemetryStatus.msg
 	TiltrotorExtraControls.msg
