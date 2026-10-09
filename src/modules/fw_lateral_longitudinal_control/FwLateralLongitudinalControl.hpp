@@ -39,6 +39,8 @@
 #ifndef PX4_FWLATERALLONGITUDINALCONTROL_HPP
 #define PX4_FWLATERALLONGITUDINALCONTROL_HPP
 
+#include "FwControlHandover.hpp"
+
 #include <float.h>
 #include <fw_performance_model/PerformanceModel.hpp>
 #include <drivers/drv_hrt.h>
@@ -198,6 +200,7 @@ private:
 	hrt_abstime _time_of_first_reduced_roll{0U};       ///< absolute time when entering reduced roll angle for the first time
 	hrt_abstime _time_of_last_npfg_call{0U};           ///< absolute time when the npfg reduced roll angle calculations was last performed
 	vehicle_attitude_setpoint_s _att_sp{};
+	fw_control::AutoControlHandover _auto_control_handover;
 	bool _landed{false};
 	float _can_run_factor{0.f};
 	SlewRate<float> _airspeed_slew_rate_controller;

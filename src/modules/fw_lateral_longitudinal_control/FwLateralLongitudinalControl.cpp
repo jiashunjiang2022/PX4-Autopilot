@@ -170,6 +170,15 @@ void FwLateralLongitudinalControl::Run()
 
 		_vehicle_status_sub.update();
 		_control_mode_sub.update();
+		_auto_control_handover.updateControlMode(_control_mode_sub.get().flag_control_auto_enabled,
+				_control_mode_sub.get().timestamp);
+
+		fixed_wing_longitudinal_setpoint_s longitudinal_setpoint{};
+		const bool longitudinal_setpoint_updated = _fw_longitudinal_ctrl_sub.update(&longitudinal_setpoint);
+
+		if (_auto_control_handover.acceptSetpoint(longitudinal_setpoint_updated, longitudinal_setpoint)) {
+			_long_control_sp = longitudinal_setpoint;
+		}
 
 		if (_flaps_setpoint_sub.updated()) {
 			normalized_unsigned_setpoint_s flaps_setpoint{};
@@ -195,15 +204,11 @@ void FwLateralLongitudinalControl::Run()
 					(_vehicle_status_sub.get().vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING
 					 || _vehicle_status_sub.get().in_transition_mode);
 
-		if (should_run) {
+		if (should_run && !_auto_control_handover.pending()) {
 
 			// ----- Longitudinal ------
 			float pitch_sp{NAN};
 			float throttle_sp{NAN};
-
-			if (_fw_longitudinal_ctrl_sub.updated()) {
-				_fw_longitudinal_ctrl_sub.copy(&_long_control_sp);
-			}
 
 			const float airspeed_sp_eas = adapt_airspeed_setpoint(control_interval, _long_control_sp.equivalent_airspeed,
 						      _min_airspeed_from_guidance, _lateral_control_state.wind_speed.length());
