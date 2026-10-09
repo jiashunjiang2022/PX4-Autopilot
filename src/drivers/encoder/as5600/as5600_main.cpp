@@ -81,3 +81,4 @@ extern "C" __EXPORT int as5600_main(int argc, char *argv[])
 	ThisDriver::print_usage();
 	return -1;
 }
+

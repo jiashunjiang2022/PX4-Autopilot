@@ -7,3 +7,4 @@ menu "Encoder"
             Enable default set of encoder sensors
     rsource "*/Kconfig"
 endmenu #Encoder
+
