@@ -70,6 +70,7 @@ set(msg_files
 	DronecanNodeStatus.msg
 	Ekf2Timestamps.msg
 	EscReport.msg
+	EncoderCount.msg
 	EscStatus.msg
 	EstimatorAidSource1d.msg
 	EstimatorAidSource2d.msg
@@ -89,6 +90,7 @@ set(msg_files
 	FailsafeFlags.msg
 	FailureDetectorStatus.msg
 	FlightPhaseEstimation.msg
+	FlapFrequency.msg
 	FollowTarget.msg
 	FollowTargetEstimator.msg
 	FollowTargetStatus.msg

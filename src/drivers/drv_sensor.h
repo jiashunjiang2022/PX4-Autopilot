@@ -270,5 +270,6 @@
 #define DRV_TEMP_DEVTYPE_TMP102		0xF0
 
 #define DRV_DEVTYPE_UNUSED		0xff
+#define DRV_SENS_DEVTYPE_AS5600       0xF1
 
 #endif /* _DRV_SENSOR_H */
