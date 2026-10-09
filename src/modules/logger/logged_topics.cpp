@@ -171,6 +171,8 @@ void LoggedTopics::add_default_topics()
 	add_optional_topic_multi("rpm", 200);
 	add_topic("flap_frequency", 50);
 	add_topic("encoder_count", 10);
+	add_topic("wing_phase", 10);
+	add_optional_topic("hall_event");
 	add_topic_multi("timesync_status", 1000, 3);
 	add_optional_topic_multi("telemetry_status", 1000, 4);
 

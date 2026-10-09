@@ -43,6 +43,20 @@
 PARAM_DEFINE_INT32(RPM_CAP_ENABLE, 0);
 
 /**
+ * Minimum accepted pulse interval
+ *
+ * Pulses arriving sooner than this interval after the last accepted pulse are treated as input glitches.
+ * Set to 0 to disable pulse interval filtering.
+ *
+ * @unit us
+ * @min 0
+ * @max 1000000
+ * @group System
+ * @reboot_required true
+ */
+PARAM_DEFINE_INT32(RPM_CAP_MIN_US, 0);
+
+/**
  * Voltage pulses per revolution
  *
  * Number of voltage pulses per one rotor revolution on the capturing pin.

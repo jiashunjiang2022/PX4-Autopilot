@@ -58,6 +58,8 @@ RPMCapture::~RPMCapture()
 bool RPMCapture::init()
 {
 	bool success = false;
+	const int32_t min_pulse_interval_us = _param_rpm_cap_min_us.get();
+	_min_pulse_interval_us = min_pulse_interval_us > 0 ? static_cast<hrt_abstime>(min_pulse_interval_us) : 0;
 
 	for (unsigned i = 0; i < PWM_OUTPUT_MAX_CHANNELS; ++i) {
 		char param_name[17];
@@ -103,12 +105,15 @@ void RPMCapture::Run()
 	}
 
 	hrt_abstime now = hrt_absolute_time();
+	bool new_hall_pulse = false;
 
 	if (_interrupt_happened.load()) {
 		// There was an interrupt
 		_period = _hrt_timestamp - _hrt_timestamp_prev;
 		_hrt_timestamp_prev = _hrt_timestamp;
 		_interrupt_happened.store(false);
+		_pulse_count.fetch_add(1);
+		new_hall_pulse = true;
 
 		pwm_input_s pwm_input{};
 		pwm_input.timestamp = now;
@@ -147,17 +152,31 @@ void RPMCapture::Run()
 	rpm.rpm_raw = rpm_raw;
 	rpm.rpm_estimate = _rpm_filter.getState();
 	_rpm_pub.publish(rpm);
+
+	if (new_hall_pulse) {
+		hall_event_s hall{};
+		hall.timestamp = _hrt_timestamp;
+		hall.pulse_count = _pulse_count.load();
+		_hall_pub.publish(hall);
+	}
 }
 
 int RPMCapture::gpio_interrupt_callback(int irq, void *context, void *arg)
 {
 	RPMCapture *instance = static_cast<RPMCapture *>(arg);
+	const hrt_abstime timestamp = hrt_absolute_time();
+
+	if (instance->_hrt_timestamp != 0
+	    && (timestamp - instance->_hrt_timestamp) < instance->_min_pulse_interval_us) {
+		++instance->_error_count;
+		return PX4_OK;
+	}
 
 	if (instance->_interrupt_happened.load()) {
 		++instance->_error_count;
 	}
 
-	instance->_hrt_timestamp = hrt_absolute_time();
+	instance->_hrt_timestamp = timestamp;
 	instance->_interrupt_happened.store(true);
 	instance->ScheduleNow();
 
