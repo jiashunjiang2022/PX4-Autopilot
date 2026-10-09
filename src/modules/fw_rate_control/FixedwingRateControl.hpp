@@ -32,6 +32,10 @@
  ****************************************************************************/
 
 #pragma once
+// ROLL_TBR_BEGIN
+#include "RollTbr.hpp"
+#include <uORB/topics/roll_tbr_status.h>
+// ROLL_TBR_END
 
 #include <lib/rate_control/rate_control.hpp>
 #include <lib/rate_control/gain_compression.hpp>
@@ -160,6 +164,13 @@ private:
 	int32_t _param_vt_fw_difthr_en{0};
 
 	DEFINE_PARAMETERS(
+// ROLL_TBR_BEGIN
+		(ParamInt<px4::params::FLAP_TBR_EN>) _param_flap_tbr_en,
+		(ParamFloat<px4::params::FLAP_TBR_FC>) _param_flap_tbr_fc,
+		(ParamFloat<px4::params::FLAP_TBR_K>) _param_flap_tbr_k,
+		(ParamFloat<px4::params::FLAP_TBR_MAX>) _param_flap_tbr_max,
+		(ParamFloat<px4::params::FLAP_TBR_SLEW>) _param_flap_tbr_slew,
+// ROLL_TBR_END
 		(ParamFloat<px4::params::FW_ACRO_X_MAX>) _param_fw_acro_x_max,
 		(ParamFloat<px4::params::FW_ACRO_Y_MAX>) _param_fw_acro_y_max,
 		(ParamFloat<px4::params::FW_ACRO_Z_MAX>) _param_fw_acro_z_max,
@@ -213,6 +224,12 @@ private:
 	)
 
 	RateControl _rate_control; ///< class for rate control calculations
+// ROLL_TBR_BEGIN
+	roll_tbr::RollTbr _roll_tbr;
+	uORB::Publication<roll_tbr_status_s> _roll_tbr_status_pub{ORB_ID(roll_tbr_status)};
+	uint64_t _roll_tbr_update_counter{0};
+	hrt_abstime _roll_tbr_last_publish{0};
+// ROLL_TBR_END
 	GainCompression3d _gain_compression{this};
 
 	void updateActuatorControlsStatus(float dt);

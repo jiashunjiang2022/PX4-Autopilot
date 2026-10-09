@@ -37,6 +37,7 @@ px4_add_module(
 	SRCS
 		FixedwingRateControl.cpp
 		FixedwingRateControl.hpp
+		RollTbr.hpp
 	DEPENDS
 		px4_work_queue
 		RateControl

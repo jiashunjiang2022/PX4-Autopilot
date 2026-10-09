@@ -234,8 +234,24 @@ void FixedwingRateControl::Run()
 		static constexpr float DT_MAX = 0.04f;
 
 		vehicle_angular_velocity_s vehicle_angular_velocity{};
+// ROLL_TBR_BEGIN
+		const hrt_abstime tbr_previous_sample = _last_run;
+		float tbr_measured_dt = NAN;
+		roll_tbr::Result tbr_result{};
+		roll_tbr_status_s tbr_status{};
+		tbr_status.controller_update_counter = ++_roll_tbr_update_counter;
+		tbr_status.p_sp_used = tbr_status.p_used = NAN;
+		tbr_status.native_roll_output = NAN;
+		tbr_status.native_roll_p_term = tbr_status.native_roll_i_term = NAN;
+		tbr_status.native_roll_d_term = tbr_status.native_roll_ff_term = NAN;
+// ROLL_TBR_END
 
 		if (_vehicle_angular_velocity_sub.copy(&vehicle_angular_velocity)) {
+// ROLL_TBR_BEGIN
+			if (tbr_previous_sample != 0 && vehicle_angular_velocity.timestamp_sample > tbr_previous_sample) {
+				tbr_measured_dt = (vehicle_angular_velocity.timestamp_sample - tbr_previous_sample) * 1e-6f;
+			}
+// ROLL_TBR_END
 			dt = math::constrain((vehicle_angular_velocity.timestamp_sample - _last_run) * 1e-6f, DT_MIN, DT_MAX);
 			_last_run = vehicle_angular_velocity.timestamp_sample;
 		}
@@ -275,6 +291,9 @@ void FixedwingRateControl::Run()
 
 		/* if we are in rotary wing mode, do nothing */
 		if (_vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_ROTARY_WING && !_vehicle_status.is_vtol) {
+// ROLL_TBR_BEGIN
+			_roll_tbr.reset();
+// ROLL_TBR_END
 			perf_end(_loop_perf);
 			return;
 		}
@@ -371,6 +390,16 @@ void FixedwingRateControl::Run()
 				_rate_control.setFeedForwardGain(scaled_gain_ff);
 
 				// Run attitude RATE controllers which need the desired attitudes from above, add trim.
+// ROLL_TBR_BEGIN
+				rate_ctrl_status_s tbr_integral_before{};
+				_rate_control.getRateControlStatus(tbr_integral_before);
+				tbr_status.p_sp_used = body_rates_setpoint(0);
+				tbr_status.p_used = rates(0);
+				tbr_status.native_roll_p_term = _param_fw_rr_p.get() * (body_rates_setpoint(0) - rates(0));
+				tbr_status.native_roll_i_term = tbr_integral_before.rollspeed_integ;
+				tbr_status.native_roll_d_term = -_param_fw_rr_d.get() * angular_accel(0);
+				tbr_status.native_roll_ff_term = scaled_gain_ff(0) * body_rates_setpoint(0);
+// ROLL_TBR_END
 				const Vector3f angular_acceleration_setpoint = _rate_control.update(rates, body_rates_setpoint, angular_accel, dt, _landed);
 
 				Vector3f control_u = _gain_compression.getGains().emult(angular_acceleration_setpoint * _airspeed_scaling * _airspeed_scaling);
@@ -393,6 +422,34 @@ void FixedwingRateControl::Run()
 				}
 
 				/* throttle passed through if it is finite */
+// ROLL_TBR_BEGIN
+				roll_tbr::Input tbr_input{};
+				tbr_input.enable = _param_flap_tbr_en.get();
+				tbr_input.armed = _vcontrol_mode.flag_armed;
+				tbr_input.supported = is_fixed_wing && !_vehicle_status.is_vtol
+						      && !_vehicle_status.is_vtol_tailsitter && !_vehicle_status.in_transition_mode;
+				tbr_input.mission = _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION;
+				tbr_input.landed = _landed;
+				tbr_input.controller_active = _vcontrol_mode.flag_control_rates_enabled && _vcontrol_mode.flag_control_auto_enabled;
+				tbr_input.inputs_valid = rates.isAllFinite() && body_rates_setpoint.isAllFinite()
+							 && angular_accel.isAllFinite() && control_u.isAllFinite() && trim.isAllFinite();
+				tbr_input.integral_reset = _rates_sp.reset_integral;
+				tbr_input.dt = dt;
+				tbr_input.measured_dt = tbr_measured_dt;
+				tbr_input.setpoint = body_rates_setpoint(0);
+				tbr_input.rate = rates(0);
+				const roll_tbr::Config tbr_config{_param_flap_tbr_fc.get(), _param_flap_tbr_k.get(),
+								 _param_flap_tbr_max.get(), _param_flap_tbr_slew.get()};
+				tbr_result = _roll_tbr.update(tbr_config, tbr_input);
+				tbr_status.native_roll_output = control_u(0) + trim(0);
+				tbr_status.native_roll_clipped = _vehicle_torque_setpoint.xyz[0];
+
+				if (tbr_result.active && fabsf(tbr_result.output) > 0.f) {
+					_vehicle_torque_setpoint.xyz[0] = math::constrain(control_u(0) + trim(0) + tbr_result.output, -1.f, 1.f);
+				}
+
+				tbr_status.controller_clip = fabsf(tbr_status.native_roll_output + tbr_result.output) > 1.f;
+// ROLL_TBR_END
 				_vehicle_thrust_setpoint.xyz[0] = PX4_ISFINITE(_rates_sp.thrust_body[0]) ? _rates_sp.thrust_body[0] : 0.0f;
 
 				/* scale effort by battery status */
@@ -419,11 +476,47 @@ void FixedwingRateControl::Run()
 
 		} else {
 			// full manual
+// ROLL_TBR_BEGIN
+			_roll_tbr.reset();
+// ROLL_TBR_END
 			_gain_compression.reset();
 			_rate_control.resetIntegral();
 		}
 
 		// Add feed-forward from roll control output to yaw control output
+// ROLL_TBR_BEGIN
+		if (!_vcontrol_mode.flag_control_rates_enabled) {
+			tbr_status.native_roll_output = _vehicle_torque_setpoint.xyz[0];
+			tbr_status.native_roll_clipped = _vehicle_torque_setpoint.xyz[0];
+		}
+
+		tbr_status.timestamp = hrt_absolute_time();
+		tbr_status.timestamp_sample = angular_velocity.timestamp_sample;
+		tbr_status.controller_dt = dt;
+		tbr_status.measured_dt = tbr_measured_dt;
+		tbr_status.mission_active = _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION;
+		tbr_status.tbr_enabled = _param_flap_tbr_en.get() == 1;
+		tbr_status.tbr_active = tbr_result.active;
+		const roll_tbr::Config tbr_log_config{_param_flap_tbr_fc.get(), _param_flap_tbr_k.get(),
+						    _param_flap_tbr_max.get(), _param_flap_tbr_slew.get()};
+		tbr_status.config_valid = roll_tbr::RollTbr::validConfig(tbr_log_config, dt)
+					  && (_param_flap_tbr_en.get() == 0 || _param_flap_tbr_en.get() == 1);
+		tbr_status.reset_reason = static_cast<uint8_t>(tbr_result.reset_reason);
+		tbr_status.p_error_raw = tbr_status.p_sp_used - tbr_status.p_used;
+		tbr_status.p_error_filtered = tbr_result.filtered;
+		tbr_status.tbr_raw = tbr_result.raw;
+		tbr_status.tbr_after_cap = tbr_result.capped;
+		tbr_status.tbr_final = tbr_result.output;
+		tbr_status.cap_active = tbr_result.cap_active;
+		tbr_status.slew_active = tbr_result.slew_active;
+		tbr_status.final_roll_output = _vehicle_torque_setpoint.xyz[0];
+		tbr_status.native_pitch_output = _vehicle_torque_setpoint.xyz[1];
+
+		if (tbr_status.timestamp - _roll_tbr_last_publish >= 10_ms) {
+			_roll_tbr_status_pub.publish(tbr_status);
+			_roll_tbr_last_publish = tbr_status.timestamp;
+		}
+// ROLL_TBR_END
 		// This can be used to counteract the adverse yaw effect when rolling the plane
 		_vehicle_torque_setpoint.xyz[2] = math::constrain(_vehicle_torque_setpoint.xyz[2] + _param_fw_rll_to_yaw_ff.get() *
 						  _vehicle_torque_setpoint.xyz[0], -1.f, 1.f);
