@@ -66,6 +66,9 @@
 #include <uORB/topics/vehicle_land_detected.h>
 #include <uORB/topics/vehicle_rates_setpoint.h>
 #include <uORB/topics/vehicle_status.h>
+// PITCH_DIAG_BEGIN
+#include <uORB/topics/pitch_outer_diag.h>
+// PITCH_DIAG_END
 
 using matrix::Eulerf;
 using matrix::Quatf;
@@ -114,6 +117,11 @@ private:
 	uORB::Publication<vehicle_attitude_setpoint_s>	_attitude_sp_pub;
 	uORB::Publication<vehicle_rates_setpoint_s>	_rate_sp_pub{ORB_ID(vehicle_rates_setpoint)};
 	uORB::Publication<landing_gear_wheel_s>		_landing_gear_wheel_pub{ORB_ID(landing_gear_wheel)};
+	// PITCH_DIAG_BEGIN
+	uORB::Publication<pitch_outer_diag_s> _pitch_diag_outer_pub{ORB_ID(pitch_outer_diag)};
+	uint64_t _pitch_diag_outer_update_counter{0};
+	hrt_abstime pitch_diag_attitude_sample{0};
+	// PITCH_DIAG_END
 
 	manual_control_setpoint_s		_manual_control_setpoint{};
 	vehicle_attitude_setpoint_s		_att_sp{};

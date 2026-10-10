@@ -49,6 +49,9 @@ FixedwingAttitudeControl::FixedwingAttitudeControl(bool vtol) :
 	parameters_update();
 	_landing_gear_wheel_pub.advertise();
 	_attitude_sp_pub.advertise();
+	// PITCH_DIAG_BEGIN
+	_pitch_diag_outer_pub.advertise();
+	// PITCH_DIAG_END
 }
 
 FixedwingAttitudeControl::~FixedwingAttitudeControl()
@@ -202,6 +205,9 @@ void FixedwingAttitudeControl::Run()
 		vehicle_attitude_s att{};
 
 		if (_att_sub.copy(&att)) {
+			// PITCH_DIAG_BEGIN
+			pitch_diag_attitude_sample = att.timestamp_sample;
+			// PITCH_DIAG_END
 			dt = math::constrain((att.timestamp_sample - _last_run) * 1e-6f, DT_MIN, DT_MAX);
 			_last_run = att.timestamp_sample;
 
@@ -300,17 +306,55 @@ void FixedwingAttitudeControl::Run()
 					const Eulerf euler_sp(q_sp);
 					const float roll_sp = euler_sp.phi();
 					const float pitch_sp = euler_sp.theta();
+					// PITCH_DIAG_BEGIN
+					pitch_outer_diag_s pitch_diag_outer{};
+					pitch_diag_outer.timestamp_sample = pitch_diag_attitude_sample;
+					pitch_diag_outer.attitude_sp_timestamp = _att_sp.timestamp;
+					pitch_diag_outer.controller_dt = dt;
+					pitch_diag_outer.outer_update_counter = ++_pitch_diag_outer_update_counter;
+					pitch_diag_outer.pitch_sp = pitch_sp;
+					pitch_diag_outer.pitch = euler_angles.theta();
+					pitch_diag_outer.pitch_error = pitch_sp - euler_angles.theta();
+					pitch_diag_outer.fw_p_tc = _param_fw_p_tc.get();
+					pitch_diag_outer.fw_p_rmax_pos = _param_fw_p_rmax_pos.get();
+					pitch_diag_outer.fw_p_rmax_neg = _param_fw_p_rmax_neg.get();
+					const float pitch_diag_yaw_euler_rate_sp_used = _yaw_ctrl.get_euler_rate_setpoint();
+					pitch_diag_outer.yaw_euler_rate_sp_used = pitch_diag_yaw_euler_rate_sp_used;
+					pitch_diag_outer.rates_enabled = _vcontrol_mode.flag_control_rates_enabled;
+					pitch_diag_outer.attitude_enabled = _vcontrol_mode.flag_control_attitude_enabled;
+					pitch_diag_outer.manual_enabled = _vcontrol_mode.flag_control_manual_enabled;
+					pitch_diag_outer.fixed_wing_or_transition = _in_fw_or_transition_wo_tailsitter_transition;
+					pitch_diag_outer.attitude_control_active = true;
+					pitch_diag_outer.fixed_wing_active = is_fixed_wing;
+					pitch_diag_outer.mission_active = _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION;
+					pitch_diag_outer.landed = _landed;
+					pitch_diag_outer.nav_state = _vehicle_status.nav_state;
+					pitch_diag_outer.reset_integral = _rates_sp.reset_integral;
+					// PITCH_DIAG_END
 
 					_roll_ctrl.control_roll(roll_sp, _yaw_ctrl.get_euler_rate_setpoint(), euler_angles.phi(),
 								euler_angles.theta());
 					_pitch_ctrl.control_pitch(pitch_sp, _yaw_ctrl.get_euler_rate_setpoint(), euler_angles.phi(),
 								  euler_angles.theta());
+					// PITCH_DIAG_BEGIN
+					pitch_diag_outer.pitch_euler_rate_sp = _pitch_ctrl.get_euler_rate_setpoint();
+					pitch_diag_outer.q_sp_pitch_ctrl_limited = _pitch_ctrl.get_body_rate_setpoint();
+					pitch_diag_outer.q_sp_body_raw_reconstructed = cosf(euler_angles.phi()) *
+							pitch_diag_outer.pitch_euler_rate_sp + cosf(euler_angles.theta()) *
+							sinf(euler_angles.phi()) * pitch_diag_yaw_euler_rate_sp_used;
+					pitch_diag_outer.q_sp_limit_active = fabsf(pitch_diag_outer.q_sp_body_raw_reconstructed -
+													pitch_diag_outer.q_sp_pitch_ctrl_limited) > 1e-6f;
+					// PITCH_DIAG_END
 					_yaw_ctrl.control_yaw(roll_sp, _pitch_ctrl.get_euler_rate_setpoint(), euler_angles.phi(),
 							      euler_angles.theta(), get_airspeed_constrained());
 
 					/* Update input data for rate controllers */
 					Vector3f body_rates_setpoint = Vector3f(_roll_ctrl.get_body_rate_setpoint(), _pitch_ctrl.get_body_rate_setpoint(),
 										_yaw_ctrl.get_body_rate_setpoint());
+					// PITCH_DIAG_BEGIN
+					pitch_diag_outer.q_sp_autotune_ff = 0.f;
+					pitch_diag_outer.autotune_pitch_active = false;
+					// PITCH_DIAG_END
 
 					autotune_attitude_control_status_s pid_autotune;
 					matrix::Vector3f bodyrate_autotune_ff;
@@ -327,8 +371,15 @@ void FixedwingAttitudeControl::Run()
 
 							bodyrate_autotune_ff = matrix::Vector3f(pid_autotune.rate_sp);
 							body_rates_setpoint += bodyrate_autotune_ff;
+							// PITCH_DIAG_BEGIN
+							pitch_diag_outer.q_sp_autotune_ff = bodyrate_autotune_ff(1);
+							pitch_diag_outer.autotune_pitch_active = true;
+							// PITCH_DIAG_END
 						}
 					}
+					// PITCH_DIAG_BEGIN
+					pitch_diag_outer.q_sp_after_autotune = body_rates_setpoint(1);
+					// PITCH_DIAG_END
 
 					/* add yaw rate setpoint from sticks in all attitude-controlled modes */
 					if (_vcontrol_mode.flag_control_manual_enabled) {
@@ -347,6 +398,12 @@ void FixedwingAttitudeControl::Run()
 					_rates_sp.yaw = body_rates_setpoint(2);
 
 					_rates_sp.timestamp = hrt_absolute_time();
+					// PITCH_DIAG_BEGIN
+					pitch_diag_outer.q_sp_final_published = _rates_sp.pitch;
+					pitch_diag_outer.rate_sp_timestamp = _rates_sp.timestamp;
+					pitch_diag_outer.timestamp = hrt_absolute_time();
+					_pitch_diag_outer_pub.publish(pitch_diag_outer);
+					// PITCH_DIAG_END
 
 					_rate_sp_pub.publish(_rates_sp);
 				}

@@ -74,6 +74,9 @@
 #include <uORB/topics/vehicle_status.h>
 #include <uORB/topics/vehicle_thrust_setpoint.h>
 #include <uORB/topics/vehicle_torque_setpoint.h>
+// PITCH_DIAG_BEGIN
+#include <uORB/topics/pitch_inner_diag.h>
+// PITCH_DIAG_END
 
 using matrix::Eulerf;
 using matrix::Quatf;
@@ -126,6 +129,10 @@ private:
 	uORB::Publication<vehicle_torque_setpoint_s>	_vehicle_torque_setpoint_pub;
 	uORB::Publication<normalized_unsigned_setpoint_s> _flaps_setpoint_pub{ORB_ID(flaps_setpoint)};
 	uORB::Publication<normalized_unsigned_setpoint_s> _spoilers_setpoint_pub{ORB_ID(spoilers_setpoint)};
+	// PITCH_DIAG_BEGIN
+	uORB::Publication<pitch_inner_diag_s> _pitch_diag_inner_pub{ORB_ID(pitch_inner_diag)};
+	uint64_t _pitch_diag_inner_update_counter{0};
+	// PITCH_DIAG_END
 
 	manual_control_setpoint_s		_manual_control_setpoint{};
 	vehicle_control_mode_s			_vcontrol_mode{};

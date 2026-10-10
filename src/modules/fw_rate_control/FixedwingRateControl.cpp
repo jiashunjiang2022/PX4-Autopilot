@@ -54,6 +54,9 @@ FixedwingRateControl::FixedwingRateControl(bool vtol) :
 	parameters_update();
 
 	_rate_ctrl_status_pub.advertise();
+	// PITCH_DIAG_BEGIN
+	_pitch_diag_inner_pub.advertise();
+	// PITCH_DIAG_END
 }
 
 FixedwingRateControl::~FixedwingRateControl()
@@ -379,6 +382,32 @@ void FixedwingRateControl::Run()
 				_rates_sp_sub.update(&_rates_sp);
 
 				Vector3f body_rates_setpoint = Vector3f(_rates_sp.roll, _rates_sp.pitch, _rates_sp.yaw);
+				// PITCH_DIAG_BEGIN
+				pitch_inner_diag_s pitch_diag_inner{};
+				pitch_diag_inner.controller_dt = dt;
+				pitch_diag_inner.rate_sp_source_timestamp = _rates_sp.timestamp;
+				pitch_diag_inner.q_sp_used = body_rates_setpoint(1);
+				pitch_diag_inner.q_used = rates(1);
+				pitch_diag_inner.q_error = body_rates_setpoint(1) - rates(1);
+				pitch_diag_inner.q_dot_used = angular_accel(1);
+				pitch_diag_inner.airspeed_scaling = _airspeed_scaling;
+				pitch_diag_inner.airspeed_scaling_sq = _airspeed_scaling * _airspeed_scaling;
+				pitch_diag_inner.fw_pr_p = _param_fw_pr_p.get();
+				pitch_diag_inner.fw_pr_i = _param_fw_pr_i.get();
+				pitch_diag_inner.fw_pr_d = _param_fw_pr_d.get();
+				pitch_diag_inner.fw_pr_ff = _param_fw_pr_ff.get();
+				pitch_diag_inner.fw_pr_imax = _param_fw_pr_imax.get();
+				pitch_diag_inner.reset_integral = _rates_sp.reset_integral;
+				pitch_diag_inner.rates_enabled = _vcontrol_mode.flag_control_rates_enabled;
+				pitch_diag_inner.attitude_enabled = _vcontrol_mode.flag_control_attitude_enabled;
+				pitch_diag_inner.manual_enabled = _vcontrol_mode.flag_control_manual_enabled;
+				pitch_diag_inner.fixed_wing_or_transition = _in_fw_or_transition_wo_tailsitter_transition;
+				pitch_diag_inner.controller_active = true;
+				pitch_diag_inner.fixed_wing_active = is_fixed_wing;
+				pitch_diag_inner.mission_active = _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION;
+				pitch_diag_inner.landed = _landed;
+				pitch_diag_inner.nav_state = _vehicle_status.nav_state;
+				// PITCH_DIAG_END
 
 				// Tailsitter: rotate setpoint from hover to fixed-wing frame (controller is in fixed-wing frame, interface in hover)
 				if (_vehicle_status.is_vtol_tailsitter) {
@@ -388,6 +417,10 @@ void FixedwingRateControl::Run()
 				const Vector3f gain_ff(_param_fw_rr_ff.get(), _param_fw_pr_ff.get(), _param_fw_yr_ff.get());
 				const Vector3f scaled_gain_ff = gain_ff / _airspeed_scaling;
 				_rate_control.setFeedForwardGain(scaled_gain_ff);
+				// PITCH_DIAG_BEGIN
+				pitch_diag_inner.effective_ff_gain = scaled_gain_ff(1);
+				pitch_diag_inner.pitch_ff_term = scaled_gain_ff(1) * body_rates_setpoint(1);
+				// PITCH_DIAG_END
 
 				// Run attitude RATE controllers which need the desired attitudes from above, add trim.
 // ROLL_TBR_BEGIN
@@ -400,9 +433,31 @@ void FixedwingRateControl::Run()
 				tbr_status.native_roll_d_term = -_param_fw_rr_d.get() * angular_accel(0);
 				tbr_status.native_roll_ff_term = scaled_gain_ff(0) * body_rates_setpoint(0);
 // ROLL_TBR_END
+				// PITCH_DIAG_BEGIN
+				rate_ctrl_status_s pitch_diag_integral_before{};
+				_rate_control.getRateControlStatus(pitch_diag_integral_before);
+				pitch_diag_inner.pitch_p_term = _param_fw_pr_p.get() * (body_rates_setpoint(1) - rates(1));
+				pitch_diag_inner.pitch_i_term_before = pitch_diag_integral_before.pitchspeed_integ;
+				pitch_diag_inner.pitch_d_term = -_param_fw_pr_d.get() * angular_accel(1);
+				pitch_diag_inner.i_at_limit_before = fabsf(pitch_diag_integral_before.pitchspeed_integ) >=
+							_param_fw_pr_imax.get() - 1e-6f;
+				// PITCH_DIAG_END
 				const Vector3f angular_acceleration_setpoint = _rate_control.update(rates, body_rates_setpoint, angular_accel, dt, _landed);
+				// PITCH_DIAG_BEGIN
+				rate_ctrl_status_s pitch_diag_integral_after{};
+				_rate_control.getRateControlStatus(pitch_diag_integral_after);
+				pitch_diag_inner.pitch_i_term_after = pitch_diag_integral_after.pitchspeed_integ;
+				pitch_diag_inner.pitch_i_delta = pitch_diag_integral_after.pitchspeed_integ - pitch_diag_integral_before.pitchspeed_integ;
+				pitch_diag_inner.pitch_rate_control_sum = angular_acceleration_setpoint(1);
+				pitch_diag_inner.i_at_limit_after = fabsf(pitch_diag_integral_after.pitchspeed_integ) >=
+							_param_fw_pr_imax.get() - 1e-6f;
+				// PITCH_DIAG_END
 
 				Vector3f control_u = _gain_compression.getGains().emult(angular_acceleration_setpoint * _airspeed_scaling * _airspeed_scaling);
+				// PITCH_DIAG_BEGIN
+				pitch_diag_inner.gain_compression_pitch = _gain_compression.getGains()(1);
+				pitch_diag_inner.pitch_control_after_scaling = control_u(1);
+				// PITCH_DIAG_END
 
 				_gain_compression.update(control_u, dt);
 
@@ -420,6 +475,16 @@ void FixedwingRateControl::Run()
 					_rate_control.resetIntegral();
 					trim.copyTo(_vehicle_torque_setpoint.xyz);
 				}
+				// PITCH_DIAG_BEGIN
+				pitch_diag_inner.pitch_trim = trim(1);
+				pitch_diag_inner.pitch_output_preclip = control_u(1) + trim(1);
+				pitch_diag_inner.pitch_output_final = _vehicle_torque_setpoint.xyz[1];
+				pitch_diag_inner.output_clip = fabsf(pitch_diag_inner.pitch_output_preclip) > 1.f;
+				pitch_diag_inner.timestamp_sample = angular_velocity.timestamp_sample;
+				pitch_diag_inner.inner_update_counter = ++_pitch_diag_inner_update_counter;
+				pitch_diag_inner.timestamp = hrt_absolute_time();
+				_pitch_diag_inner_pub.publish(pitch_diag_inner);
+				// PITCH_DIAG_END
 
 				/* throttle passed through if it is finite */
 // ROLL_TBR_BEGIN
