@@ -169,6 +169,7 @@ void LoggedTopics::add_default_topics()
 	add_topic("roll_tbr_status", 10);
 	add_topic("pitch_outer_diag", 10);
 	add_topic("pitch_inner_diag", 10);
+	add_topic("pitch_ff_shaper_status", 10);
 	add_optional_topic_multi("sensor_hygrometer", 500, 4);
 	add_optional_topic_multi("sensor_temp", 100, 4);
 	add_optional_topic_multi("rpm", 200);

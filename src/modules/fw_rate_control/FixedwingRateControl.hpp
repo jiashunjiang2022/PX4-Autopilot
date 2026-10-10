@@ -78,6 +78,11 @@
 #include <uORB/topics/pitch_inner_diag.h>
 // PITCH_DIAG_END
 
+// PITCH_FF_SHAPER_BEGIN
+#include "PitchFfPhaseShaper.hpp"
+#include <uORB/topics/wing_phase.h>
+#include <uORB/topics/pitch_ff_shaper_status.h>
+// PITCH_FF_SHAPER_END
 using matrix::Eulerf;
 using matrix::Quatf;
 
@@ -105,6 +110,13 @@ public:
 
 private:
 	void Run() override;
+// PITCH_FF_SHAPER_BEGIN
+	uORB::Subscription _wing_phase_sub{ORB_ID(wing_phase)};
+	wing_phase_s _wing_phase{};
+	pitch_ff_phase_shaper::PitchFfPhaseShaper _pitch_ff_shaper;
+	uORB::Publication<pitch_ff_shaper_status_s> _pitch_ff_status_pub{ORB_ID(pitch_ff_shaper_status)};
+	uint64_t _pitch_ff_update_counter{0};
+// PITCH_FF_SHAPER_END
 
 	uORB::SubscriptionCallbackWorkItem _vehicle_angular_velocity_sub{this, ORB_ID(vehicle_angular_velocity)};
 
@@ -171,6 +183,13 @@ private:
 	int32_t _param_vt_fw_difthr_en{0};
 
 	DEFINE_PARAMETERS(
+// PITCH_FF_SHAPER_BEGIN
+		(ParamInt<px4::params::FLAP_PFF_EN>) _param_flap_pff_en,
+		(ParamFloat<px4::params::FLAP_PFF_ALPHA>) _param_flap_pff_alpha,
+		(ParamFloat<px4::params::FLAP_PFF_ADAPT>) _param_flap_pff_adapt,
+		(ParamFloat<px4::params::FW_P_RMAX_POS>) _param_pff_pitch_limit_pos,
+		(ParamFloat<px4::params::FW_P_RMAX_NEG>) _param_pff_pitch_limit_neg,
+// PITCH_FF_SHAPER_END
 // ROLL_TBR_BEGIN
 		(ParamInt<px4::params::FLAP_TBR_EN>) _param_flap_tbr_en,
 		(ParamFloat<px4::params::FLAP_TBR_FC>) _param_flap_tbr_fc,

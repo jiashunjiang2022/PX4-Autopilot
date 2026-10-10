@@ -231,6 +231,10 @@ void FixedwingRateControl::Run()
 			parameters_update();
 		}
 
+// PITCH_FF_SHAPER_BEGIN
+		const hrt_abstime pff_previous_sample = _last_run;
+		double pff_measured_dt = NAN;
+// PITCH_FF_SHAPER_END
 		float dt = 0.f;
 
 		static constexpr float DT_MIN = 0.002f;
@@ -255,6 +259,11 @@ void FixedwingRateControl::Run()
 				tbr_measured_dt = (vehicle_angular_velocity.timestamp_sample - tbr_previous_sample) * 1e-6f;
 			}
 // ROLL_TBR_END
+// PITCH_FF_SHAPER_BEGIN
+			if (pff_previous_sample != 0 && vehicle_angular_velocity.timestamp_sample > pff_previous_sample) {
+				pff_measured_dt = (vehicle_angular_velocity.timestamp_sample - pff_previous_sample) * 1e-6;
+			}
+// PITCH_FF_SHAPER_END
 			dt = math::constrain((vehicle_angular_velocity.timestamp_sample - _last_run) * 1e-6f, DT_MIN, DT_MAX);
 			_last_run = vehicle_angular_velocity.timestamp_sample;
 		}
@@ -297,10 +306,18 @@ void FixedwingRateControl::Run()
 // ROLL_TBR_BEGIN
 			_roll_tbr.reset();
 // ROLL_TBR_END
+// PITCH_FF_SHAPER_BEGIN
+			_pitch_ff_shaper.reset();
+// PITCH_FF_SHAPER_END
 			perf_end(_loop_perf);
 			return;
 		}
 
+// PITCH_FF_SHAPER_BEGIN
+		if (!_vcontrol_mode.flag_control_rates_enabled) {
+			_pitch_ff_shaper.reset();
+		}
+// PITCH_FF_SHAPER_END
 		if (_vcontrol_mode.flag_control_rates_enabled) {
 
 			const float airspeed = get_airspeed_and_update_scaling(dt);
@@ -459,7 +476,54 @@ void FixedwingRateControl::Run()
 				pitch_diag_inner.pitch_control_after_scaling = control_u(1);
 				// PITCH_DIAG_END
 
+// PITCH_FF_SHAPER_BEGIN
+				pitch_ff_shaper_status_s pff_status{};
+				pff_status.gain_compression_pitch = _gain_compression.getGains()(1);
+				pff_status.effective_ff_gain = scaled_gain_ff(1);
+				pff_status.airspeed_scaling_sq = _airspeed_scaling * _airspeed_scaling;
+				pff_status.native_pitch_control = control_u(1);
+// PITCH_FF_SHAPER_END
 				_gain_compression.update(control_u, dt);
+// PITCH_FF_SHAPER_BEGIN
+				// Only the final Pitch output changes. Compression adaptation above sees Native command.
+				_wing_phase_sub.update(&_wing_phase);
+				const hrt_abstime pff_now = hrt_absolute_time();
+				pitch_ff_phase_shaper::Input pff_input{};
+				pff_input.enable = _param_flap_pff_en.get() == 1;
+				pff_input.armed = _vcontrol_mode.flag_armed;
+				pff_input.supported = is_fixed_wing && !_vehicle_status.is_vtol
+					&& !_vehicle_status.is_vtol_tailsitter && !_vehicle_status.in_transition_mode;
+				pff_input.mission = _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION;
+				pff_input.landed = _landed;
+				pff_input.controller_active = _vcontrol_mode.flag_control_rates_enabled && _vcontrol_mode.flag_control_auto_enabled;
+				pff_input.phase_valid = _wing_phase.phase_valid;
+				pff_input.phase_fresh = pitch_ff_phase_shaper::phaseFresh(_wing_phase.timestamp, pff_now);
+				pff_input.phase_rad = _wing_phase.phase_rad;
+				pff_input.flap_frequency_hz = _wing_phase.flap_frequency_hz;
+				pff_input.q_sp = body_rates_setpoint(1);
+				// Reject faulty raw intervals rather than hiding them behind Native dt clamping.
+				pff_input.dt = std::isfinite(pff_measured_dt) && pff_measured_dt > 0. && pff_measured_dt <= .1 ? dt : NAN;
+				pff_input.numeric_inputs_valid = rates.isAllFinite() && body_rates_setpoint.isAllFinite()
+					&& angular_accel.isAllFinite() && control_u.isAllFinite() && trim.isAllFinite();
+				// A generous numerical containment bound, derived from existing Native Pitch rate limits.
+				pff_input.amplitude_bound = 4. * static_cast<double>(math::radians(math::max(_param_pff_pitch_limit_pos.get(),
+					_param_pff_pitch_limit_neg.get())));
+				const pitch_ff_phase_shaper::Config pff_config{_param_flap_pff_alpha.get(), _param_flap_pff_adapt.get()};
+				auto pff_result = _pitch_ff_shaper.update(pff_config, pff_input);
+				auto pff_mapping = pitch_ff_phase_shaper::mapPitchOutput(pff_result, pff_status.effective_ff_gain,
+					pff_status.gain_compression_pitch, pff_status.airspeed_scaling_sq, control_u(1), trim(1));
+				if (!pff_mapping.valid) {
+					_pitch_ff_shaper.reset();
+					pff_result = {};
+					pff_result.reset_reason = pitch_ff_phase_shaper::ResetReason::NONFINITE_STATE;
+					pff_mapping = {};
+					pff_mapping.shaped_pitch_control = control_u(1);
+				}
+				// Avoid even a float addition/cast on the default-off Native path.
+				if (std::fabs(pff_mapping.normalized_correction) > 0.) {
+					control_u(1) = static_cast<float>(pff_mapping.shaped_pitch_control);
+				}
+// PITCH_FF_SHAPER_END
 
 				// Special case yaw in Acro: if the parameter FW_ACRO_YAW_EN is not set then don't rate-control yaw
 				if (!_vcontrol_mode.flag_control_attitude_enabled && _vcontrol_mode.flag_control_manual_enabled
@@ -475,6 +539,59 @@ void FixedwingRateControl::Run()
 					_rate_control.resetIntegral();
 					trim.copyTo(_vehicle_torque_setpoint.xyz);
 				}
+// PITCH_FF_SHAPER_BEGIN
+				pff_status.timestamp = hrt_absolute_time();
+				pff_status.timestamp_sample = angular_velocity.timestamp_sample;
+				pff_status.rate_sp_source_timestamp = _rates_sp.timestamp;
+				pff_status.wing_phase_timestamp = _wing_phase.timestamp;
+				pff_status.update_counter = ++_pitch_ff_update_counter;
+				pff_status.controller_dt = dt;
+				pff_status.measured_dt = pff_measured_dt;
+				pff_status.phase_rad = _wing_phase.phase_rad;
+				pff_status.phase_age = _wing_phase.timestamp != 0 && pff_now >= _wing_phase.timestamp ?
+					(pff_now - _wing_phase.timestamp) * 1e-6f : NAN;
+				pff_status.flap_frequency_hz = _wing_phase.flap_frequency_hz;
+				pff_status.q_sp_used = body_rates_setpoint(1);
+				pff_status.coeff_cos_1f = pff_result.coeff_cos_1f;
+				pff_status.coeff_sin_1f = pff_result.coeff_sin_1f;
+				pff_status.coeff_cos_2f_internal = pff_result.coeff_cos_2f_internal;
+				pff_status.coeff_sin_2f_internal = pff_result.coeff_sin_2f_internal;
+				pff_status.baseline = pff_result.baseline;
+				pff_status.fade = pff_result.fade;
+				pff_status.warm_cycles = pff_result.warm_cycles;
+				pff_status.qhat_1f = pff_result.qhat_1f;
+				pff_status.qhat_2f_internal = pff_result.qhat_2f_internal;
+				pff_status.qhat_1f_reference = pff_result.qhat_1f_reference;
+				pff_status.qhat_2f_reference_internal = pff_result.qhat_2f_reference_internal;
+				pff_status.qhat_1f_applied = pff_result.qhat_1f_applied;
+				pff_status.estimation_error = pff_result.estimation_error;
+				pff_status.alpha_effective = pff_result.alpha_effective;
+				pff_status.active = pff_result.active;
+				pff_status.warmup_complete = pff_result.warmup_complete;
+				pff_status.fading = pff_result.fading;
+				pff_status.alpha_command = _param_flap_pff_alpha.get();
+				pff_status.native_ff_term = scaled_gain_ff(1) * body_rates_setpoint(1);
+				pff_status.ff_delta_rate_control = pff_mapping.ff_delta_rate_control;
+				pff_status.shaped_ff_term = pff_status.native_ff_term + pff_status.ff_delta_rate_control;
+				pff_status.normalized_correction = pff_mapping.normalized_correction;
+				pff_status.shaped_pitch_control = control_u(1);
+				pff_status.native_pitch_preclip = pff_status.native_pitch_control + trim(1);
+				pff_status.shaped_pitch_preclip = control_u(1) + trim(1);
+				pff_status.shaped_pitch_final = _vehicle_torque_setpoint.xyz[1];
+				pff_status.enabled = pff_input.enable;
+				pff_status.armed = pff_input.armed;
+				pff_status.phase_valid = pff_input.phase_valid;
+				pff_status.phase_fresh = pff_input.phase_fresh;
+				pff_status.frequency_valid = std::isfinite(pff_input.flap_frequency_hz) && pff_input.flap_frequency_hz > .5;
+				pff_status.fixed_wing_active = pff_input.supported;
+				pff_status.mission_active = pff_input.mission;
+				pff_status.landed = pff_input.landed;
+				pff_status.controller_active = pff_input.controller_active;
+				pff_status.reset_reason = static_cast<uint8_t>(pff_result.reset_reason);
+				_pitch_ff_status_pub.publish(pff_status);
+				// Restore Native scratch input for existing diagnostics and Roll TBR validity checks.
+				control_u(1) = pff_status.native_pitch_control;
+// PITCH_FF_SHAPER_END
 				// PITCH_DIAG_BEGIN
 				pitch_diag_inner.pitch_trim = trim(1);
 				pitch_diag_inner.pitch_output_preclip = control_u(1) + trim(1);
