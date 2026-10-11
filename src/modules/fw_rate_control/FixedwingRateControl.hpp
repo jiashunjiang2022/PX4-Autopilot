@@ -115,6 +115,7 @@ private:
 	wing_phase_s _wing_phase{};
 	pitch_ff_phase_shaper::PitchFfPhaseShaper _pitch_ff_shaper;
 	uORB::Publication<pitch_ff_shaper_status_s> _pitch_ff_status_pub{ORB_ID(pitch_ff_shaper_status)};
+	pitch_ff_shaper_status_s _pitch_ff_status{};
 	uint64_t _pitch_ff_update_counter{0};
 // PITCH_FF_SHAPER_END
 
@@ -143,6 +144,7 @@ private:
 	uORB::Publication<normalized_unsigned_setpoint_s> _spoilers_setpoint_pub{ORB_ID(spoilers_setpoint)};
 	// PITCH_DIAG_BEGIN
 	uORB::Publication<pitch_inner_diag_s> _pitch_diag_inner_pub{ORB_ID(pitch_inner_diag)};
+	pitch_inner_diag_s _pitch_diag_inner{};
 	uint64_t _pitch_diag_inner_update_counter{0};
 	// PITCH_DIAG_END
 
@@ -253,6 +255,7 @@ private:
 // ROLL_TBR_BEGIN
 	roll_tbr::RollTbr _roll_tbr;
 	uORB::Publication<roll_tbr_status_s> _roll_tbr_status_pub{ORB_ID(roll_tbr_status)};
+	roll_tbr_status_s _roll_tbr_status{};
 	uint64_t _roll_tbr_update_counter{0};
 	hrt_abstime _roll_tbr_last_publish{0};
 // ROLL_TBR_END

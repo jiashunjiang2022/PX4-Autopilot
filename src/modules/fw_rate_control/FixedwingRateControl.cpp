@@ -245,12 +245,12 @@ void FixedwingRateControl::Run()
 		const hrt_abstime tbr_previous_sample = _last_run;
 		float tbr_measured_dt = NAN;
 		roll_tbr::Result tbr_result{};
-		roll_tbr_status_s tbr_status{};
-		tbr_status.controller_update_counter = ++_roll_tbr_update_counter;
-		tbr_status.p_sp_used = tbr_status.p_used = NAN;
-		tbr_status.native_roll_output = NAN;
-		tbr_status.native_roll_p_term = tbr_status.native_roll_i_term = NAN;
-		tbr_status.native_roll_d_term = tbr_status.native_roll_ff_term = NAN;
+		_roll_tbr_status = {};
+		_roll_tbr_status.controller_update_counter = ++_roll_tbr_update_counter;
+		_roll_tbr_status.p_sp_used = _roll_tbr_status.p_used = NAN;
+		_roll_tbr_status.native_roll_output = NAN;
+		_roll_tbr_status.native_roll_p_term = _roll_tbr_status.native_roll_i_term = NAN;
+		_roll_tbr_status.native_roll_d_term = _roll_tbr_status.native_roll_ff_term = NAN;
 // ROLL_TBR_END
 
 		if (_vehicle_angular_velocity_sub.copy(&vehicle_angular_velocity)) {
@@ -400,30 +400,30 @@ void FixedwingRateControl::Run()
 
 				Vector3f body_rates_setpoint = Vector3f(_rates_sp.roll, _rates_sp.pitch, _rates_sp.yaw);
 				// PITCH_DIAG_BEGIN
-				pitch_inner_diag_s pitch_diag_inner{};
-				pitch_diag_inner.controller_dt = dt;
-				pitch_diag_inner.rate_sp_source_timestamp = _rates_sp.timestamp;
-				pitch_diag_inner.q_sp_used = body_rates_setpoint(1);
-				pitch_diag_inner.q_used = rates(1);
-				pitch_diag_inner.q_error = body_rates_setpoint(1) - rates(1);
-				pitch_diag_inner.q_dot_used = angular_accel(1);
-				pitch_diag_inner.airspeed_scaling = _airspeed_scaling;
-				pitch_diag_inner.airspeed_scaling_sq = _airspeed_scaling * _airspeed_scaling;
-				pitch_diag_inner.fw_pr_p = _param_fw_pr_p.get();
-				pitch_diag_inner.fw_pr_i = _param_fw_pr_i.get();
-				pitch_diag_inner.fw_pr_d = _param_fw_pr_d.get();
-				pitch_diag_inner.fw_pr_ff = _param_fw_pr_ff.get();
-				pitch_diag_inner.fw_pr_imax = _param_fw_pr_imax.get();
-				pitch_diag_inner.reset_integral = _rates_sp.reset_integral;
-				pitch_diag_inner.rates_enabled = _vcontrol_mode.flag_control_rates_enabled;
-				pitch_diag_inner.attitude_enabled = _vcontrol_mode.flag_control_attitude_enabled;
-				pitch_diag_inner.manual_enabled = _vcontrol_mode.flag_control_manual_enabled;
-				pitch_diag_inner.fixed_wing_or_transition = _in_fw_or_transition_wo_tailsitter_transition;
-				pitch_diag_inner.controller_active = true;
-				pitch_diag_inner.fixed_wing_active = is_fixed_wing;
-				pitch_diag_inner.mission_active = _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION;
-				pitch_diag_inner.landed = _landed;
-				pitch_diag_inner.nav_state = _vehicle_status.nav_state;
+				_pitch_diag_inner = {};
+				_pitch_diag_inner.controller_dt = dt;
+				_pitch_diag_inner.rate_sp_source_timestamp = _rates_sp.timestamp;
+				_pitch_diag_inner.q_sp_used = body_rates_setpoint(1);
+				_pitch_diag_inner.q_used = rates(1);
+				_pitch_diag_inner.q_error = body_rates_setpoint(1) - rates(1);
+				_pitch_diag_inner.q_dot_used = angular_accel(1);
+				_pitch_diag_inner.airspeed_scaling = _airspeed_scaling;
+				_pitch_diag_inner.airspeed_scaling_sq = _airspeed_scaling * _airspeed_scaling;
+				_pitch_diag_inner.fw_pr_p = _param_fw_pr_p.get();
+				_pitch_diag_inner.fw_pr_i = _param_fw_pr_i.get();
+				_pitch_diag_inner.fw_pr_d = _param_fw_pr_d.get();
+				_pitch_diag_inner.fw_pr_ff = _param_fw_pr_ff.get();
+				_pitch_diag_inner.fw_pr_imax = _param_fw_pr_imax.get();
+				_pitch_diag_inner.reset_integral = _rates_sp.reset_integral;
+				_pitch_diag_inner.rates_enabled = _vcontrol_mode.flag_control_rates_enabled;
+				_pitch_diag_inner.attitude_enabled = _vcontrol_mode.flag_control_attitude_enabled;
+				_pitch_diag_inner.manual_enabled = _vcontrol_mode.flag_control_manual_enabled;
+				_pitch_diag_inner.fixed_wing_or_transition = _in_fw_or_transition_wo_tailsitter_transition;
+				_pitch_diag_inner.controller_active = true;
+				_pitch_diag_inner.fixed_wing_active = is_fixed_wing;
+				_pitch_diag_inner.mission_active = _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION;
+				_pitch_diag_inner.landed = _landed;
+				_pitch_diag_inner.nav_state = _vehicle_status.nav_state;
 				// PITCH_DIAG_END
 
 				// Tailsitter: rotate setpoint from hover to fixed-wing frame (controller is in fixed-wing frame, interface in hover)
@@ -435,53 +435,53 @@ void FixedwingRateControl::Run()
 				const Vector3f scaled_gain_ff = gain_ff / _airspeed_scaling;
 				_rate_control.setFeedForwardGain(scaled_gain_ff);
 				// PITCH_DIAG_BEGIN
-				pitch_diag_inner.effective_ff_gain = scaled_gain_ff(1);
-				pitch_diag_inner.pitch_ff_term = scaled_gain_ff(1) * body_rates_setpoint(1);
+				_pitch_diag_inner.effective_ff_gain = scaled_gain_ff(1);
+				_pitch_diag_inner.pitch_ff_term = scaled_gain_ff(1) * body_rates_setpoint(1);
 				// PITCH_DIAG_END
 
 				// Run attitude RATE controllers which need the desired attitudes from above, add trim.
 // ROLL_TBR_BEGIN
 				rate_ctrl_status_s tbr_integral_before{};
 				_rate_control.getRateControlStatus(tbr_integral_before);
-				tbr_status.p_sp_used = body_rates_setpoint(0);
-				tbr_status.p_used = rates(0);
-				tbr_status.native_roll_p_term = _param_fw_rr_p.get() * (body_rates_setpoint(0) - rates(0));
-				tbr_status.native_roll_i_term = tbr_integral_before.rollspeed_integ;
-				tbr_status.native_roll_d_term = -_param_fw_rr_d.get() * angular_accel(0);
-				tbr_status.native_roll_ff_term = scaled_gain_ff(0) * body_rates_setpoint(0);
+				_roll_tbr_status.p_sp_used = body_rates_setpoint(0);
+				_roll_tbr_status.p_used = rates(0);
+				_roll_tbr_status.native_roll_p_term = _param_fw_rr_p.get() * (body_rates_setpoint(0) - rates(0));
+				_roll_tbr_status.native_roll_i_term = tbr_integral_before.rollspeed_integ;
+				_roll_tbr_status.native_roll_d_term = -_param_fw_rr_d.get() * angular_accel(0);
+				_roll_tbr_status.native_roll_ff_term = scaled_gain_ff(0) * body_rates_setpoint(0);
 // ROLL_TBR_END
 				// PITCH_DIAG_BEGIN
 				rate_ctrl_status_s pitch_diag_integral_before{};
 				_rate_control.getRateControlStatus(pitch_diag_integral_before);
-				pitch_diag_inner.pitch_p_term = _param_fw_pr_p.get() * (body_rates_setpoint(1) - rates(1));
-				pitch_diag_inner.pitch_i_term_before = pitch_diag_integral_before.pitchspeed_integ;
-				pitch_diag_inner.pitch_d_term = -_param_fw_pr_d.get() * angular_accel(1);
-				pitch_diag_inner.i_at_limit_before = fabsf(pitch_diag_integral_before.pitchspeed_integ) >=
+				_pitch_diag_inner.pitch_p_term = _param_fw_pr_p.get() * (body_rates_setpoint(1) - rates(1));
+				_pitch_diag_inner.pitch_i_term_before = pitch_diag_integral_before.pitchspeed_integ;
+				_pitch_diag_inner.pitch_d_term = -_param_fw_pr_d.get() * angular_accel(1);
+				_pitch_diag_inner.i_at_limit_before = fabsf(pitch_diag_integral_before.pitchspeed_integ) >=
 							_param_fw_pr_imax.get() - 1e-6f;
 				// PITCH_DIAG_END
 				const Vector3f angular_acceleration_setpoint = _rate_control.update(rates, body_rates_setpoint, angular_accel, dt, _landed);
 				// PITCH_DIAG_BEGIN
 				rate_ctrl_status_s pitch_diag_integral_after{};
 				_rate_control.getRateControlStatus(pitch_diag_integral_after);
-				pitch_diag_inner.pitch_i_term_after = pitch_diag_integral_after.pitchspeed_integ;
-				pitch_diag_inner.pitch_i_delta = pitch_diag_integral_after.pitchspeed_integ - pitch_diag_integral_before.pitchspeed_integ;
-				pitch_diag_inner.pitch_rate_control_sum = angular_acceleration_setpoint(1);
-				pitch_diag_inner.i_at_limit_after = fabsf(pitch_diag_integral_after.pitchspeed_integ) >=
+				_pitch_diag_inner.pitch_i_term_after = pitch_diag_integral_after.pitchspeed_integ;
+				_pitch_diag_inner.pitch_i_delta = pitch_diag_integral_after.pitchspeed_integ - pitch_diag_integral_before.pitchspeed_integ;
+				_pitch_diag_inner.pitch_rate_control_sum = angular_acceleration_setpoint(1);
+				_pitch_diag_inner.i_at_limit_after = fabsf(pitch_diag_integral_after.pitchspeed_integ) >=
 							_param_fw_pr_imax.get() - 1e-6f;
 				// PITCH_DIAG_END
 
 				Vector3f control_u = _gain_compression.getGains().emult(angular_acceleration_setpoint * _airspeed_scaling * _airspeed_scaling);
 				// PITCH_DIAG_BEGIN
-				pitch_diag_inner.gain_compression_pitch = _gain_compression.getGains()(1);
-				pitch_diag_inner.pitch_control_after_scaling = control_u(1);
+				_pitch_diag_inner.gain_compression_pitch = _gain_compression.getGains()(1);
+				_pitch_diag_inner.pitch_control_after_scaling = control_u(1);
 				// PITCH_DIAG_END
 
 // PITCH_FF_SHAPER_BEGIN
-				pitch_ff_shaper_status_s pff_status{};
-				pff_status.gain_compression_pitch = _gain_compression.getGains()(1);
-				pff_status.effective_ff_gain = scaled_gain_ff(1);
-				pff_status.airspeed_scaling_sq = _airspeed_scaling * _airspeed_scaling;
-				pff_status.native_pitch_control = control_u(1);
+				_pitch_ff_status = {};
+				_pitch_ff_status.gain_compression_pitch = _gain_compression.getGains()(1);
+				_pitch_ff_status.effective_ff_gain = scaled_gain_ff(1);
+				_pitch_ff_status.airspeed_scaling_sq = _airspeed_scaling * _airspeed_scaling;
+				_pitch_ff_status.native_pitch_control = control_u(1);
 // PITCH_FF_SHAPER_END
 				_gain_compression.update(control_u, dt);
 // PITCH_FF_SHAPER_BEGIN
@@ -510,8 +510,8 @@ void FixedwingRateControl::Run()
 					_param_pff_pitch_limit_neg.get())));
 				const pitch_ff_phase_shaper::Config pff_config{_param_flap_pff_alpha.get(), _param_flap_pff_adapt.get()};
 				auto pff_result = _pitch_ff_shaper.update(pff_config, pff_input);
-				auto pff_mapping = pitch_ff_phase_shaper::mapPitchOutput(pff_result, pff_status.effective_ff_gain,
-					pff_status.gain_compression_pitch, pff_status.airspeed_scaling_sq, control_u(1), trim(1));
+				auto pff_mapping = pitch_ff_phase_shaper::mapPitchOutput(pff_result, _pitch_ff_status.effective_ff_gain,
+					_pitch_ff_status.gain_compression_pitch, _pitch_ff_status.airspeed_scaling_sq, control_u(1), trim(1));
 				if (!pff_mapping.valid) {
 					_pitch_ff_shaper.reset();
 					pff_result = {};
@@ -540,67 +540,67 @@ void FixedwingRateControl::Run()
 					trim.copyTo(_vehicle_torque_setpoint.xyz);
 				}
 // PITCH_FF_SHAPER_BEGIN
-				pff_status.timestamp = hrt_absolute_time();
-				pff_status.timestamp_sample = angular_velocity.timestamp_sample;
-				pff_status.rate_sp_source_timestamp = _rates_sp.timestamp;
-				pff_status.wing_phase_timestamp = _wing_phase.timestamp;
-				pff_status.update_counter = ++_pitch_ff_update_counter;
-				pff_status.controller_dt = dt;
-				pff_status.measured_dt = pff_measured_dt;
-				pff_status.phase_rad = _wing_phase.phase_rad;
-				pff_status.phase_age = _wing_phase.timestamp != 0 && pff_now >= _wing_phase.timestamp ?
+				_pitch_ff_status.timestamp = hrt_absolute_time();
+				_pitch_ff_status.timestamp_sample = angular_velocity.timestamp_sample;
+				_pitch_ff_status.rate_sp_source_timestamp = _rates_sp.timestamp;
+				_pitch_ff_status.wing_phase_timestamp = _wing_phase.timestamp;
+				_pitch_ff_status.update_counter = ++_pitch_ff_update_counter;
+				_pitch_ff_status.controller_dt = dt;
+				_pitch_ff_status.measured_dt = pff_measured_dt;
+				_pitch_ff_status.phase_rad = _wing_phase.phase_rad;
+				_pitch_ff_status.phase_age = _wing_phase.timestamp != 0 && pff_now >= _wing_phase.timestamp ?
 					(pff_now - _wing_phase.timestamp) * 1e-6f : NAN;
-				pff_status.flap_frequency_hz = _wing_phase.flap_frequency_hz;
-				pff_status.q_sp_used = body_rates_setpoint(1);
-				pff_status.coeff_cos_1f = pff_result.coeff_cos_1f;
-				pff_status.coeff_sin_1f = pff_result.coeff_sin_1f;
-				pff_status.coeff_cos_2f_internal = pff_result.coeff_cos_2f_internal;
-				pff_status.coeff_sin_2f_internal = pff_result.coeff_sin_2f_internal;
-				pff_status.baseline = pff_result.baseline;
-				pff_status.fade = pff_result.fade;
-				pff_status.warm_cycles = pff_result.warm_cycles;
-				pff_status.qhat_1f = pff_result.qhat_1f;
-				pff_status.qhat_2f_internal = pff_result.qhat_2f_internal;
-				pff_status.qhat_1f_reference = pff_result.qhat_1f_reference;
-				pff_status.qhat_2f_reference_internal = pff_result.qhat_2f_reference_internal;
-				pff_status.qhat_1f_applied = pff_result.qhat_1f_applied;
-				pff_status.estimation_error = pff_result.estimation_error;
-				pff_status.alpha_effective = pff_result.alpha_effective;
-				pff_status.active = pff_result.active;
-				pff_status.warmup_complete = pff_result.warmup_complete;
-				pff_status.fading = pff_result.fading;
-				pff_status.alpha_command = _param_flap_pff_alpha.get();
-				pff_status.native_ff_term = scaled_gain_ff(1) * body_rates_setpoint(1);
-				pff_status.ff_delta_rate_control = pff_mapping.ff_delta_rate_control;
-				pff_status.shaped_ff_term = pff_status.native_ff_term + pff_status.ff_delta_rate_control;
-				pff_status.normalized_correction = pff_mapping.normalized_correction;
-				pff_status.shaped_pitch_control = control_u(1);
-				pff_status.native_pitch_preclip = pff_status.native_pitch_control + trim(1);
-				pff_status.shaped_pitch_preclip = control_u(1) + trim(1);
-				pff_status.shaped_pitch_final = _vehicle_torque_setpoint.xyz[1];
-				pff_status.enabled = pff_input.enable;
-				pff_status.armed = pff_input.armed;
-				pff_status.phase_valid = pff_input.phase_valid;
-				pff_status.phase_fresh = pff_input.phase_fresh;
-				pff_status.frequency_valid = std::isfinite(pff_input.flap_frequency_hz) && pff_input.flap_frequency_hz > .5;
-				pff_status.fixed_wing_active = pff_input.supported;
-				pff_status.mission_active = pff_input.mission;
-				pff_status.landed = pff_input.landed;
-				pff_status.controller_active = pff_input.controller_active;
-				pff_status.reset_reason = static_cast<uint8_t>(pff_result.reset_reason);
-				_pitch_ff_status_pub.publish(pff_status);
+				_pitch_ff_status.flap_frequency_hz = _wing_phase.flap_frequency_hz;
+				_pitch_ff_status.q_sp_used = body_rates_setpoint(1);
+				_pitch_ff_status.coeff_cos_1f = pff_result.coeff_cos_1f;
+				_pitch_ff_status.coeff_sin_1f = pff_result.coeff_sin_1f;
+				_pitch_ff_status.coeff_cos_2f_internal = pff_result.coeff_cos_2f_internal;
+				_pitch_ff_status.coeff_sin_2f_internal = pff_result.coeff_sin_2f_internal;
+				_pitch_ff_status.baseline = pff_result.baseline;
+				_pitch_ff_status.fade = pff_result.fade;
+				_pitch_ff_status.warm_cycles = pff_result.warm_cycles;
+				_pitch_ff_status.qhat_1f = pff_result.qhat_1f;
+				_pitch_ff_status.qhat_2f_internal = pff_result.qhat_2f_internal;
+				_pitch_ff_status.qhat_1f_reference = pff_result.qhat_1f_reference;
+				_pitch_ff_status.qhat_2f_reference_internal = pff_result.qhat_2f_reference_internal;
+				_pitch_ff_status.qhat_1f_applied = pff_result.qhat_1f_applied;
+				_pitch_ff_status.estimation_error = pff_result.estimation_error;
+				_pitch_ff_status.alpha_effective = pff_result.alpha_effective;
+				_pitch_ff_status.active = pff_result.active;
+				_pitch_ff_status.warmup_complete = pff_result.warmup_complete;
+				_pitch_ff_status.fading = pff_result.fading;
+				_pitch_ff_status.alpha_command = _param_flap_pff_alpha.get();
+				_pitch_ff_status.native_ff_term = scaled_gain_ff(1) * body_rates_setpoint(1);
+				_pitch_ff_status.ff_delta_rate_control = pff_mapping.ff_delta_rate_control;
+				_pitch_ff_status.shaped_ff_term = _pitch_ff_status.native_ff_term + _pitch_ff_status.ff_delta_rate_control;
+				_pitch_ff_status.normalized_correction = pff_mapping.normalized_correction;
+				_pitch_ff_status.shaped_pitch_control = control_u(1);
+				_pitch_ff_status.native_pitch_preclip = _pitch_ff_status.native_pitch_control + trim(1);
+				_pitch_ff_status.shaped_pitch_preclip = control_u(1) + trim(1);
+				_pitch_ff_status.shaped_pitch_final = _vehicle_torque_setpoint.xyz[1];
+				_pitch_ff_status.enabled = pff_input.enable;
+				_pitch_ff_status.armed = pff_input.armed;
+				_pitch_ff_status.phase_valid = pff_input.phase_valid;
+				_pitch_ff_status.phase_fresh = pff_input.phase_fresh;
+				_pitch_ff_status.frequency_valid = std::isfinite(pff_input.flap_frequency_hz) && pff_input.flap_frequency_hz > .5;
+				_pitch_ff_status.fixed_wing_active = pff_input.supported;
+				_pitch_ff_status.mission_active = pff_input.mission;
+				_pitch_ff_status.landed = pff_input.landed;
+				_pitch_ff_status.controller_active = pff_input.controller_active;
+				_pitch_ff_status.reset_reason = static_cast<uint8_t>(pff_result.reset_reason);
+				_pitch_ff_status_pub.publish(_pitch_ff_status);
 				// Restore Native scratch input for existing diagnostics and Roll TBR validity checks.
-				control_u(1) = pff_status.native_pitch_control;
+				control_u(1) = _pitch_ff_status.native_pitch_control;
 // PITCH_FF_SHAPER_END
 				// PITCH_DIAG_BEGIN
-				pitch_diag_inner.pitch_trim = trim(1);
-				pitch_diag_inner.pitch_output_preclip = control_u(1) + trim(1);
-				pitch_diag_inner.pitch_output_final = _vehicle_torque_setpoint.xyz[1];
-				pitch_diag_inner.output_clip = fabsf(pitch_diag_inner.pitch_output_preclip) > 1.f;
-				pitch_diag_inner.timestamp_sample = angular_velocity.timestamp_sample;
-				pitch_diag_inner.inner_update_counter = ++_pitch_diag_inner_update_counter;
-				pitch_diag_inner.timestamp = hrt_absolute_time();
-				_pitch_diag_inner_pub.publish(pitch_diag_inner);
+				_pitch_diag_inner.pitch_trim = trim(1);
+				_pitch_diag_inner.pitch_output_preclip = control_u(1) + trim(1);
+				_pitch_diag_inner.pitch_output_final = _vehicle_torque_setpoint.xyz[1];
+				_pitch_diag_inner.output_clip = fabsf(_pitch_diag_inner.pitch_output_preclip) > 1.f;
+				_pitch_diag_inner.timestamp_sample = angular_velocity.timestamp_sample;
+				_pitch_diag_inner.inner_update_counter = ++_pitch_diag_inner_update_counter;
+				_pitch_diag_inner.timestamp = hrt_absolute_time();
+				_pitch_diag_inner_pub.publish(_pitch_diag_inner);
 				// PITCH_DIAG_END
 
 				/* throttle passed through if it is finite */
@@ -623,14 +623,14 @@ void FixedwingRateControl::Run()
 				const roll_tbr::Config tbr_config{_param_flap_tbr_fc.get(), _param_flap_tbr_k.get(),
 								 _param_flap_tbr_max.get(), _param_flap_tbr_slew.get()};
 				tbr_result = _roll_tbr.update(tbr_config, tbr_input);
-				tbr_status.native_roll_output = control_u(0) + trim(0);
-				tbr_status.native_roll_clipped = _vehicle_torque_setpoint.xyz[0];
+				_roll_tbr_status.native_roll_output = control_u(0) + trim(0);
+				_roll_tbr_status.native_roll_clipped = _vehicle_torque_setpoint.xyz[0];
 
 				if (tbr_result.active && fabsf(tbr_result.output) > 0.f) {
 					_vehicle_torque_setpoint.xyz[0] = math::constrain(control_u(0) + trim(0) + tbr_result.output, -1.f, 1.f);
 				}
 
-				tbr_status.controller_clip = fabsf(tbr_status.native_roll_output + tbr_result.output) > 1.f;
+				_roll_tbr_status.controller_clip = fabsf(_roll_tbr_status.native_roll_output + tbr_result.output) > 1.f;
 // ROLL_TBR_END
 				_vehicle_thrust_setpoint.xyz[0] = PX4_ISFINITE(_rates_sp.thrust_body[0]) ? _rates_sp.thrust_body[0] : 0.0f;
 
@@ -668,35 +668,35 @@ void FixedwingRateControl::Run()
 		// Add feed-forward from roll control output to yaw control output
 // ROLL_TBR_BEGIN
 		if (!_vcontrol_mode.flag_control_rates_enabled) {
-			tbr_status.native_roll_output = _vehicle_torque_setpoint.xyz[0];
-			tbr_status.native_roll_clipped = _vehicle_torque_setpoint.xyz[0];
+			_roll_tbr_status.native_roll_output = _vehicle_torque_setpoint.xyz[0];
+			_roll_tbr_status.native_roll_clipped = _vehicle_torque_setpoint.xyz[0];
 		}
 
-		tbr_status.timestamp = hrt_absolute_time();
-		tbr_status.timestamp_sample = angular_velocity.timestamp_sample;
-		tbr_status.controller_dt = dt;
-		tbr_status.measured_dt = tbr_measured_dt;
-		tbr_status.mission_active = _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION;
-		tbr_status.tbr_enabled = _param_flap_tbr_en.get() == 1;
-		tbr_status.tbr_active = tbr_result.active;
+		_roll_tbr_status.timestamp = hrt_absolute_time();
+		_roll_tbr_status.timestamp_sample = angular_velocity.timestamp_sample;
+		_roll_tbr_status.controller_dt = dt;
+		_roll_tbr_status.measured_dt = tbr_measured_dt;
+		_roll_tbr_status.mission_active = _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION;
+		_roll_tbr_status.tbr_enabled = _param_flap_tbr_en.get() == 1;
+		_roll_tbr_status.tbr_active = tbr_result.active;
 		const roll_tbr::Config tbr_log_config{_param_flap_tbr_fc.get(), _param_flap_tbr_k.get(),
 						    _param_flap_tbr_max.get(), _param_flap_tbr_slew.get()};
-		tbr_status.config_valid = roll_tbr::RollTbr::validConfig(tbr_log_config, dt)
+		_roll_tbr_status.config_valid = roll_tbr::RollTbr::validConfig(tbr_log_config, dt)
 					  && (_param_flap_tbr_en.get() == 0 || _param_flap_tbr_en.get() == 1);
-		tbr_status.reset_reason = static_cast<uint8_t>(tbr_result.reset_reason);
-		tbr_status.p_error_raw = tbr_status.p_sp_used - tbr_status.p_used;
-		tbr_status.p_error_filtered = tbr_result.filtered;
-		tbr_status.tbr_raw = tbr_result.raw;
-		tbr_status.tbr_after_cap = tbr_result.capped;
-		tbr_status.tbr_final = tbr_result.output;
-		tbr_status.cap_active = tbr_result.cap_active;
-		tbr_status.slew_active = tbr_result.slew_active;
-		tbr_status.final_roll_output = _vehicle_torque_setpoint.xyz[0];
-		tbr_status.native_pitch_output = _vehicle_torque_setpoint.xyz[1];
+		_roll_tbr_status.reset_reason = static_cast<uint8_t>(tbr_result.reset_reason);
+		_roll_tbr_status.p_error_raw = _roll_tbr_status.p_sp_used - _roll_tbr_status.p_used;
+		_roll_tbr_status.p_error_filtered = tbr_result.filtered;
+		_roll_tbr_status.tbr_raw = tbr_result.raw;
+		_roll_tbr_status.tbr_after_cap = tbr_result.capped;
+		_roll_tbr_status.tbr_final = tbr_result.output;
+		_roll_tbr_status.cap_active = tbr_result.cap_active;
+		_roll_tbr_status.slew_active = tbr_result.slew_active;
+		_roll_tbr_status.final_roll_output = _vehicle_torque_setpoint.xyz[0];
+		_roll_tbr_status.native_pitch_output = _vehicle_torque_setpoint.xyz[1];
 
-		if (tbr_status.timestamp - _roll_tbr_last_publish >= 10_ms) {
-			_roll_tbr_status_pub.publish(tbr_status);
-			_roll_tbr_last_publish = tbr_status.timestamp;
+		if (_roll_tbr_status.timestamp - _roll_tbr_last_publish >= 10_ms) {
+			_roll_tbr_status_pub.publish(_roll_tbr_status);
+			_roll_tbr_last_publish = _roll_tbr_status.timestamp;
 		}
 // ROLL_TBR_END
 		// This can be used to counteract the adverse yaw effect when rolling the plane
